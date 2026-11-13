@@ -1,0 +1,20 @@
+[package]
+name = "speech"
+version = "0.1.0"
+edition = "2021"
+description = "A speech recognizer built from scratch: no ML frameworks, no DSP crates, only std."
+license = "MIT"
+
+# This section is empty on purpose, and it stays empty for the whole book.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+
+# Numeric tests (FFT, gradient checks) are painfully slow without optimisation.
+[profile.dev]
+opt-level = 1
+
+[profile.test]
+opt-level = 2
