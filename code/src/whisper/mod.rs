@@ -10,7 +10,7 @@
 //! | `json.rs` | a recursive-descent JSON parser |
 //! | `safetensors.rs` | reads the weights file: a JSON header and raw `f32`s |
 //! | `config.rs` | the model's sizes and decoding rules, from two JSON files |
-//! | `audio.rs` | a minimal 16 kHz WAV reader |
+//! | `audio.rs` | any WAV file to 16 kHz mono samples |
 //! | `mel.rs` | Whisper's exact log-mel spectrogram |
 //! | `layers.rs` | linear, convolution, GELU, layer norm, attention |
 //! | `encoder.rs` | spectrogram to audio features |

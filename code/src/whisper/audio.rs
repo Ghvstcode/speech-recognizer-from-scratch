@@ -1,98 +1,95 @@
-//! A minimal WAV reader for the Whisper example.
+//! Getting audio into the shape Whisper wants: 16 kHz, mono, `f32`.
 //!
-//! TODO(integration): replace with crate::wav::Wav::read
+//! Whisper was trained on audio sampled 16,000 times a second and its front
+//! end ([`super::mel`]) is built around that number, so every recording has
+//! to arrive at that rate. Nothing new is needed for it: chapter 1's reader
+//! ([`Wav`]) decodes the file (any of the PCM and float layouts it knows,
+//! any number of channels, mixed down to mono) and the resampler from
+//! [`crate::dsp::resample`] changes the rate if it is not already 16 kHz.
+//! An 8 kHz telephone-quality clip therefore works too; it simply has
+//! nothing above 4 kHz for the model to hear.
 //!
-//! Chapter 1 builds a complete WAV reader (`crate::wav`). This is a
-//! deliberately narrow stand-in that accepts the one layout Whisper wants:
-//! 16 kHz, mono, 16-bit PCM. Anything else is rejected with the `ffmpeg`
-//! command that converts it.
+//! Formats that are not WAV at all (MP3, FLAC, ...) are still out of scope.
+//! Convert those first: `ffmpeg -i in.mp3 out.wav`.
 
+use super::mel::SAMPLE_RATE;
+use crate::dsp::resample::resample;
+use crate::wav::Wav;
 use std::io;
 use std::path::Path;
 
-fn bad(message: String) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
-}
-
-/// Read a 16 kHz mono PCM16 WAV file as samples in `[-1.0, 1.0]`.
+/// Read a WAV file as mono samples in `[-1.0, 1.0]` at 16 kHz, resampling
+/// if the file has another sample rate.
 pub fn read_wav_16k_mono(path: &Path) -> io::Result<Vec<f32>> {
-    let bytes = std::fs::read(path).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
-    parse_wav_16k_mono(&bytes).map_err(|e| {
-        let hint = "convert with: ffmpeg -i in.any -ar 16000 -ac 1 -c:a pcm_s16le out.wav";
-        io::Error::new(e.kind(), format!("{}: {e} ({hint})", path.display()))
-    })
+    Wav::read(path).map(|wav| to_16k(&wav))
 }
 
-/// Parse the bytes of a WAV file. See `read_wav_16k_mono`.
+/// Decode the bytes of a WAV file. See [`read_wav_16k_mono`].
 pub fn parse_wav_16k_mono(bytes: &[u8]) -> io::Result<Vec<f32>> {
-    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return Err(bad("not a RIFF/WAVE file".into()));
-    }
-    let u16_at = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
-    let u32_at = |at: usize| u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+    Wav::from_bytes(bytes).map(|wav| to_16k(&wav))
+}
 
-    // A WAV file is a list of chunks: 4-byte id, 4-byte length, payload.
-    let mut format_ok = false;
-    let mut pos = 12;
-    while pos + 8 <= bytes.len() {
-        let id = &bytes[pos..pos + 4];
-        let size = u32_at(pos + 4) as usize;
-        let body = pos + 8;
-        // Streaming encoders may not know the final size; clamp to the file.
-        let end = body.saturating_add(size).min(bytes.len());
-        if id == b"fmt " {
-            if end - body < 16 {
-                return Err(bad("fmt chunk too short".into()));
-            }
-            let (encoding, channels, rate, bits) = (u16_at(body), u16_at(body + 2), u32_at(body + 4), u16_at(body + 14));
-            if encoding != 1 || channels != 1 || rate != 16_000 || bits != 16 {
-                return Err(bad(format!(
-                    "need 16000 Hz mono 16-bit PCM, found encoding {encoding}, {channels} channel(s), {rate} Hz, {bits} bits"
-                )));
-            }
-            format_ok = true;
-        } else if id == b"data" {
-            if !format_ok {
-                return Err(bad("data chunk before fmt chunk".into()));
-            }
-            let samples = bytes[body..end].as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b) as f32 / 32768.0);
-            return Ok(samples.collect());
-        }
-        pos = end + (size & 1); // chunks are padded to an even length
-    }
-    Err(bad("no data chunk".into()))
+/// The samples of `wav` at 16 kHz: unchanged if it already has that rate,
+/// resampled otherwise.
+pub fn to_16k(wav: &Wav) -> Vec<f32> {
+    resample(&wav.samples, wav.sample_rate, SAMPLE_RATE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn wav(rate: u32, channels: u16, samples: &[i16]) -> Vec<u8> {
-        let mut out = b"RIFF\0\0\0\0WAVE".to_vec();
-        out.extend_from_slice(b"LIST\x03\0\0\0abc\0"); // an odd-sized chunk to skip
-        out.extend_from_slice(b"fmt \x10\0\0\0\x01\0");
-        out.extend_from_slice(&channels.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * 2).to_le_bytes());
-        out.extend_from_slice(&[2, 0, 16, 0]);
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&(samples.len() as u32 * 2).to_le_bytes());
-        for s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
+    /// A WAV file holding a 440 Hz tone of the given length.
+    fn tone(rate: u32, seconds: f32) -> Wav {
+        let n = (rate as f32 * seconds) as usize;
+        Wav::new(rate, (0..n).map(|t| 0.5 * (std::f32::consts::TAU * 440.0 * t as f32 / rate as f32).sin()).collect())
+    }
+
+    #[test]
+    fn sixteen_kilohertz_passes_through_untouched() {
+        let wav = tone(16_000, 0.1);
+        // Writing PCM16 rounds each sample to a multiple of 1/32768.
+        let samples = parse_wav_16k_mono(&wav.to_bytes()).unwrap();
+        assert_eq!(samples.len(), 1600);
+        assert!(samples.iter().zip(&wav.samples).all(|(a, b)| (a - b).abs() < 1.0 / 32768.0));
+    }
+
+    #[test]
+    fn other_rates_are_resampled_to_16k() {
+        for rate in [8_000, 44_100, 48_000] {
+            let samples = parse_wav_16k_mono(&tone(rate, 0.5).to_bytes()).unwrap();
+            assert_eq!(samples.len(), 8000, "half a second from {rate} Hz");
+            // Still the same 440 Hz tone: compare the middle with a tone
+            // generated directly at 16 kHz (the edges ring a little).
+            let direct = tone(16_000, 0.5);
+            let worst = (2000..6000).map(|t| (samples[t] - direct.samples[t]).abs()).fold(0.0, f32::max);
+            assert!(worst < 0.01, "{rate} Hz: off by {worst}");
         }
-        out
     }
 
     #[test]
-    fn reads_samples_and_skips_other_chunks() {
-        let samples = parse_wav_16k_mono(&wav(16_000, 1, &[0, 16384, -32768, 32767])).unwrap();
-        assert_eq!(samples, vec![0.0, 0.5, -1.0, 32767.0 / 32768.0]);
-    }
-
-    #[test]
-    fn rejects_other_formats() {
-        assert!(parse_wav_16k_mono(&wav(8_000, 1, &[0])).is_err());
-        assert!(parse_wav_16k_mono(&wav(16_000, 2, &[0, 0])).is_err());
+    fn stereo_is_mixed_down_and_garbage_is_rejected() {
+        // Two channels, 16 kHz, PCM16: left = 0.5, right = -0.25 for 4 frames.
+        let mut bytes = b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0".to_vec();
+        bytes.extend_from_slice(&16_000u32.to_le_bytes());
+        bytes.extend_from_slice(&64_000u32.to_le_bytes());
+        bytes.extend_from_slice(&[4, 0, 16, 0]);
+        bytes.extend_from_slice(b"data\x10\0\0\0");
+        for _ in 0..4 {
+            bytes.extend_from_slice(&16384i16.to_le_bytes());
+            bytes.extend_from_slice(&(-8192i16).to_le_bytes());
+        }
+        assert_eq!(parse_wav_16k_mono(&bytes).unwrap(), vec![0.125; 4]);
         assert!(parse_wav_16k_mono(b"not a wav file").is_err());
+    }
+
+    #[test]
+    fn reads_from_disk() {
+        let path = std::env::temp_dir().join(format!("speech-whisper-audio-test-{}.wav", std::process::id()));
+        tone(8_000, 0.25).write(&path).unwrap();
+        let samples = read_wav_16k_mono(&path);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(samples.unwrap().len(), 4000);
+        assert!(read_wav_16k_mono(&path).is_err());
     }
 }

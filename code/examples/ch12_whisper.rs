@@ -7,13 +7,15 @@
 //! cargo run --release --example ch12_whisper -- --no-cache audio.wav
 //! ```
 //!
-//! The audio must be 16 kHz, mono, 16-bit PCM:
-//! `ffmpeg -i in.mp3 -ar 16000 -ac 1 -c:a pcm_s16le out.wav`.
+//! Any WAV file our chapter 1 reader understands will do. Whisper wants
+//! 16 kHz mono, so other sample rates are resampled and stereo is mixed
+//! down. For other formats, convert first: `ffmpeg -i in.mp3 out.wav`.
 //! The model files are looked for in `$SPEECH_DATA/whisper-tiny.en`
 //! (`../data/whisper-tiny.en` by default).
 
 use speech::mat::Mat;
 use speech::whisper::transcribe::{Timings, WindowResult};
+use speech::wav::Wav;
 use speech::whisper::{audio, model_dir, DecodeOptions, Whisper};
 use std::path::Path;
 use std::process::ExitCode;
@@ -70,16 +72,21 @@ fn main() -> ExitCode {
     }
 
     for path in &paths {
-        let samples = match audio::read_wav_16k_mono(Path::new(path)) {
-            Ok(samples) => samples,
+        let wav = match Wav::read(Path::new(path)) {
+            Ok(wav) => wav,
             Err(error) => {
                 eprintln!("{error}");
                 return ExitCode::FAILURE;
             }
         };
+        let samples = audio::to_16k(&wav);
         let audio_seconds = samples.len() as f64 / 16_000.0;
         println!();
-        println!("{path}: {audio_seconds:.2} s of audio");
+        if wav.sample_rate == 16_000 {
+            println!("{path}: {audio_seconds:.2} s of audio");
+        } else {
+            println!("{path}: {audio_seconds:.2} s of audio (resampled from {} Hz to 16000 Hz)", wav.sample_rate);
+        }
         if verbose {
             print_statistics(&model, &samples);
         }

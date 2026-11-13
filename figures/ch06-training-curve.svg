@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="498" viewBox="0 0 800 498" role="img">
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<title>Training the digit network: it learns the training speakers perfectly, strangers less well</title>
+<desc>Two line plots against the training epoch. Top: the cross-entropy loss falls towards zero on the training clips and on test clips of the same speakers, but on unseen speakers it stops falling early and stays far higher. Bottom: accuracy reaches 100 percent on training clips and nearly that on test clips of known speakers, and levels off near 80 percent on unseen speakers.</desc>
+<text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">Training the digit network: it learns the training speakers perfectly, strangers less well</text>
+<text x="68" y="59" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.48)">LOSS (CROSS-ENTROPY)</text>
+<text x="601.8" y="60" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="rgba(25,22,21,.70)">test clips, unseen speaker</text>
+<line x1="577.8" y1="56" x2="595.8" y2="56" stroke="#B45309" stroke-width="2" stroke-linecap="round"/>
+<text x="387.6" y="60" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="rgba(25,22,21,.70)">test clips, known speakers</text>
+<line x1="363.6" y1="56" x2="381.6" y2="56" stroke="#047857" stroke-width="2" stroke-linecap="round"/>
+<text x="253.8" y="60" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="rgba(25,22,21,.70)">training clips</text>
+<line x1="229.8" y1="56" x2="247.8" y2="56" stroke="rgba(25,22,21,.48)" stroke-width="2" stroke-linecap="round"/>
+<line x1="68" y1="238" x2="776" y2="238" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="241.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">0.0</text>
+<line x1="68" y1="195.5" x2="776" y2="195.5" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="199" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">0.5</text>
+<line x1="68" y1="153" x2="776" y2="153" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="156.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">1.0</text>
+<line x1="68" y1="110.5" x2="776" y2="110.5" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="114" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">1.5</text>
+<line x1="68" y1="68" x2="776" y2="68" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="71.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">2.0</text>
+<line x1="68" y1="68" x2="68" y2="238" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="68" y1="238" x2="776" y2="238" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="68" y1="238" x2="68" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="155.41" y1="238" x2="155.41" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="242.81" y1="238" x2="242.81" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="330.22" y1="238" x2="330.22" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="417.63" y1="238" x2="417.63" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="505.04" y1="238" x2="505.04" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="592.44" y1="238" x2="592.44" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="679.85" y1="238" x2="679.85" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="767.26" y1="238" x2="767.26" y2="242" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="20" y="153" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)" transform="rotate(-90 20 153)">loss</text>
+<clipPath id="clip0"><rect x="68" y="65" width="711" height="176"/></clipPath>
+<g clip-path="url(#clip0)">
+<polyline points="85.48,174.94 102.96,215.82 120.44,221.45 137.93,224.49 155.41,227.38 172.89,227.67 190.37,229.45 207.85,229.35 225.33,230.52 242.81,231.65 260.3,231.96 277.78,231.88 295.26,232.06 312.74,231.91 330.22,232.75 347.7,233.18 365.19,232.59 382.67,233.62 400.15,233.4 417.63,234.09 435.11,233.36 452.59,233.93 470.07,234.33 487.56,234.19 505.04,234.25 522.52,234 540,235.07 557.48,234.48 574.96,235.23 592.44,234.76 609.93,235.23 627.41,235.54 644.89,234.91 662.37,235.56 679.85,234.82 697.33,235.39 714.81,234.65 732.3,235.22 749.78,235.48 767.26,234.18" fill="none" stroke="rgba(25,22,21,.48)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="85.48,219.61 102.96,231.43 120.44,231.55 137.93,233.91 155.41,233.53 172.89,235.18 190.37,235.84 207.85,236.13 225.33,236.3 242.81,236.35 260.3,236.76 277.78,236.62 295.26,236.52 312.74,236.09 330.22,236.96 347.7,236.85 365.19,237.33 382.67,236.98 400.15,237.12 417.63,237.22 435.11,237.1 452.59,236.84 470.07,235.93 487.56,237.2 505.04,237.2 522.52,237.14 540,237.23 557.48,237.25 574.96,237.27 592.44,237.26 609.93,237.26 627.41,237.27 644.89,237.39 662.37,237.3 679.85,237.34 697.33,237.39 714.81,237.28 732.3,237.34 749.78,237.42 767.26,237.35" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="85.48,177.62 102.96,183.04 120.44,181.03 137.93,190.03 155.41,190.59 172.89,188.28 190.37,187.85 207.85,182.82 225.33,179.18 242.81,185.23 260.3,184.04 277.78,187.32 295.26,187.5 312.74,188.02 330.22,187.24 347.7,186.42 365.19,180.55 382.67,180.23 400.15,180.44 417.63,174.88 435.11,174.98 452.59,173.26 470.07,179.66 487.56,171.96 505.04,174.79 522.52,177.89 540,178.26 557.48,178.3 574.96,177.14 592.44,177.53 609.93,177.94 627.41,177.65 644.89,178.18 662.37,176.94 679.85,177.72 697.33,178.42 714.81,178.03 732.3,178.18 749.78,178.03 767.26,178.48" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<line x1="531.26" y1="68" x2="531.26" y2="238" stroke="rgba(25,22,21,.48)" stroke-width="1" stroke-linecap="round" stroke-dasharray="4 3"/>
+<text x="537.26" y="82" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.70)">LEARNING RATE / 10</text>
+<text x="68" y="267" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.48)">ACCURACY</text>
+<line x1="68" y1="446" x2="776" y2="446" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="449.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">40</text>
+<line x1="68" y1="391.16" x2="776" y2="391.16" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="394.66" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">60</text>
+<line x1="68" y1="336.32" x2="776" y2="336.32" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="339.82" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">80</text>
+<line x1="68" y1="281.48" x2="776" y2="281.48" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="284.98" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">100</text>
+<line x1="68" y1="276" x2="68" y2="446" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="68" y1="446" x2="776" y2="446" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="68" y1="446" x2="68" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="68" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">0</text>
+<line x1="155.41" y1="446" x2="155.41" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="155.41" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">5</text>
+<line x1="242.81" y1="446" x2="242.81" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="242.81" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">10</text>
+<line x1="330.22" y1="446" x2="330.22" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="330.22" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">15</text>
+<line x1="417.63" y1="446" x2="417.63" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="417.63" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">20</text>
+<line x1="505.04" y1="446" x2="505.04" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="505.04" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">25</text>
+<line x1="592.44" y1="446" x2="592.44" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="592.44" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">30</text>
+<line x1="679.85" y1="446" x2="679.85" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="679.85" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">35</text>
+<line x1="767.26" y1="446" x2="767.26" y2="450" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="767.26" y="462" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.48)">40</text>
+<text x="422" y="482" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">epoch</text>
+<text x="20" y="361" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)" transform="rotate(-90 20 361)">accuracy (%)</text>
+<clipPath id="clip1"><rect x="68" y="273" width="711" height="176"/></clipPath>
+<g clip-path="url(#clip1)">
+<polyline points="85.48,296.21 102.96,287.17 120.44,287.48 137.93,285.14 155.41,285.95 172.89,283.92 190.37,283.31 207.85,282.6 225.33,282.7 242.81,282.7 260.3,282.19 277.78,282.3 295.26,282.09 312.74,282.09 330.22,281.69 347.7,281.79 365.19,281.79 382.67,281.79 400.15,281.69 417.63,281.79 435.11,281.69 452.59,281.79 470.07,282.19 487.56,281.69 505.04,281.59 522.52,281.59 540,281.59 557.48,281.59 574.96,281.59 592.44,281.59 609.93,281.59 627.41,281.59 644.89,281.59 662.37,281.59 679.85,281.59 697.33,281.59 714.81,281.59 732.3,281.59 749.78,281.59 767.26,281.59" fill="none" stroke="rgba(25,22,21,.48)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="85.48,299.76 102.96,285.14 120.44,286.97 137.93,286.05 155.41,285.14 172.89,285.14 190.37,283.31 207.85,283.31 225.33,283.31 242.81,284.23 260.3,282.4 277.78,283.31 295.26,283.31 312.74,284.23 330.22,282.4 347.7,282.4 365.19,281.48 382.67,282.4 400.15,282.4 417.63,281.48 435.11,282.4 452.59,282.4 470.07,283.31 487.56,282.4 505.04,282.4 522.52,282.4 540,282.4 557.48,282.4 574.96,282.4 592.44,282.4 609.93,282.4 627.41,282.4 644.89,282.4 662.37,282.4 679.85,282.4 697.33,282.4 714.81,282.4 732.3,282.4 749.78,282.4 767.26,282.4" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="85.48,349.76 102.96,346.1 120.44,342.54 137.93,330.2 155.41,333.03 172.89,332.3 190.37,332.67 207.85,339.34 225.33,337.97 242.81,333.22 260.3,331.94 277.78,330.66 295.26,329.92 312.74,330.56 330.22,329.28 347.7,330.75 365.19,334.49 382.67,335.87 400.15,334.68 417.63,337.24 435.11,335.68 452.59,336.23 470.07,332.03 487.56,335.96 505.04,335.23 522.52,334.49 540,334.4 557.48,334.68 574.96,335.04 592.44,335.23 609.93,334.31 627.41,334.95 644.89,334.04 662.37,334.68 679.85,334.22 697.33,333.95 714.81,334.95 732.3,333.95 749.78,334.59 767.26,334.31" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<line x1="531.26" y1="276" x2="531.26" y2="446" stroke="rgba(25,22,21,.48)" stroke-width="1" stroke-linecap="round" stroke-dasharray="4 3"/>
+</svg>
