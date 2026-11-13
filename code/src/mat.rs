@@ -173,9 +173,9 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     // associative, so the compiler will not reorder a single sum into SIMD
     // on its own. Splitting it by hand gives it permission.
     let mut acc = [0.0f32; 4];
-    let (a4, b4) = (a.chunks_exact(4), b.chunks_exact(4));
-    let (ra, rb) = (a4.remainder(), b4.remainder());
-    for (x, y) in a4.zip(b4) {
+    let (a4, ra) = a.as_chunks::<4>();
+    let (b4, rb) = b.as_chunks::<4>();
+    for (x, y) in a4.iter().zip(b4) {
         for i in 0..4 {
             acc[i] += x[i] * y[i];
         }
