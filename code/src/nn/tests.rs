@@ -307,7 +307,7 @@ fn batch_skips_non_finite_losses() {
 #[test]
 fn conv_gru_model_overfits_a_handful_of_sequences() {
     // The end-to-end proof: forward, loss, backward, threads, clipping and
-    // Adam together must be able to memorise seven random clips.
+    // Adam together must be able to memorize seven random clips.
     let (mut model, inputs, targets) = clip_task(150);
     let batch: Vec<(&Mat, &[usize])> = inputs.iter().zip(&targets).map(|(x, t)| (x, &t[..])).collect();
     let mut adam = Adam::new(0.02);

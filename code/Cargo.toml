@@ -12,7 +12,7 @@ license = "MIT"
 opt-level = 3
 codegen-units = 1
 
-# Numeric tests (FFT, gradient checks) are painfully slow without optimisation.
+# Numeric tests (FFT, gradient checks) are painfully slow without optimization.
 [profile.dev]
 opt-level = 1
 

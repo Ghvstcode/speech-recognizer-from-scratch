@@ -8,12 +8,12 @@ These are the interactive companions to the chapters of *Building a Speech Recog
 |---|---|---|
 | `index.html` | all | done |
 | `sampling.html` | 1 | done |
-| `windowing.html` | 2-3 | to build |
-| `dft.html` | 3 | to build |
-| `mel.html` | 4 | to build |
-| `dtw.html` | 5 | to build |
-| `ctc.html` | 8 | to build |
-| `beam.html` | 10 | to build |
+| `windowing.html` | 2-3 | done |
+| `dft.html` | 3 | done |
+| `mel.html` | 4 | done |
+| `dtw.html` | 5 | done |
+| `ctc.html` | 8 | done |
+| `beam.html` | 10 | done |
 
 When your page exists, change its card in `index.html` from `data-status="coming"` to `data-status="ready"`. The card already links to your file name.
 

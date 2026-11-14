@@ -36,17 +36,17 @@ pub fn power_spectrogram(samples: &[f32], window: &[f32], hop_len: usize, n_fft:
 }
 
 /// The stretch of time, in seconds, that the frames of a spectrogram cover
-/// when each frame is drawn as a cell one hop wide, centred on the middle of
+/// when each frame is drawn as a cell one hop wide, centered on the middle of
 /// the frame. Returns `(left edge of the first cell, right edge of the last)`.
 ///
 /// Use it to label the time axis of a plot. The first cell does not start at
-/// zero: frame 0 covers `0 .. frame_len` samples, so its centre is half a
+/// zero: frame 0 covers `0 .. frame_len` samples, so its center is half a
 /// frame in.
 pub fn time_extent(n_frames: usize, frame_len: usize, hop_len: usize, sample_rate: u32) -> (f32, f32) {
-    let first_centre = frame_len as f32 / 2.0;
+    let first_center = frame_len as f32 / 2.0;
     let half_hop = hop_len as f32 / 2.0;
-    let start = first_centre - half_hop;
-    let end = first_centre + n_frames.saturating_sub(1) as f32 * hop_len as f32 + half_hop;
+    let start = first_center - half_hop;
+    let end = first_center + n_frames.saturating_sub(1) as f32 * hop_len as f32 + half_hop;
     (start / sample_rate as f32, end / sample_rate as f32)
 }
 
@@ -102,9 +102,9 @@ mod tests {
     }
 
     #[test]
-    fn time_extent_centres_cells_on_frames() {
+    fn time_extent_centers_cells_on_frames() {
         // 98 frames of 400 samples every 160 at 16 kHz: the first frame is
-        // centred on sample 200, the last on 200 + 97 * 160 = 15720.
+        // centered on sample 200, the last on 200 + 97 * 160 = 15720.
         let (start, end) = time_extent(98, 400, 160, 16000);
         assert!((start - 120.0 / 16000.0).abs() < 1e-7);
         assert!((end - 15800.0 / 16000.0).abs() < 1e-7);

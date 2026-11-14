@@ -11,7 +11,7 @@
 use crate::mat::Mat;
 use crate::rng::Rng;
 
-/// Xavier (Glorot) initialisation: uniform in `[-a, a]` with
+/// Xavier (Glorot) initialization: uniform in `[-a, a]` with
 /// `a = sqrt(6 / (fan_in + fan_out))`.
 ///
 /// `fan_in` is how many inputs feed one output, `fan_out` how many outputs one
@@ -25,10 +25,10 @@ pub fn xavier_uniform(rows: usize, cols: usize, fan_in: usize, fan_out: usize, r
     Mat::from_fn(rows, cols, |_, _| rng.range(-limit, limit))
 }
 
-/// He (Kaiming) initialisation: uniform in `[-a, a]` with `a = sqrt(6 / fan_in)`.
+/// He (Kaiming) initialization: uniform in `[-a, a]` with `a = sqrt(6 / fan_in)`.
 ///
 /// A ReLU throws away the negative half of its input, which halves the
-/// signal's variance. He initialisation doubles the weights' variance
+/// signal's variance. He initialization doubles the weights' variance
 /// (`2 / fan_in`) to make up for it. Use it for layers followed by a ReLU.
 pub fn he_uniform(rows: usize, cols: usize, fan_in: usize, rng: &mut Rng) -> Mat {
     let limit = (6.0 / fan_in as f32).sqrt();

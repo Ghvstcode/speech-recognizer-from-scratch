@@ -10,7 +10,7 @@
 //! 1. Add one extra class, the **blank** (class 0 here), meaning "nothing new
 //!    to report in this frame".
 //! 2. Call a sequence of T classes, one per frame, an **alignment** (or path).
-//!    An alignment *collapses* to a labelling by first merging runs of the
+//!    An alignment *collapses* to a labeling by first merging runs of the
 //!    same class and then deleting blanks: `c c _ a a a _ t` and
 //!    `_ c a _ _ t t _` both collapse to `c a t`. See [`collapse`].
 //! 3. The probability of an alignment is the product of its per-frame
@@ -82,7 +82,7 @@ pub fn log_add(a: f64, b: f64) -> f64 {
 }
 
 /// Merge repeated classes, then drop blanks: the map from an alignment (one
-/// class per frame) to the labelling it stands for.
+/// class per frame) to the labeling it stands for.
 ///
 /// `[1, 1, 0, 1, 2, 2, 0]` becomes `[1, 1, 2]`: the two leading 1s merge, the
 /// blank separates them from the next 1, and the 2s merge.
@@ -434,7 +434,7 @@ pub fn ctc_loss_f64(logits: &Mat, target: &[usize]) -> f64 {
 /// logit.
 ///
 /// **Impossible targets.** A target of length L needs at least L frames, plus
-/// one more for every pair of equal neighbouring labels (they need a blank
+/// one more for every pair of equal neighboring labels (they need a blank
 /// between them). If T is too small no alignment exists, `p(target) = 0`, and
 /// the loss is `+inf`. In that case the gradient is all zeros; a training
 /// loop should check `loss.is_finite()` and skip the example.
@@ -609,9 +609,10 @@ pub fn for_each_alignment(frames: usize, classes: usize, mut visit: impl FnMut(&
     }
 }
 
-/// The probability of one alignment: the product over frames of the
-/// probability of the class it picks in that frame (computed as the exp of a
-/// sum of logs).
+/// The log-probability of one alignment: the sum over frames of the
+/// log-probability of the class it picks in that frame. (The probability
+/// itself is the product of the per-frame probabilities; take `exp` of the
+/// result to get it.)
 pub fn alignment_log_prob(log_probs: &Mat, path: &[usize]) -> f64 {
     assert_eq!(path.len(), log_probs.rows, "an alignment has one class per frame");
     path.iter().enumerate().map(|(t, &class)| log_probs[(t, class)] as f64).sum()
@@ -733,18 +734,18 @@ mod tests {
         }
     }
 
-    /// Summed over every possible labelling, the probabilities must come to 1:
-    /// each alignment collapses to exactly one labelling.
+    /// Summed over every possible labeling, the probabilities must come to 1:
+    /// each alignment collapses to exactly one labeling.
     #[test]
-    fn probabilities_of_all_labellings_sum_to_one() {
+    fn probabilities_of_all_labelings_sum_to_one() {
         let mut rng = Rng::new(22);
         let logits = random_logits(&mut rng, 4, 3, 1.0);
         let lp = log_softmax(&logits);
-        let mut labellings = std::collections::BTreeSet::new();
+        let mut labelings = std::collections::BTreeSet::new();
         for_each_alignment(4, 3, |path| {
-            labellings.insert(collapse(path));
+            labelings.insert(collapse(path));
         });
-        let total: f64 = labellings.iter().map(|l| (log_likelihood(&lp, l) as f64).exp()).sum();
+        let total: f64 = labelings.iter().map(|l| (log_likelihood(&lp, l) as f64).exp()).sum();
         assert!((total - 1.0).abs() < 1e-5, "{total}");
     }
 

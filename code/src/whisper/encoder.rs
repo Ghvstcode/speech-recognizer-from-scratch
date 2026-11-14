@@ -10,7 +10,7 @@
 //!   layer norm                   1500 x 384    "what was said, where"
 //! ```
 //!
-//! The two convolutions look at a few neighbouring frames and halve the
+//! The two convolutions look at a few neighboring frames and halve the
 //! frame rate; chapter 7's classifier started the same way. The transformer
 //! blocks then let every 20 ms slice consult every other slice of the 30 s
 //! window, which is how the model can use context from seconds away.
@@ -26,16 +26,16 @@ use std::io;
 /// Both halves have the same shape: `x = x + f(norm(x))`. The `x +` is a
 /// *residual connection*: each sub-layer only computes a correction that is
 /// added to its input, so information (and, during training, gradients) can
-/// flow straight through a deep stack. Normalising *before* the sub-layer
+/// flow straight through a deep stack. Normalizing *before* the sub-layer
 /// rather than after it is called the "pre-norm" arrangement. The original
 /// transformer paper did it the other way round; Whisper, like most models
 /// since, uses pre-norm, and the weights only make sense in that order.
 pub struct EncoderBlock {
-    /// Normalisation before self-attention (`self_attn_layer_norm`).
+    /// Normalization before self-attention (`self_attn_layer_norm`).
     pub attention_norm: LayerNorm,
     /// Each audio position gathers context from all the others (`self_attn`).
     pub attention: MultiHeadAttention,
-    /// Normalisation before the MLP (`final_layer_norm`).
+    /// Normalization before the MLP (`final_layer_norm`).
     pub mlp_norm: LayerNorm,
     /// The per-position network (`fc1`, `fc2`).
     pub mlp: Mlp,
@@ -76,7 +76,7 @@ pub struct Encoder {
     pub positions: Mat,
     /// The transformer blocks.
     pub blocks: Vec<EncoderBlock>,
-    /// Normalisation after the last block (`layer_norm`).
+    /// Normalization after the last block (`layer_norm`).
     pub final_norm: LayerNorm,
 }
 

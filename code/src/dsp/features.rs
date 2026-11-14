@@ -82,7 +82,8 @@ impl FeatureConfig {
 }
 
 /// A feature extractor with everything that can be computed ahead of time
-/// already computed: the window, the mel filterbank and the FFT's table.
+/// already computed: the window, the mel filterbank, the DCT's cosines and
+/// the FFT's table.
 ///
 /// Build one and reuse it for every clip. It is never modified after
 /// construction, so many threads can share one `&FeatureExtractor`.
@@ -93,6 +94,10 @@ pub struct FeatureExtractor {
     fft: Fft,
     /// `n_mels x (n_fft/2 + 1)`, see [`mel_filterbank`].
     filterbank: Mat,
+    /// The full `n_mels x n_mels` DCT, see [`dct_matrix`]. Row `k` does not
+    /// depend on how many coefficients are kept, so [`mfcc`](Self::mfcc)
+    /// with any `n_coeffs` just uses the first `n_coeffs` rows.
+    dct: Mat,
 }
 
 impl FeatureExtractor {
@@ -103,6 +108,7 @@ impl FeatureExtractor {
             window: hann(config.frame_len()),
             fft: Fft::new(n_fft),
             filterbank: mel_filterbank(config.n_mels, n_fft, config.sample_rate, config.fmin, config.fmax),
+            dct: dct_matrix(config.n_mels, config.n_mels),
             config: config.clone(),
         }
     }
@@ -153,7 +159,12 @@ impl FeatureExtractor {
 
     /// MFCCs: frames x `n_coeffs`. See the free function [`mfcc`].
     pub fn mfcc(&self, samples: &[f32], n_coeffs: usize) -> Mat {
-        self.log_mel(samples).matmul_t(&dct_matrix(n_coeffs, self.config.n_mels))
+        let n_mels = self.config.n_mels;
+        assert!(n_coeffs <= n_mels, "cannot keep {n_coeffs} DCT coefficients of only {n_mels} mel bands");
+        // The first `n_coeffs` rows of the cached DCT: a copy of a few
+        // hundred numbers, with no cosines recomputed.
+        let dct = Mat::from_vec(n_coeffs, n_mels, self.dct.data[..n_coeffs * n_mels].to_vec());
+        self.log_mel(samples).matmul_t(&dct)
     }
 }
 
@@ -180,7 +191,7 @@ pub fn log_mel(samples: &[f32], cfg: &FeatureConfig) -> Mat {
 /// broad humps that tell vowels apart, and the ones we throw away hold the
 /// fine ripple caused by the pitch of the voice, which we do not want. The
 /// coefficients are also far less correlated with one another than
-/// neighbouring mel bands are, which simple models (like the template
+/// neighboring mel bands are, which simple models (like the template
 /// matcher of chapter 5) appreciate.
 pub fn mfcc(samples: &[f32], cfg: &FeatureConfig, n_coeffs: usize) -> Mat {
     FeatureExtractor::new(cfg).mfcc(samples, n_coeffs)
@@ -336,8 +347,8 @@ mod tests {
     fn mel_energy_of_a_tone_matches_the_hand_calculation() {
         // A sine of amplitude a through a Hann window of length N peaks at
         // |X| = a * N / 4 (N/2 for the sine, times the window's gain of 1/2),
-        // and the window spreads it over three bins: the centre one and its
-        // two neighbours at half the height. 1000 Hz is exactly bin 32 of 512
+        // and the window spreads it over three bins: the center one and its
+        // two neighbors at half the height. 1000 Hz is exactly bin 32 of 512
         // only if the frame is 512 long, so use a 32 ms frame.
         let cfg = FeatureConfig { preemphasis: 0.0, frame_ms: 32.0, ..FeatureConfig::new(16000) };
         assert_eq!((cfg.frame_len(), cfg.n_fft()), (512, 512));
@@ -444,7 +455,7 @@ mod tests {
         // At the edge, missing frames repeat the first frame:
         // t = 0: (1*(3-0) + 2*(6-0)) / 10 = 1.5
         assert!((d[(0, 0)] - 1.5).abs() < 1e-5);
-        // Width 1 is half the difference of the neighbours.
+        // Width 1 is half the difference of the neighbors.
         let d1 = deltas(&Mat::from_vec(3, 1, vec![1.0, 4.0, 9.0]), 1);
         assert_eq!(d1.data, vec![1.5, 4.0, 2.5]);
     }

@@ -76,8 +76,9 @@ pub fn add_outer(a: &[f32], b: &[f32], out: &mut Mat) {
 
 /// The matrix product `a * b`, one row at a time through [`add_vec_mat`].
 ///
-/// Same result as `Mat::matmul`; it exists so that the layers' big products
-/// get the four-rows-at-a-time loop too.
+/// Same result as [`Mat::matmul`], which is the version to read first if
+/// you want to see how a matrix product works; this one exists so that the
+/// layers' big products get the four-rows-at-a-time loop too.
 pub fn matmul(a: &Mat, b: &Mat) -> Mat {
     assert_eq!(a.cols, b.rows, "matmul: {}x{} * {}x{}", a.rows, a.cols, b.rows, b.cols);
     let mut out = Mat::zeros(a.rows, b.cols);

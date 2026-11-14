@@ -94,7 +94,7 @@ fn main() -> std::io::Result<()> {
         .y_range(-0.1, 1.1)
         .height(70.0);
     Figure::new("Listening live: from an endless stream to utterances to text")
-        .desc("Top: the level in decibels of a 17 second recording containing four utterances separated by pauses, with the four detected segments shaded and labelled with the recognized words. Bottom: the endpoint detector's speech/silence state over time.")
+        .desc("Top: the level in decibels of a 12 second recording containing four utterances separated by pauses, with the four detected segments shaded and labeled with the recognized words. Bottom: the endpoint detector's speech/silence state over time.")
         .panel(level_plot)
         .panel(state_plot)
         .share_x()

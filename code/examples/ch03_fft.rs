@@ -1,7 +1,8 @@
 //! Chapter 3: the Fourier transform, by hand.
 //!
-//! Checks that the slow DFT and the fast FFT agree and times them against
-//! each other, takes the spectrum of a signal whose contents we know, shows
+//! Runs the slow DFT on the two eight-sample frames the chapter works out
+//! by hand, checks that the slow DFT and the fast FFT agree and times them
+//! against each other, takes the spectrum of a signal whose contents we know, shows
 //! what a window does to spectral leakage, and draws the spectrogram of a
 //! spoken word.
 //!
@@ -59,6 +60,7 @@ fn main() -> ExitCode {
 }
 
 fn run(clip: &str, figures_dir: Option<&str>) -> io::Result<()> {
+    by_hand();
     benchmark();
     two_tones(figures_dir)?;
     leakage(figures_dir)?;
@@ -72,9 +74,36 @@ fn sine(frequency: f32, amplitude: f32, sample_rate: u32, len: usize) -> Vec<f32
     (0..len).map(|t| amplitude * (2.0 * PI * frequency as f64 * t as f64 / sample_rate as f64).sin() as f32).collect()
 }
 
+/// The chapter's hand-worked example: the naive DFT of one cycle of a cosine
+/// and one cycle of a sine, eight samples each. Every bin is printed with
+/// its length. The cosine lands in the real part of bins 1 and 7, the sine
+/// in the imaginary part (negated in bin 1), and both have length 8 / 2 = 4.
+fn by_hand() {
+    let n = 8;
+    let cosine: Vec<f32> = (0..n).map(|t| (2.0 * PI * t as f64 / n as f64).cos() as f32).collect();
+    let sine: Vec<f32> = (0..n).map(|t| (2.0 * PI * t as f64 / n as f64).sin() as f32).collect();
+    for (name, frame) in [("cosine", cosine), ("sine", sine)] {
+        println!("{name}, one cycle in {n} samples:");
+        let input: Vec<Complex> = frame.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        for (k, bin) in dft(&input).iter().enumerate() {
+            println!("  X[{k}] = {:6.3} {:+.3}i    |X[{k}]| = {:.3}", bin.re, bin.im, bin.abs());
+        }
+    }
+    println!();
+}
+
 /// DFT against FFT on random input: do they agree, and how long do they take?
+///
+/// The "n^2 / (n log2 n)" column is the textbook ratio, and it understates
+/// the gap we should expect. The FFT does `(n/2) * log2(n)` butterflies, not
+/// `n log2 n`, so counted in complex multiplications the ratio is twice the
+/// printed one. On top of that the naive `dft` computes a sine and a cosine
+/// for every product where the plan looks them up in a table. The measured
+/// speed-up is therefore many times the printed ratio; only the way both
+/// columns grow with `n` should be compared.
 fn benchmark() {
-    println!("DFT (n^2) against FFT (n log n) on random complex input:\n");
+    println!("DFT (n^2) against FFT (n log n) on random complex input:");
+    println!("(the n^2 / (n log2 n) column is the textbook ratio; it understates the gap to expect by at least a factor of 2)\n");
     println!("     n      naive DFT            FFT    speed-up    n^2 / (n log2 n)    largest difference");
     let mut rng = Rng::new(3);
     for n in [256usize, 512, 1024, 2048, 4096] {

@@ -15,7 +15,7 @@
 //! characters as tokens it is the character error rate (CER).
 //!
 //! If you have read the dynamic time warping chapter this will feel familiar:
-//! it is the same grid, the same three neighbours and the same "cheapest way
+//! it is the same grid, the same three neighbors and the same "cheapest way
 //! to get here" recurrence. DTW aligns two sequences of feature frames and
 //! pays a distance per cell; edit distance aligns two sequences of symbols
 //! and pays 0 or 1 per step.
@@ -78,7 +78,7 @@ pub enum EditOp {
 ///
 /// This time we need the whole table, because after filling it we walk back
 /// from the bottom-right corner to the top-left one asking at every cell
-/// "which neighbour did my value come from?".
+/// "which neighbor did my value come from?".
 ///
 /// There is usually more than one cheapest alignment, and some read better
 /// than others. "turn the lights off" against "turn light off now" is three

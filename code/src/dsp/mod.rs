@@ -16,4 +16,4 @@ pub mod spectrogram; // the short-time Fourier transform as a picture      (chap
 pub mod mel; // the mel scale and its triangular filterbank                (chapter 4)
 pub mod features; // log-mel, MFCC, deltas, normalization                  (chapter 4)
 
-pub mod resample; // changing the sample rate (used from chapter 11 on)
+pub mod resample; // changing the sample rate (used from chapter 5 on, whenever a clip's rate differs from the model's)

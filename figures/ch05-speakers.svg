@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="456" viewBox="0 0 800 456" role="img">
 <rect width="100%" height="100%" fill="#F5F3EF"/>
 <title>A voice it knows, and a voice it has never heard</title>
-<desc>Two bar charts of DTW digit recognition accuracy for each of six speakers. With 45 templates per digit from the speaker's own voice every speaker is recognised almost perfectly. With templates from the other five speakers only, accuracy drops for everyone and falls to nearly half for two of the speakers.</desc>
+<desc>Two bar charts of DTW digit recognition accuracy for each of six speakers. With 45 templates per digit from the speaker's own voice every speaker is recognized almost perfectly. With templates from the other five speakers only, accuracy drops for everyone and falls to nearly half for two of the speakers.</desc>
 <text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">A voice it knows, and a voice it has never heard</text>
 <text x="68" y="59" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.48)">TEMPLATES FROM THE SPEAKER'S OWN VOICE (45 PER DIGIT, TEST TAKES 0-4)</text>
 <line x1="68" y1="218" x2="776" y2="218" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>

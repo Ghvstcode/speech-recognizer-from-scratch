@@ -142,7 +142,7 @@ fn band_columns(i: usize, m: usize, radius: usize) -> std::ops::Range<usize> {
     i.saturating_sub(radius)..(i + radius + 1).min(m)
 }
 
-/// The smallest of the three neighbours a path can arrive from.
+/// The smallest of the three neighbors a path can arrive from.
 fn min3(diagonal: f32, up: f32, left: f32) -> f32 {
     diagonal.min(up).min(left)
 }
@@ -157,7 +157,7 @@ fn accumulate(a: &Mat, b: &Mat, band: Option<usize>) -> Mat {
         for j in band_columns(i, m, radius) {
             let local = frame_distance(a.row(i), b.row(j));
             // The cheapest way to arrive at (i, j). On the top row and left
-            // column some neighbours do not exist; a missing neighbour is
+            // column some neighbors do not exist; a missing neighbor is
             // "infinitely expensive", so `min` never picks it.
             let best_before = if i == 0 && j == 0 {
                 0.0 // the start cell: nothing came before
@@ -176,8 +176,8 @@ fn accumulate(a: &Mat, b: &Mat, band: Option<usize>) -> Mat {
 /// Recover the cheapest path from a filled accumulated-cost grid.
 ///
 /// We start at the end cell and repeatedly step to whichever of the three
-/// neighbours (diagonal, up, left) has the smallest accumulated cost: that is
-/// the neighbour the recurrence took its minimum from. On a tie we prefer the
+/// neighbors (diagonal, up, left) has the smallest accumulated cost: that is
+/// the neighbor the recurrence took its minimum from. On a tie we prefer the
 /// diagonal, the step that advances both sequences.
 fn backtrace(acc: &Mat) -> Vec<(usize, usize)> {
     let (mut i, mut j) = (acc.rows - 1, acc.cols - 1);
@@ -250,7 +250,7 @@ fn check_inputs(a: &Mat, b: &Mat) {
     assert_eq!(a.cols, b.cols, "dtw: frames have {} and {} features", a.cols, b.cols);
 }
 
-/// One labelled example: the features of a recording we know the answer for.
+/// One labeled example: the features of a recording we know the answer for.
 #[derive(Clone, Debug)]
 pub struct Template {
     /// What was said, as a class id (for the digits dataset, the digit).
@@ -259,7 +259,7 @@ pub struct Template {
     pub features: Mat,
 }
 
-/// A recognizer with no training at all: remember labelled recordings, and
+/// A recognizer with no training at all: remember labeled recordings, and
 /// classify a new one by finding the stored recordings it is closest to under
 /// DTW.
 #[derive(Clone, Debug, Default)]
@@ -281,7 +281,7 @@ impl TemplateBank {
         TemplateBank { templates: Vec::new(), band: Some(band) }
     }
 
-    /// Remember one labelled recording.
+    /// Remember one labeled recording.
     pub fn add(&mut self, label: usize, features: Mat) {
         assert!(features.rows > 0, "a template needs at least one frame");
         self.templates.push(Template { label, features });
@@ -298,13 +298,23 @@ impl TemplateBank {
     }
 
     /// The `k` templates closest to `query`, nearest first, as
-    /// `(label, normalized DTW cost)`.
-    pub fn nearest(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
+    /// `(index into self.templates, normalized DTW cost)`.
+    ///
+    /// Use this instead of [`nearest`](Self::nearest) when you want to know
+    /// *which* recording won, not only what it was labeled: the index is the
+    /// order in which the templates were added.
+    pub fn nearest_templates(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
         let mut scored: Vec<(usize, f32)> =
-            self.templates.iter().map(|t| (t.label, dtw_distance(query, &t.features, self.band))).collect();
+            self.templates.iter().enumerate().map(|(index, t)| (index, dtw_distance(query, &t.features, self.band))).collect();
         scored.sort_by(|x, y| x.1.total_cmp(&y.1));
         scored.truncate(k);
         scored
+    }
+
+    /// The `k` templates closest to `query`, nearest first, as
+    /// `(label, normalized DTW cost)`.
+    pub fn nearest(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
+        self.nearest_templates(query, k).into_iter().map(|(index, cost)| (self.templates[index].label, cost)).collect()
     }
 
     /// The label of the single closest template, and its normalized cost.
@@ -317,24 +327,24 @@ impl TemplateBank {
     /// normalized cost of that label's closest template.
     ///
     /// One odd template sitting close to the query can fool a 1-nearest
-    /// classifier; asking several neighbours and taking the majority is more
+    /// classifier; asking several neighbors and taking the majority is more
     /// robust. If two labels get the same number of votes, the one whose
     /// closest template is nearer wins.
     pub fn classify_knn(&self, query: &Mat, k: usize) -> (usize, f32) {
         assert!(!self.is_empty(), "cannot classify with an empty template bank");
         assert!(k > 0, "k must be at least 1");
-        let neighbours = self.nearest(query, k);
-        // `neighbours` is sorted nearest first, so the first time we meet a
+        let neighbors = self.nearest(query, k);
+        // `neighbors` is sorted nearest first, so the first time we meet a
         // label is that label's closest template. Requiring strictly more
         // votes to take the lead means earlier (nearer) labels win ties.
-        let mut winner = neighbours[0];
+        let mut winner = neighbors[0];
         let mut winner_votes = 0;
-        for (index, &(label, cost)) in neighbours.iter().enumerate() {
-            let first_time_seen = neighbours[..index].iter().all(|&(l, _)| l != label);
+        for (index, &(label, cost)) in neighbors.iter().enumerate() {
+            let first_time_seen = neighbors[..index].iter().all(|&(l, _)| l != label);
             if !first_time_seen {
                 continue;
             }
-            let votes = neighbours.iter().filter(|&&(l, _)| l == label).count();
+            let votes = neighbors.iter().filter(|&&(l, _)| l == label).count();
             if votes > winner_votes {
                 winner = (label, cost);
                 winner_votes = votes;
@@ -605,6 +615,12 @@ mod tests {
         bank.add(7, seq(&[5.0, 5.0]));
         let query = seq(&[1.0, 1.0]);
         assert_eq!(bank.classify(&query), (7, 0.0));
+        // Which templates were they? Indices are in the order of `add`; the
+        // costs are 0, 0.2/4 and 0.4/4.
+        let by_index = bank.nearest_templates(&query, 3);
+        assert_eq!(by_index.iter().map(|&(index, _)| index).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert!(close(by_index[1].1, 0.05) && close(by_index[2].1, 0.1));
+        assert_eq!(bank.nearest(&query, 3).iter().map(|&(label, _)| label).collect::<Vec<_>>(), vec![7, 3, 3]);
         let (label, cost) = bank.classify_knn(&query, 3);
         assert_eq!(label, 3);
         // Cost of label 3's closest template: (0.1 + 0.1) / (2 + 2).

@@ -61,7 +61,7 @@ impl Default for DecodeOptions {
     }
 }
 
-/// What the decoder was thinking at one step: its favourite next tokens.
+/// What the decoder was thinking at one step: its favorite next tokens.
 #[derive(Clone, Debug)]
 pub struct StepTrace {
     /// Position in the token sequence that this step filled.

@@ -26,7 +26,7 @@ use std::f64::consts::PI;
 /// More is more accurate (a sharper cutoff) and slower.
 const ZERO_CROSSINGS: usize = 16;
 
-/// The kernel is tabulated at this many points between two neighbouring zero
+/// The kernel is tabulated at this many points between two neighboring zero
 /// crossings and read off by linear interpolation.
 const TABLE_RESOLUTION: usize = 512;
 
@@ -86,7 +86,7 @@ struct SincKernel {
 impl SincKernel {
     fn new() -> Self {
         let len = ZERO_CROSSINGS * TABLE_RESOLUTION;
-        // The right half of a symmetric Hann window: 1 at the centre, 0 at the edge.
+        // The right half of a symmetric Hann window: 1 at the center, 0 at the edge.
         let window = hann_symmetric(2 * len + 1);
         let mut table: Vec<f64> = (0..=len)
             .map(|i| {
@@ -99,7 +99,7 @@ impl SincKernel {
         SincKernel { table }
     }
 
-    /// The kernel at `x` zero crossings from its centre.
+    /// The kernel at `x` zero crossings from its center.
     fn at(&self, x: f64) -> f64 {
         let scaled = x.abs() * TABLE_RESOLUTION as f64;
         let index = scaled as usize;

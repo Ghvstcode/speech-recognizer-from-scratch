@@ -62,7 +62,7 @@ pub fn gelu_in_place(x: &mut Mat) {
     });
 }
 
-/// Turn a row of scores into probabilities: exponentiate and normalise.
+/// Turn a row of scores into probabilities: exponentiate and normalize.
 ///
 /// Subtracting the largest score first changes nothing mathematically (it
 /// cancels in the ratio) but keeps `exp` from overflowing. A score of
@@ -134,7 +134,7 @@ impl Linear {
 }
 
 /// A convolution over time: every output row is a linear function of a few
-/// neighbouring input rows.
+/// neighboring input rows.
 ///
 /// That sentence is also the implementation. For each output position we
 /// copy the `kernel` input rows it can see side by side into one long row
@@ -215,14 +215,14 @@ impl Conv1d {
     }
 }
 
-/// Layer normalisation: shift and scale each row to mean 0 and variance 1,
+/// Layer normalization: shift and scale each row to mean 0 and variance 1,
 /// then apply a learned per-column gain and bias.
 ///
 /// Deep stacks of layers are only trainable if the numbers flowing through
 /// them stay in a sensible range; this is the transformer's way of ensuring
-/// it. Unlike chapter 4's feature normalisation, which took statistics down
+/// it. Unlike chapter 4's feature normalization, which took statistics down
 /// each *column* over time, this works across each *row*: every position is
-/// normalised on its own, so the result does not depend on sequence length.
+/// normalized on its own, so the result does not depend on sequence length.
 pub struct LayerNorm {
     /// Learned multiplier per column (`weight` in the checkpoint).
     pub gain: Vec<f32>,
@@ -240,7 +240,7 @@ impl LayerNorm {
         Ok(LayerNorm { gain: weights.take_vec(&format!("{prefix}.weight"))?, bias: weights.take_vec(&format!("{prefix}.bias"))? })
     }
 
-    /// Normalise every row of `x`.
+    /// Normalize every row of `x`.
     pub fn forward(&self, x: &Mat) -> Mat {
         assert_eq!(x.cols, self.gain.len(), "layer norm width mismatch");
         let mut out = x.clone();
@@ -295,10 +295,13 @@ pub fn attend(queries: &Mat, keys: &Mat, values: &Mat, n_heads: usize, causal: b
         for head in 0..n_heads {
             let columns = head * head_dim..(head + 1) * head_dim;
             let query = &queries.row(t)[columns.clone()];
+            // Step 1: score every visible key against the query.
             for (j, weight) in weights.iter_mut().enumerate() {
                 *weight = scale * dot(query, &keys.row(j)[columns.clone()]);
             }
+            // Step 2: scores to weights.
             softmax_in_place(&mut weights);
+            // Step 3: the weighted average of the values.
             let out_head = &mut out_row[columns.clone()];
             for (j, &weight) in weights.iter().enumerate() {
                 for (o, &v) in out_head.iter_mut().zip(&values.row(j)[columns.clone()]) {

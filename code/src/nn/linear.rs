@@ -39,7 +39,7 @@ pub struct Linear {
 }
 
 impl Linear {
-    /// A layer with Xavier-initialised weights and zero biases.
+    /// A layer with Xavier-initialized weights and zero biases.
     ///
     /// Xavier is the right choice when the layer is followed by tanh, sigmoid,
     /// or nothing (the last layer of a network, whose outputs are the logits).
@@ -48,7 +48,7 @@ impl Linear {
         Linear { weight: init::xavier_uniform(n_in, n_out, n_in, n_out, rng), bias: Mat::zeros(1, n_out) }
     }
 
-    /// A layer with He-initialised weights and zero biases, for layers
+    /// A layer with He-initialized weights and zero biases, for layers
     /// followed by a ReLU. See [`init::he_uniform`] for why.
     pub fn new_he(n_in: usize, n_out: usize, rng: &mut Rng) -> Self {
         Linear { weight: init::he_uniform(n_in, n_out, n_in, rng), bias: Mat::zeros(1, n_out) }

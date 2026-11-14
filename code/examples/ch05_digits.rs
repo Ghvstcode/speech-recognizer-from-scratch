@@ -1,7 +1,7 @@
-//! Chapter 5: recognising spoken digits by template matching.
+//! Chapter 5: recognizing spoken digits by template matching.
 //!
-//! Our first recognizer learns nothing. It keeps labelled recordings (the
-//! *templates*), and to recognise a new recording it finds the template that
+//! Our first recognizer learns nothing. It keeps labeled recordings (the
+//! *templates*), and to recognize a new recording it finds the template that
 //! is closest under dynamic time warping and answers with that template's
 //! digit. This program measures how far that idea goes on the Free Spoken
 //! Digit Dataset:
@@ -14,14 +14,17 @@
 //! The experiments, in the order they are printed:
 //!
 //! 0. Which features? An ablation of the MFCC recipe, on training clips only.
-//! 1. One template per digit, same speaker: voice dialling, 1985.
+//! 1. One template per digit, same speaker: the voice dialing setup.
 //! 2. More templates per digit, same speaker.
 //! 3. All six speakers, the dataset's official train/test split.
 //! 4. A speaker the recognizer has never heard (leave one speaker out).
 //! 5. What one answer costs.
 //!
 //! The dataset is looked for in `$SPEECH_DATA/fsdd/recordings`
-//! (`../data/fsdd/recordings` by default).
+//! (`../data/fsdd/recordings` by default). The experiments need it.
+//! `classify` works without it too: it then falls back to the six digit
+//! clips in `../samples/` as its templates, which is enough to tell a
+//! "zero" from a "three" from a "seven" and to see the method at work.
 
 use speech::data::fsdd::{self, Clip, MfccFrontEnd, MfccRecipe, Normalization, Split, DIGIT_NAMES, N_DIGITS, SAMPLE_RATE};
 use speech::dsp::frame::find_speech;
@@ -36,7 +39,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 const USAGE: &str = "usage: ch05_digits                      run every experiment and write the figures
-       ch05_digits classify FILE.wav    recognise one recording and show its nearest templates";
+       ch05_digits classify FILE.wav    recognize one recording and show its nearest templates";
 
 /// Where the figures go, relative to `code/`.
 const FIGURES: &str = "../figures";
@@ -70,10 +73,10 @@ impl Corpus {
         bank
     }
 
-    /// Recognise every test clip of `split` using its training clips as
+    /// Recognize every test clip of `split` using its training clips as
     /// templates, letting the `k` nearest templates vote. Returns one
     /// predicted digit per test clip.
-    fn recognise(&self, split: &Split, k: usize) -> Vec<usize> {
+    fn recognize(&self, split: &Split, k: usize) -> Vec<usize> {
         let queries: Vec<Mat> = split.test.iter().map(|&p| self.features[p].clone()).collect();
         self.bank(&split.train, BAND).classify_many(&queries, k).into_iter().map(|(digit, _)| digit).collect()
     }
@@ -224,7 +227,7 @@ fn one_template_per_digit(corpus: &Corpus) {
     for speaker in fsdd::speakers(&corpus.clips) {
         let mut split = fsdd::same_speaker_split(&corpus.clips, &speaker);
         split.train.retain(|&p| corpus.clips[p].index == 5);
-        let predicted = corpus.recognise(&split, 1);
+        let predicted = corpus.recognize(&split, 1);
         let accuracy = corpus.percent_correct(&split.test, &predicted);
         println!("   {speaker:<10} {:>2} templates, {:>2} test clips   {accuracy:>5.1}%", split.train.len(), split.test.len());
         accuracies.push(accuracy);
@@ -310,7 +313,7 @@ fn all_speakers(corpus: &Corpus) {
     println!("3. All six speakers, official split ({} templates, {} test clips)\n", split.train.len(), split.test.len());
     for k in [1, 3, 5] {
         let start = Instant::now();
-        let predicted = corpus.recognise(&split, k);
+        let predicted = corpus.recognize(&split, k);
         let wrong = split.test.iter().zip(&predicted).filter(|&(&p, &digit)| corpus.clips[p].digit != digit).count();
         println!(
             "   {k}-nearest   {:>5.1}%   ({wrong} of {} wrong, {})",
@@ -339,8 +342,8 @@ fn unseen_speaker(corpus: &Corpus) -> UnseenSpeakerResult {
     let (mut nearest_1, mut nearest_5) = (Vec::new(), Vec::new());
     for (speaker, split) in fsdd::leave_one_speaker_out(&corpus.clips) {
         let start = Instant::now();
-        let predicted = corpus.recognise(&split, 1);
-        let predicted_5 = corpus.recognise(&split, 5);
+        let predicted = corpus.recognize(&split, 1);
+        let predicted_5 = corpus.recognize(&split, 5);
         for (&p, &digit) in split.test.iter().zip(&predicted) {
             confusion[(corpus.clips[p].digit, digit)] += 1.0;
         }
@@ -415,7 +418,8 @@ const OTHER_SEVEN: &str = "7_jackson_37.wav";
 const ZERO: &str = "0_jackson_0.wav";
 
 /// Two takes of "seven" by the same speaker: same word, different lengths.
-/// The stretch the endpoint detector keeps is shaded.
+/// What the endpoint detector trims away as silence is shaded. (Shading what
+/// it keeps would paint a whole panel: these clips arrive tightly cut.)
 fn draw_two_sevens(corpus: &Corpus, path: &str) -> io::Result<()> {
     let (first, _) = clip_named(corpus, SEVEN);
     let (second, _) = clip_named(corpus, OTHER_SEVEN);
@@ -424,9 +428,15 @@ fn draw_two_sevens(corpus: &Corpus, path: &str) -> io::Result<()> {
         let times: Vec<f32> = (0..clip.samples.len()).map(|i| i as f32 / clip.sample_rate as f32).collect();
         let (start, end) = find_speech(&clip.samples, clip.sample_rate).unwrap_or((0, clip.samples.len()));
         let (start, end) = (start as f32 / clip.sample_rate as f32, end as f32 / clip.sample_rate as f32);
-        LinePlot::new(&format!("{}: {:.2} s of speech", clip.file_name(), end - start))
-            .span(start, end, "kept after trimming silence")
-            .series(Series::new("", &times, &clip.samples).color(color).width(1.0))
+        let mut plot = LinePlot::new(&format!("{}: {:.2} s of speech", clip.file_name(), end - start));
+        // Anything shorter than a frame hop is not worth pointing at.
+        if start > 0.01 {
+            plot = plot.span_colored(0.0, start, "trimmed", Color::Ink48);
+        }
+        if clip.duration() - end > 0.01 {
+            plot = plot.span_colored(end, clip.duration(), "trimmed", Color::Ink48);
+        }
+        plot.series(Series::new("", &times, &clip.samples).color(color).width(1.0))
             .x_range(0.0, longest * 1.02)
             .y_range(-0.6, 0.6)
             .x_label("time (s)")
@@ -434,7 +444,7 @@ fn draw_two_sevens(corpus: &Corpus, path: &str) -> io::Result<()> {
             .height(130.0)
     };
     Figure::new("The same speaker says \"seven\" twice: never the same length, never the same timing")
-        .desc("Two waveforms of the word seven spoken by the same person, on a shared time axis, with the stretch of speech found by the endpoint detector shaded. One take lasts 0.43 seconds; the other starts later, is spoken faster and lasts 0.32 seconds.")
+        .desc("Two waveforms of the word seven spoken by the same person, on a shared time axis. The first take is 0.43 seconds of speech from end to end. The second is spoken faster: its loud part is over sooner, and the endpoint detector trims its quiet tail (shaded), leaving 0.32 seconds.")
         .panel(waveform(first, Color::Green))
         .panel(waveform(second, Color::Amber))
         .share_x()
@@ -512,8 +522,16 @@ fn draw_accuracy_vs_templates(results: &[TemplateCountResult], path: &str) -> io
         .x_range(0.0, 47.0)
         .y_range(80.0, 104.0)
         .height(260.0);
+    // Each note sits beside its point, in the gap between the average and
+    // the unluckiest draw, where it covers neither a curve nor a dot. (The
+    // offsets are in axis units: templates to the right, percent down.)
     for result in results.iter().filter(|r| [1, 5, 45].contains(&r.per_digit)) {
-        plot = plot.annotate(result.per_digit as f32, result.mean, &format!("{:.1}%", result.mean));
+        let (right, down) = match result.per_digit {
+            1 => (2.6, 2.6),
+            5 => (1.5, 1.9),
+            _ => (-0.2, -0.3),
+        };
+        plot = plot.annotate(result.per_digit as f32 + right, result.mean - down, &format!("{:.1}%", result.mean));
     }
     plot.save(path)
 }
@@ -524,7 +542,7 @@ fn draw_speakers(own_voice: &[f32], unseen: &[f32], speakers: &[String], path: &
         BarChart::new(title, &names, values).color(color).y_range(0.0, 115.0).y_label("accuracy (%)").show_values(1).height(150.0)
     };
     Figure::new("A voice it knows, and a voice it has never heard")
-        .desc("Two bar charts of DTW digit recognition accuracy for each of six speakers. With 45 templates per digit from the speaker's own voice every speaker is recognised almost perfectly. With templates from the other five speakers only, accuracy drops for everyone and falls to nearly half for two of the speakers.")
+        .desc("Two bar charts of DTW digit recognition accuracy for each of six speakers. With 45 templates per digit from the speaker's own voice every speaker is recognized almost perfectly. With templates from the other five speakers only, accuracy drops for everyone and falls to nearly half for two of the speakers.")
         .panel(chart("templates from the speaker's own voice (45 per digit, test takes 0-4)", own_voice, Color::Green))
         .panel(chart("templates from the other five speakers only (all 500 clips of the speaker)", unseen, Color::Amber))
         .save(path)
@@ -552,9 +570,50 @@ fn draw_confusion(confusion: &Mat, path: &str) -> io::Result<()> {
 // classify: one file against the whole dataset
 // ---------------------------------------------------------------------------
 
-/// Recognise the recording in `path` with every clip of the dataset as a
-/// template, and show the work: the nearest templates, and how close the
-/// best template of each digit came.
+/// Where the clips that ship with the book are, relative to `code/`.
+const SAMPLES: &str = "../samples";
+
+/// The six Free Spoken Digit Dataset clips in `samples/`: file name, digit,
+/// speaker. Each is take 0 of that digit by that speaker (see
+/// `samples/README.md`).
+const SAMPLE_TEMPLATES: [(&str, usize, &str); 6] = [
+    ("zero_jackson.wav", 0, "jackson"),
+    ("zero_george.wav", 0, "george"),
+    ("three_jackson.wav", 3, "jackson"),
+    ("three_george.wav", 3, "george"),
+    ("seven_jackson.wav", 7, "jackson"),
+    ("seven_george.wav", 7, "george"),
+];
+
+/// The clips of [`SAMPLE_TEMPLATES`], labeled as they are in the dataset.
+fn sample_templates() -> io::Result<Vec<Clip>> {
+    let mut clips = Vec::new();
+    for (file, digit, speaker) in SAMPLE_TEMPLATES {
+        let wav = Wav::read(format!("{SAMPLES}/{file}"))?;
+        clips.push(Clip { digit, speaker: speaker.to_string(), index: 0, sample_rate: wav.sample_rate, samples: wav.samples });
+    }
+    Ok(clips)
+}
+
+/// The templates for `classify`: the whole dataset if it has been
+/// downloaded, the six clips in `samples/` if not.
+fn templates_for_classify() -> io::Result<Vec<Clip>> {
+    let dataset = fsdd::recordings_dir();
+    if dataset.is_dir() {
+        return fsdd::load();
+    }
+    println!(
+        "no dataset in {}: using the {} digit clips in {SAMPLES}/ as templates (zero, three and seven only)",
+        dataset.display(),
+        SAMPLE_TEMPLATES.len()
+    );
+    sample_templates()
+}
+
+/// Recognize the recording in `path` with every clip of the dataset as a
+/// template (or, without the dataset, the six clips in `samples/`), and show
+/// the work: the nearest templates, and how close the best template of each
+/// digit came.
 fn classify(path: &str) -> io::Result<()> {
     let wav = Wav::read(path)?;
     println!("{path}: {:.2} s at {} Hz", wav.samples.len() as f32 / wav.sample_rate as f32, wav.sample_rate);
@@ -568,7 +627,7 @@ fn classify(path: &str) -> io::Result<()> {
 
     let recipe = MfccRecipe::standard();
     let start = Instant::now();
-    let corpus = Corpus::new(fsdd::load()?, &recipe);
+    let corpus = Corpus::new(templates_for_classify()?, &recipe);
     let query = MfccFrontEnd::new(&recipe, SAMPLE_RATE).features(&samples);
     println!("{} frames of {} MFCCs after trimming silence", query.rows, query.cols);
     println!("loaded {} templates and computed their features in {}", corpus.clips.len(), seconds_since(start));
@@ -586,7 +645,11 @@ fn classify(path: &str) -> io::Result<()> {
     ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     println!("\ncompared with {} templates in {elapsed} (all cores)\n", templates.len());
-    println!("The ten nearest templates:\n");
+    if ranked.len() >= 10 {
+        println!("The ten nearest templates:\n");
+    } else {
+        println!("All {} templates, nearest first:\n", ranked.len());
+    }
     println!("   {:>4}  {:<22} {:<6} {:>9}", "rank", "template", "digit", "distance");
     for (rank, (distance, clip)) in ranked.iter().take(10).enumerate() {
         println!("   {:>4}  {:<22} {:<6} {distance:>9.3}", rank + 1, clip.file_name(), DIGIT_NAMES[clip.digit]);

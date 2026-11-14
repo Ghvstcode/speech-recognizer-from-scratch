@@ -33,15 +33,15 @@ use std::io;
 /// One decoder transformer block. An encoder block with one more sub-layer
 /// in the middle: cross-attention, where the text consults the audio.
 pub struct DecoderBlock {
-    /// Normalisation before self-attention (`self_attn_layer_norm`).
+    /// Normalization before self-attention (`self_attn_layer_norm`).
     pub self_attention_norm: LayerNorm,
     /// Each token looks at itself and the tokens before it (`self_attn`).
     pub self_attention: MultiHeadAttention,
-    /// Normalisation before cross-attention (`encoder_attn_layer_norm`).
+    /// Normalization before cross-attention (`encoder_attn_layer_norm`).
     pub cross_attention_norm: LayerNorm,
     /// Each token looks at all 1500 audio positions (`encoder_attn`).
     pub cross_attention: MultiHeadAttention,
-    /// Normalisation before the MLP (`final_layer_norm`).
+    /// Normalization before the MLP (`final_layer_norm`).
     pub mlp_norm: LayerNorm,
     /// The per-position network (`fc1`, `fc2`).
     pub mlp: Mlp,
@@ -111,7 +111,7 @@ pub struct Decoder {
     pub positions: Mat,
     /// The transformer blocks.
     pub blocks: Vec<DecoderBlock>,
-    /// Normalisation after the last block (`layer_norm`).
+    /// Normalization after the last block (`layer_norm`).
     pub final_norm: LayerNorm,
 }
 
@@ -172,7 +172,7 @@ impl Decoder {
     /// Score every vocabulary entry against one final hidden row:
     /// `logits[v] = hidden . token_embedding[v]`.
     ///
-    /// These are *logits*, unnormalised scores; softmax turns them into
+    /// These are *logits*, unnormalized scores; softmax turns them into
     /// probabilities. With 51864 tokens this is the most expensive single
     /// operation of a decoding step, so the vocabulary is split across cores.
     pub fn logits(&self, hidden: &[f32]) -> Vec<f32> {

@@ -1,6 +1,6 @@
 //! A tiny pseudo-random number generator.
 //!
-//! We need randomness to initialise weights, shuffle training data and add
+//! We need randomness to initialize weights, shuffle training data and add
 //! noise. We do not need it to be cryptographically secure; we need it to be
 //! fast, decent, and *reproducible*: the same seed must give the same run.
 //!

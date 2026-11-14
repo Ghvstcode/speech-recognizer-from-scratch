@@ -189,7 +189,7 @@ fn draw_endpoints(
 ) -> io::Result<()> {
     let sr = wav.sample_rate as f32;
     let sample_times: Vec<f32> = (0..wav.samples.len()).map(|i| i as f32 / sr).collect();
-    // A frame's level is plotted at the time of the frame's centre.
+    // A frame's level is plotted at the time of the frame's center.
     let frame_times: Vec<f32> = (0..levels.len()).map(|i| (i * hop_len + frame_len / 2) as f32 / sr).collect();
 
     let mut waveform = LinePlot::new("waveform")

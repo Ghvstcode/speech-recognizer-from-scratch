@@ -17,7 +17,7 @@
 ///
 /// One second at 16 kHz with 25 ms frames every 10 ms: `1 + (16000 - 400) / 160 = 98`.
 ///
-/// Other libraries pad the signal so that frames are centred on multiples of
+/// Other libraries pad the signal so that frames are centered on multiples of
 /// the hop (and get `1 + n_samples / hop_len` frames). Ours is the simplest
 /// rule that never invents samples.
 pub fn num_frames(n_samples: usize, frame_len: usize, hop_len: usize) -> usize {
@@ -42,7 +42,7 @@ pub fn frames(samples: &[f32], frame_len: usize, hop_len: usize) -> Vec<&[f32]> 
 /// the consonants live, are much weaker. Subtracting most of the previous
 /// sample cancels what changes slowly (low frequencies) and keeps what
 /// changes quickly (high frequencies), which evens the spectrum out before
-/// we analyse it. `coeff` is usually 0.97; 0.0 returns the signal unchanged.
+/// we analyze it. `coeff` is usually 0.97; 0.0 returns the signal unchanged.
 pub fn preemphasis(samples: &[f32], coeff: f32) -> Vec<f32> {
     let mut out = Vec::with_capacity(samples.len());
     let mut previous = 0.0;
@@ -69,9 +69,10 @@ pub fn energy(frame: &[f32]) -> f32 {
 ///
 /// Ears judge loudness by ratios, not differences, and decibels turn ratios
 /// into differences: +10 dB is always "ten times the energy". 0 dB here is a
-/// full-scale square wave; a full-scale sine is -3 dB; quiet room noise in a
-/// 16-bit recording sits around -60 dB. Digital silence would be minus
-/// infinity, so we stop at -100 dB.
+/// full-scale square wave; a full-scale sine is -3 dB. The quiet stretches
+/// of the one-second clips in `samples/` (`seven.wav`, `yes.wav`, ...)
+/// measure about -85 dB; a noisier room or microphone sits 20 to 30 dB above
+/// that. Digital silence would be minus infinity, so we stop at -100 dB.
 pub fn energy_db(frame: &[f32]) -> f32 {
     10.0 * (energy(frame) + 1e-10).log10()
 }
@@ -81,7 +82,7 @@ pub fn short_time_energy(samples: &[f32], frame_len: usize, hop_len: usize) -> V
     frames(samples, frame_len, hop_len).into_iter().map(energy).collect()
 }
 
-/// Zero-crossing rate: the fraction of neighbouring sample pairs that have
+/// Zero-crossing rate: the fraction of neighboring sample pairs that have
 /// opposite signs, between 0 and 1.
 ///
 /// A cheap stand-in for "how high-pitched is this frame": a sine of frequency
@@ -150,7 +151,9 @@ pub enum EndpointEvent {
     /// Speech began at this sample (counted from the start of the stream,
     /// padding included, so it lies a little in the past).
     SpeechStart { sample: usize },
-    /// Speech ended at this sample (exclusive, padding included).
+    /// Speech ended at this sample (exclusive, padding included). Never
+    /// more than the number of samples fed so far: the padding is cut short
+    /// if the stream does not reach that far.
     SpeechEnd { sample: usize },
 }
 
@@ -248,7 +251,17 @@ impl Endpointer {
 
     /// Feed the next block of audio (`block_len()` samples; the blocks do not
     /// overlap). Returns an event if this block changed the state.
+    ///
+    /// Panics if the block has any other length: every sample position the
+    /// detector reports is a block count times `block_len()`.
     pub fn push(&mut self, block: &[f32]) -> Option<EndpointEvent> {
+        assert_eq!(
+            block.len(),
+            self.block_len,
+            "Endpointer::push takes blocks of exactly block_len() = {} samples, got {} (use chunks_exact)",
+            self.block_len,
+            block.len()
+        );
         let level = level_db(block);
         let noise = *self.noise_db.get_or_insert(level);
         let block_index = self.blocks_seen;
@@ -268,7 +281,8 @@ impl Endpointer {
             self.in_speech = false;
             let last_loud_end = (block_index + 1 - self.quiet_run) * self.block_len;
             self.quiet_run = 0;
-            return Some(EndpointEvent::SpeechEnd { sample: last_loud_end + self.padding_samples });
+            let fed = self.blocks_seen * self.block_len;
+            return Some(EndpointEvent::SpeechEnd { sample: (last_loud_end + self.padding_samples).min(fed) });
         }
 
         let loud = level > (noise + self.config.start_db).max(self.config.min_level_db);
@@ -291,13 +305,22 @@ impl Endpointer {
     /// Tell the detector the stream is over. If we were in the middle of
     /// speech, this closes it.
     pub fn finish(&mut self) -> Option<EndpointEvent> {
+        self.finish_at(self.blocks_seen * self.block_len)
+    }
+
+    /// [`finish`](Self::finish) for a stream of `stream_len` samples in all.
+    /// The reported end never lies beyond `stream_len`. For a live stream
+    /// that is the number of samples pushed; [`find_speech_with`] passes the
+    /// length of the whole clip, which can include a ragged tail shorter
+    /// than one block that was never pushed.
+    fn finish_at(&mut self, stream_len: usize) -> Option<EndpointEvent> {
         if !self.in_speech {
             return None;
         }
         self.in_speech = false;
         let last_loud_end = (self.blocks_seen - self.quiet_run) * self.block_len;
         self.quiet_run = 0;
-        Some(EndpointEvent::SpeechEnd { sample: last_loud_end + self.padding_samples })
+        Some(EndpointEvent::SpeechEnd { sample: (last_loud_end + self.padding_samples).min(stream_len) })
     }
 
     /// Track the background level with a block we judged to be silence:
@@ -350,6 +373,12 @@ pub fn find_speech(samples: &[f32], sample_rate: u32) -> Option<(usize, usize)> 
 }
 
 /// [`find_speech`] with your own settings.
+///
+/// One field of `config` is not used as given: `min_level_db` is overridden
+/// with "the loudest block of this clip minus `peak_range_db`" (see
+/// [`EndpointConfig::peak_range_db`]). To move the absolute threshold of a
+/// whole-clip search, change `peak_range_db`; `min_level_db` only matters to
+/// a live [`Endpointer`].
 pub fn find_speech_with(samples: &[f32], sample_rate: u32, config: &EndpointConfig) -> Option<(usize, usize)> {
     let block_len = Endpointer::new(sample_rate, config.clone()).block_len();
     let mut levels: Vec<f32> = samples.chunks_exact(block_len).map(level_db).collect();
@@ -368,10 +397,10 @@ pub fn find_speech_with(samples: &[f32], sample_rate: u32, config: &EndpointConf
 
     let (mut first_start, mut last_end) = (None, None);
     let events = samples.chunks_exact(block_len).filter_map(|block| endpointer.push(block)).collect::<Vec<_>>();
-    for event in events.into_iter().chain(endpointer.finish()) {
+    for event in events.into_iter().chain(endpointer.finish_at(samples.len())) {
         match event {
             EndpointEvent::SpeechStart { sample } => first_start = first_start.or(Some(sample)),
-            EndpointEvent::SpeechEnd { sample } => last_end = Some(sample.min(samples.len())),
+            EndpointEvent::SpeechEnd { sample } => last_end = Some(sample),
         }
     }
     Some((first_start?, last_end?))
@@ -490,6 +519,44 @@ mod tests {
         assert_eq!(events.len(), 2, "{events:?}");
         assert!(matches!(events[0], EndpointEvent::SpeechStart { sample } if (2560..=3200).contains(&sample)));
         assert!(matches!(events[1], EndpointEvent::SpeechEnd { sample } if (11200..=11840).contains(&sample)));
+    }
+
+    #[test]
+    fn speech_end_never_exceeds_the_samples_fed() {
+        // A tone that is still sounding when the stream stops after 0.5 s.
+        // The last loud block ends at sample 8000 and the padding would put
+        // the end beyond it; there is no audio there to point at.
+        let samples = tone_in_noise(3200, 16000, 0.002);
+        let mut endpointer = Endpointer::new(16000, EndpointConfig::default());
+        let fed = 8000;
+        for block in samples[..fed].chunks_exact(endpointer.block_len()) {
+            endpointer.push(block);
+        }
+        assert!(endpointer.in_speech());
+        assert_eq!(endpointer.finish(), Some(EndpointEvent::SpeechEnd { sample: fed }));
+
+        // The same when the end is reported by `push`: with more padding
+        // than hangover, the padded end would lie ahead of the stream.
+        let config = EndpointConfig { padding_ms: 500.0, ..EndpointConfig::default() };
+        let samples = tone_in_noise(3200, 6400, 0.002);
+        let mut endpointer = Endpointer::new(16000, config);
+        let mut fed = 0;
+        let mut ends = Vec::new();
+        for block in samples.chunks_exact(endpointer.block_len()) {
+            fed += block.len();
+            if let Some(EndpointEvent::SpeechEnd { sample }) = endpointer.push(block) {
+                ends.push((sample, fed));
+            }
+        }
+        assert_eq!(ends.len(), 1, "{ends:?}");
+        let (sample, fed_then) = ends[0];
+        assert_eq!(sample, fed_then, "unclamped, the end would be {}", 6400 + 8000);
+    }
+
+    #[test]
+    #[should_panic(expected = "exactly block_len() = 160 samples, got 100")]
+    fn push_rejects_a_block_of_the_wrong_length() {
+        Endpointer::new(16000, EndpointConfig::default()).push(&[0.0; 100]);
     }
 
     #[test]

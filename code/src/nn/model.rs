@@ -44,18 +44,18 @@ pub enum Layer {
     /// Two GRUs, one per direction; outputs both states side by side.
     BiGru(BiGru),
     /// Average over time: `T x C` becomes `1 x C`. Turns a sequence into one
-    /// row that summarises the whole clip, for clip classifiers.
+    /// row that summarizes the whole clip, for clip classifiers.
     MeanPool,
 }
 
 impl Layer {
-    /// A [`Linear`] layer with Xavier initialisation (for output layers and
+    /// A [`Linear`] layer with Xavier initialization (for output layers and
     /// layers followed by tanh or sigmoid).
     pub fn linear(n_in: usize, n_out: usize, rng: &mut Rng) -> Layer {
         Layer::Linear(Linear::new(n_in, n_out, rng))
     }
 
-    /// A [`Linear`] layer with He initialisation (for layers followed by ReLU).
+    /// A [`Linear`] layer with He initialization (for layers followed by ReLU).
     pub fn linear_he(n_in: usize, n_out: usize, rng: &mut Rng) -> Layer {
         Layer::Linear(Linear::new_he(n_in, n_out, rng))
     }
@@ -330,7 +330,7 @@ pub struct Model {
 impl Model {
     /// Build a model from its layers.
     ///
-    /// Panics if two neighbouring layers disagree about the number of columns
+    /// Panics if two neighboring layers disagree about the number of columns
     /// passed between them: better to find out here than in the middle of a
     /// training run.
     pub fn new(layers: Vec<Layer>) -> Model {
@@ -395,7 +395,7 @@ impl Model {
     }
 
     /// Mutable access to every weight tensor, in the same order as
-    /// [`Model::params`]. This is what optimisers use.
+    /// [`Model::params`]. This is what optimizers use.
     pub fn params_mut(&mut self) -> Vec<&mut Mat> {
         self.layers.iter_mut().flat_map(|l| l.params_mut()).collect()
     }

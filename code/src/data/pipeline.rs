@@ -146,7 +146,7 @@ pub fn command_lexicon() -> Lexicon {
 /// Decode a grid of log-probabilities (frames x 28) to text.
 ///
 /// The lexicon decoder returns nothing when no sequence of whole words
-/// survives in its beam. That happens when the network's favourite
+/// survives in its beam. That happens when the network's favorite
 /// spellings are all non-words and the beam is too narrow to keep a real
 /// word alive next to them; we then search once more with a beam four times
 /// as wide, and only if that fails too is the transcript empty.

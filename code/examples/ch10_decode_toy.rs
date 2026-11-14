@@ -28,7 +28,7 @@ const VOCABULARY: [&str; 35] = [
 /// Class names for part 1: blank, a, b.
 const TOY_SYMBOLS: [char; 3] = ['_', 'a', 'b'];
 
-/// A toy labelling as text, with "" shown as (empty).
+/// A toy labeling as text, with "" shown as (empty).
 fn toy_string(labels: &[usize]) -> String {
     if labels.is_empty() {
         "(empty)".to_string()
@@ -129,7 +129,10 @@ fn part_two() -> (String, String) {
 
     let lexicon = Lexicon::new(&VOCABULARY);
     let constrained = decode::lexicon_beam_search(&log_probs, &lexicon, &LexiconOptions::new(32));
-    println!("  with the 35-word lexicon:  \"{}\"   ln p = {:.3}", constrained[0].text(), constrained[0].log_prob);
+    match constrained.first() {
+        Some(best) => println!("  with the 35-word lexicon:  \"{}\"   ln p = {:.3}", best.text(), best.log_prob),
+        None => println!("  with the 35-word lexicon:  nothing survived the beam (try a wider one)"),
+    }
     let wide = decode::lexicon_beam_search(&log_probs, &lexicon, &LexiconOptions::new(1000));
     println!("\n  The five best word sequences, from a much wider beam (1000):");
     for hypothesis in wide.iter().take(5) {

@@ -120,7 +120,9 @@ impl Wav {
 
             // Chunks are aligned to even offsets: an odd-sized chunk is
             // followed by one padding byte that its size does not count.
-            pos = body_start + declared_size + (declared_size & 1);
+            // A corrupt size near `usize::MAX` must not overflow the sum: the
+            // saturating adds park `pos` past the end, which ends the loop.
+            pos = body_start.saturating_add(declared_size).saturating_add(declared_size & 1);
         }
 
         Err(bad(if format.is_some() {
@@ -248,9 +250,23 @@ fn decode_one(b: &[u8], encoding: Encoding) -> f32 {
         // (which gets the sign right) and divide by 2^31 instead of 2^23.
         (Encoding::Pcm, 3) => i32::from_le_bytes([0, b[0], b[1], b[2]]) as f32 / 2_147_483_648.0,
         (Encoding::Pcm, 4) => i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32 / 2_147_483_648.0,
-        (Encoding::Float, 4) => f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
-        (Encoding::Float, 8) => f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32,
+        (Encoding::Float, 4) => sanitize(f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+        (Encoding::Float, 8) => sanitize(f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32),
         _ => unreachable!("parse_format only lets supported sizes through"),
+    }
+}
+
+/// Make a float sample keep the promise the integer formats keep for free.
+///
+/// Integer PCM cannot leave `[-1, 1]`, but a float file can hold anything:
+/// peaks above full scale, infinities, NaN. One NaN would poison every sum
+/// it later takes part in (an energy, an FFT, a whole feature matrix), so it
+/// becomes silence here, and everything else is clamped into range.
+fn sanitize(sample: f32) -> f32 {
+    if sample.is_nan() {
+        0.0
+    } else {
+        sample.clamp(-1.0, 1.0)
     }
 }
 
@@ -337,6 +353,40 @@ mod tests {
         let (wav, format) = Wav::from_bytes_with_format(&build(3, 1, 16000, 32, &[], &data)).unwrap();
         assert_eq!(wav.samples, vec![0.25, -0.75, 1.0]);
         assert_eq!(format.encoding, Encoding::Float);
+    }
+
+    #[test]
+    fn float_samples_are_sanitized_on_read() {
+        // NaN becomes silence; out-of-range values and infinities are clamped;
+        // ordinary values pass through untouched.
+        let values = [f32::NAN, 1.5, -3.0, f32::INFINITY, f32::NEG_INFINITY, 0.25];
+        let mut data = Vec::new();
+        for v in values {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        let wav = Wav::from_bytes(&build(3, 1, 16000, 32, &[], &data)).unwrap();
+        assert_eq!(wav.samples, vec![0.0, 1.0, -1.0, 1.0, -1.0, 0.25]);
+
+        // The same holds for 64-bit floats, including values too big for f32.
+        let mut data = Vec::new();
+        for v in [f64::NAN, 1e300, -1e300, -0.5] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        let wav = Wav::from_bytes(&build(3, 1, 16000, 64, &[], &data)).unwrap();
+        assert_eq!(wav.samples, vec![0.0, 1.0, -1.0, -0.5]);
+    }
+
+    #[test]
+    fn a_huge_chunk_size_does_not_overflow() {
+        // An unknown chunk claiming 0xFFFFFFFF bytes: the walk must end with
+        // a clean error, not an arithmetic overflow.
+        let mut bytes = build(1, 1, 8000, 16, &[], &[]);
+        bytes.truncate(12 + 8 + 16); // RIFF header + "fmt " chunk only
+        bytes.extend_from_slice(b"junk");
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 0]);
+        let err = Wav::from_bytes(&bytes).unwrap_err();
+        assert!(err.to_string().contains("no \"data\" chunk"), "{err}");
     }
 
     #[test]

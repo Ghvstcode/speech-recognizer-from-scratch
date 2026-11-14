@@ -10,11 +10,11 @@
 //!    (480,000 samples).
 //! 2. Short-time Fourier transform with a 400-sample (25 ms) window hopping
 //!    160 samples (10 ms). The signal is first extended by 200 samples at
-//!    each end by *reflection*, so frame `t` is centred on sample `160 * t`.
+//!    each end by *reflection*, so frame `t` is centered on sample `160 * t`.
 //!    The window is a *periodic* Hann window.
 //! 3. Keep the power `|X|^2` of bins 0..=200, and drop the very last frame,
 //!    leaving exactly 3000 frames.
-//! 4. Multiply by an 80-band mel filterbank (the "Slaney" flavour, the
+//! 4. Multiply by an 80-band mel filterbank (the "Slaney" flavor, the
 //!    default in the `librosa` library the reference used to build it).
 //! 5. `log10`, with the power floored at `1e-10`.
 //! 6. Clamp everything to at most 8 below the loudest value in the window
@@ -104,10 +104,16 @@ pub fn mel_filterbank(n_mels: usize, n_fft: usize, sample_rate: u32) -> Mat {
 
 /// A periodic Hann window: `0.5 - 0.5 cos(2 pi n / N)`.
 ///
-/// "Periodic" means the divisor is `N`, not the `N - 1` of the symmetric
-/// window in chapter 2, so the window never quite returns to zero at its
-/// right edge. That is the right shape when windows overlap and add, and it
-/// is what `torch.hann_window` returns by default.
+/// "Periodic" means the divisor is `N`, not the `N - 1` of a symmetric
+/// window, so the window never quite returns to zero at its right edge. It
+/// is what `torch.hann_window` returns by default, and it is the same curve
+/// as chapter 2's [`hann`](crate::dsp::window::hann), which is periodic too.
+///
+/// The only difference is arithmetic. This one works the cosine out in
+/// `f64` and rounds once at the end, as the rest of this front end does;
+/// chapter 2's stays in `f32` throughout. The two tables agree to within
+/// 2.4e-7 (a few units in the last place), which is not the same as
+/// bit for bit, so Whisper keeps its own.
 pub fn periodic_hann(len: usize) -> Vec<f32> {
     (0..len).map(|n| (0.5 - 0.5 * (std::f64::consts::TAU * n as f64 / len as f64).cos()) as f32).collect()
 }
@@ -185,7 +191,7 @@ impl MelFrontEnd {
 
         // Steps 2-5: each frame's log-mel energies. Frames are independent,
         // so they are computed in parallel. The reference computes one frame
-        // more (centred on the last sample) and throws it away; we simply
+        // more (centered on the last sample) and throws it away; we simply
         // never compute it.
         let mut mel = Mat::zeros(CHUNK_FRAMES, self.n_mels);
         for_each_row_par(&mut mel.data, self.n_mels, |t, mel_row| {
@@ -231,7 +237,7 @@ mod tests {
         // No energy from 0 Hz or from the Nyquist bin: they sit exactly on
         // the outer feet of the first and last triangles.
         assert!((0..80).all(|m| fb[(m, 0)] == 0.0 && fb[(m, 200)] == 0.0));
-        // Every band listens to something, and centres move upwards.
+        // Every band listens to something, and centers move upwards.
         let peak_bin = |m: usize| (0..201).max_by(|&a, &b| fb[(m, a)].total_cmp(&fb[(m, b)])).unwrap();
         for m in 0..80 {
             assert!(fb.row(m).iter().sum::<f32>() > 0.0, "band {m} is empty");
@@ -239,7 +245,7 @@ mod tests {
                 assert!(peak_bin(m) >= peak_bin(m - 1));
             }
         }
-        // Area normalisation: a triangle of height 2/width has area 1 (in Hz).
+        // Area normalization: a triangle of height 2/width has area 1 (in Hz).
         // Bins are 40 Hz apart, so for the wide high bands the sum of the
         // sampled weights times 40 should be close to 1.
         for m in 60..80 {
@@ -255,7 +261,7 @@ mod tests {
         // edge points are 45.24564/81 = 0.558588 mel = 37.2392 Hz apart.
         // Band 0 spans 0..74.4784 Hz with its peak at 37.2392 Hz. Bin 1 is at
         // 40 Hz, on the falling side: (74.4784 - 40) / 37.2392 = 0.925863,
-        // times the normalisation 2 / 74.4784 = 0.0268534, gives 0.0248626.
+        // times the normalization 2 / 74.4784 = 0.0268534, gives 0.0248626.
         let fb = mel_filterbank(80, N_FFT, SAMPLE_RATE);
         assert!((fb[(0, 1)] - 0.0248626).abs() < 1e-6, "got {}", fb[(0, 1)]);
         // Band 1 spans 37.2392..111.7176 Hz; bin 1 (40 Hz) is on its rising
@@ -272,6 +278,10 @@ mod tests {
         assert!((w[100] - 0.5).abs() < 1e-7);
         // Periodic: w[N - n] == w[n], and the last sample is not zero.
         assert!((w[399] - w[1]).abs() < 1e-7 && w[399] > 0.0);
+        // The same curve as chapter 2's window, up to f32 rounding.
+        let chapter_2 = crate::dsp::window::hann(400);
+        let largest_gap = w.iter().zip(&chapter_2).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        assert!(largest_gap < 5e-7, "largest gap {largest_gap}");
     }
 
     #[test]

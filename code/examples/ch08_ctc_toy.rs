@@ -140,7 +140,7 @@ fn part_two() {
                 println!("    {} |{row}|", Alphabet::symbol(class));
             }
             let best_path: String = speech::decode::best_path(&ctc::log_softmax(&logits)).iter().map(|&c| Alphabet::symbol(c)).collect();
-            println!("  best |{best_path}|\n");
+            println!("argmax |{best_path}|\n");
         }
         // Plain gradient descent: step against the gradient.
         for (z, g) in logits.data.iter_mut().zip(&gradient.data) {

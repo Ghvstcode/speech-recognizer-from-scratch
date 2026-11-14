@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="428" viewBox="0 0 800 428" role="img">
 <rect width="100%" height="100%" fill="#F5F3EF"/>
 <title>Listening live: from an endless stream to utterances to text</title>
-<desc>Top: the level in decibels of a 17 second recording containing four utterances separated by pauses, with the four detected segments shaded and labelled with the recognized words. Bottom: the endpoint detector's speech/silence state over time.</desc>
+<desc>Top: the level in decibels of a 12 second recording containing four utterances separated by pauses, with the four detected segments shaded and labeled with the recognized words. Bottom: the endpoint detector's speech/silence state over time.</desc>
 <text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">Listening live: from an endless stream to utterances to text</text>
 <text x="68" y="59" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.48)">LOUDNESS OF EVERY 10 MS BLOCK; SHADED: THE UTTERANCES THAT WERE CUT OUT, WITH THE RECOGNIZED TEXT</text>
 <rect x="104.43" y="68" width="124.31" height="200" fill="rgba(4,120,87,.10)"/>

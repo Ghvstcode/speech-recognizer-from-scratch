@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="452" viewBox="0 0 800 452" role="img">
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<title>The live pipeline: from the microphone to text</title>
+<desc>Top row: a microphone feeds a child ffmpeg process, which writes raw 16-bit samples at 16 kHz into a pipe, 32,000 bytes per second. Inside our program the PcmDecoder turns the bytes into samples and the Segmenter cuts the endless stream into utterances. Bottom row, run once per finished utterance: normalized log-mel features, the network, the decoder, and the printed text. A note says that a WAV file or standard input can stand in for the microphone and ffmpeg.</desc>
+<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.5" fill="rgba(25,22,21,0.1)"/></pattern></defs>
+<rect x="0" y="44" width="800" height="408" fill="url(#dots)"/>
+<text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">Listening live: an endless stream in, one line of text per utterance out</text>
+<rect x="24" y="60" width="296" height="140" rx="10" fill="none" stroke="rgba(25,22,21,0.3)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="38" y="79" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)">ANOTHER PROCESS</text>
+<rect x="40" y="92" width="124" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="52" y="113" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">MICROPHONE</text>
+<line x1="52" y1="122" x2="152" y2="122" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="52" y="140" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">sound, through</text>
+<text x="52" y="155" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">the OS audio driver</text>
+<text x="52" y="173" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">any rate</text>
+<line x1="166" y1="138" x2="169" y2="138" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M168 134 L175 138 L168 142 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="180" y="92" width="124" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="192" y="113" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">FFMPEG</text>
+<line x1="192" y1="122" x2="292" y2="122" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="192" y="140" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">resample to 16 kHz,</text>
+<text x="192" y="155" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">mono, 16-bit</text>
+<text x="192" y="173" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">-f s16le -</text>
+<rect x="464" y="60" width="312" height="140" rx="10" fill="none" stroke="rgba(25,22,21,0.3)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="478" y="79" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)">OUR PROGRAM · SRC/MIC.RS</text>
+<rect x="480" y="92" width="132" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="492" y="113" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">PCMDECODER</text>
+<line x1="492" y1="122" x2="600" y2="122" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="492" y="140" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">2 bytes → 1 sample,</text>
+<text x="492" y="155" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">even across reads</text>
+<text x="492" y="173" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">Vec&lt;f32&gt; chunks</text>
+<line x1="614" y1="138" x2="617" y2="138" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M616 134 L623 138 L616 142 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="628" y="92" width="132" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="640" y="113" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">SEGMENTER</text>
+<line x1="640" y1="122" x2="748" y2="122" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="640" y="140" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">10 ms blocks into</text>
+<text x="640" y="155" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">the Endpointer</text>
+<text x="640" y="173" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">utterances out</text>
+<line x1="306" y1="138" x2="471" y2="138" stroke="#047857" stroke-width="1.75" stroke-linecap="round"/>
+<path d="M470 133 L478 138 L470 143 Z" fill="#047857"/>
+<rect x="366" y="127" width="52" height="22" rx="8" fill="#F5F3EF" stroke="#047857" stroke-width="1"/>
+<text x="392" y="142" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="middle" fill="#047857">PIPE</text>
+<text x="392" y="168" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,0.48)">32,000 bytes/s</text>
+<text x="392" y="116" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,0.48)">raw samples</text>
+<path d="M694 187 L694 228 L111 228 L111 278" fill="none" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M107 277 L111 284 L115 277 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="270" y="217" width="260" height="22" rx="8" fill="#F5F3EF" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="400" y="232" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,0.7)">one Segment: up to 10 s of samples</text>
+<rect x="24" y="254" width="752" height="140" rx="10" fill="none" stroke="rgba(25,22,21,0.3)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="762" y="273" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">ONCE PER UTTERANCE · RECOGNIZER, SRC/DATA/PIPELINE.RS</text>
+<rect x="40" y="286" width="150" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="52" y="307" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">FEATURES</text>
+<line x1="52" y1="316" x2="178" y2="316" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="52" y="334" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">40 log-mel bands,</text>
+<text x="52" y="349" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">normalized</text>
+<text x="52" y="367" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">ch 4 · T × 40</text>
+<rect x="222" y="286" width="150" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="234" y="307" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">NETWORK</text>
+<line x1="234" y1="316" x2="360" y2="316" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="234" y="334" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">conv + 2 BiGRU,</text>
+<text x="234" y="349" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">496,508 weights</text>
+<text x="234" y="367" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">ch 9 · T/2 × 28</text>
+<rect x="404" y="286" width="150" height="92" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="416" y="307" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">DECODER</text>
+<line x1="416" y1="316" x2="542" y2="316" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="416" y="334" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">lexicon beam search</text>
+<text x="416" y="349" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">over 35 words</text>
+<text x="416" y="367" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">ch 10</text>
+<rect x="586" y="286" width="174" height="92" rx="8" fill="#FBFAF7" stroke="#047857" stroke-width="1"/>
+<text x="598" y="307" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#047857">TEXT</text>
+<line x1="598" y1="316" x2="748" y2="316" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="598" y="334" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">[ 0.63 s - 2.78 s]</text>
+<text x="598" y="349" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">five cat up</text>
+<text x="598" y="367" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">one line on stdout</text>
+<line x1="193" y1="332" x2="212" y2="332" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M211 328 L218 332 L211 336 Z" fill="rgba(25,22,21,0.48)"/>
+<line x1="375" y1="332" x2="394" y2="332" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M393 328 L400 332 L393 336 Z" fill="rgba(25,22,21,0.48)"/>
+<line x1="557" y1="332" x2="576" y2="332" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M575 328 L582 332 L575 336 Z" fill="rgba(25,22,21,0.48)"/>
+<text x="24" y="418" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="rgba(25,22,21,0.7)">Anything that implements AudioSource can replace the first two boxes:</text>
+<text x="24" y="436" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" fill="rgba(25,22,21,0.7)">a WAV file (WavPlayback) or raw bytes on standard input (PcmStream).</text>
+</svg>

@@ -25,7 +25,7 @@
 //! optimizer.step(&mut model, &grads);         // the only place weights change
 //! ```
 //!
-//! Because `forward` and `backward` take `&self`, fourteen threads can each
+//! Because `forward` and `backward` take `&self`, many threads can each
 //! push a different utterance through the *same* model at the same time, each
 //! with its own [`Cache`] and its own [`Grads`]. [`batch_gradients`] does
 //! exactly that.

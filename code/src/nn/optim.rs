@@ -1,7 +1,7 @@
-//! Optimisers: turning gradients into better weights.
+//! Optimizers: turning gradients into better weights.
 //!
 //! A gradient says, for every weight, which direction makes the loss go *up*
-//! fastest. Every optimiser here does some version of "take a small step the
+//! fastest. Every optimizer here does some version of "take a small step the
 //! other way". They differ in how they choose the size of the step.
 
 use super::model::{Grads, Model};
@@ -11,7 +11,7 @@ use crate::mat::Mat;
 ///
 /// Plain SGD is one line: `w -= lr * gradient`.
 ///
-/// With momentum the optimiser keeps a running *velocity* for every weight:
+/// With momentum the optimizer keeps a running *velocity* for every weight:
 ///
 /// ```text
 /// v = momentum * v + gradient
@@ -33,7 +33,7 @@ pub struct Sgd {
 }
 
 impl Sgd {
-    /// An SGD optimiser. Pass `momentum = 0.0` for plain SGD.
+    /// An SGD optimizer. Pass `momentum = 0.0` for plain SGD.
     pub fn new(lr: f32, momentum: f32) -> Sgd {
         Sgd { lr, momentum, velocity: Vec::new() }
     }
@@ -72,7 +72,7 @@ impl Sgd {
 /// v = beta2 * v + (1 - beta2) * g * g    the average squared gradient
 /// ```
 ///
-/// and steps by `lr * m / sqrt(v)`. Dividing by `sqrt(v)` normalises the
+/// and steps by `lr * m / sqrt(v)`. Dividing by `sqrt(v)` normalizes the
 /// step: a weight whose gradients are consistently tiny (common deep inside
 /// a recurrent layer) gets its steps scaled up, and one with huge gradients
 /// gets them scaled down, so that every weight moves by roughly `lr` per
@@ -170,7 +170,7 @@ pub fn clip_global_norm(grads: &mut Grads, max_norm: f32) -> f32 {
 /// A learning-rate schedule: linear warm-up, then cosine decay.
 ///
 /// * **Warm-up.** For the first `warmup_steps` steps the rate climbs in a
-///   straight line from 0 to `peak_lr`. Freshly initialised weights produce
+///   straight line from 0 to `peak_lr`. Freshly initialized weights produce
 ///   large, erratic gradients (and Adam's averages are not yet trustworthy),
 ///   so we begin with baby steps.
 /// * **Decay.** After that the rate glides down along half a cosine wave to

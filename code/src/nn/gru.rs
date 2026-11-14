@@ -73,10 +73,10 @@ use crate::rng::Rng;
 /// Which way a GRU walks along the sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
-    /// From the first frame to the last: the state at frame `t` summarises
+    /// From the first frame to the last: the state at frame `t` summarizes
     /// frames `0..=t`.
     Forward,
-    /// From the last frame to the first: the state at frame `t` summarises
+    /// From the last frame to the first: the state at frame `t` summarizes
     /// frames `t..T`.
     Backward,
 }
@@ -331,7 +331,7 @@ impl Gru {
 
 /// Two GRUs reading the same sequence in opposite directions.
 ///
-/// A forward GRU's state at frame `t` knows only the past. For recognising
+/// A forward GRU's state at frame `t` knows only the past. For recognizing
 /// speech from a recording (rather than live) there is no reason to be so
 /// strict: what follows a sound is as informative as what came before it. A
 /// bidirectional GRU runs a second, independent GRU from the last frame to
@@ -347,7 +347,7 @@ pub struct BiGru {
 }
 
 impl BiGru {
-    /// Two independently initialised GRUs with `hidden` state entries each;
+    /// Two independently initialized GRUs with `hidden` state entries each;
     /// the output has `2 * hidden` columns.
     pub fn new(n_in: usize, hidden: usize, rng: &mut Rng) -> Self {
         BiGru { fwd: Gru::new(n_in, hidden, rng), bwd: Gru::new(n_in, hidden, rng) }

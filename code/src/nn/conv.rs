@@ -1,9 +1,9 @@
 //! 1-D convolution over time.
 //!
 //! A linear layer looks at one frame at a time. A convolution looks at a
-//! short *window* of `kernel` neighbouring frames, and slides that window
+//! short *window* of `kernel` neighboring frames, and slides that window
 //! along the sequence. The same weights are used at every position, so a
-//! pattern (say, the sudden burst of a "t") is recognised wherever in the
+//! pattern (say, the sudden burst of a "t") is recognized wherever in the
 //! clip it happens.
 //!
 //! # Shapes
@@ -71,7 +71,7 @@ pub struct Conv1d {
 }
 
 impl Conv1d {
-    /// A convolution with He-initialised weights (in all our models a
+    /// A convolution with He-initialized weights (in all our models a
     /// convolution is followed by a ReLU) and zero biases.
     pub fn new(c_in: usize, c_out: usize, kernel: usize, stride: usize, padding: usize, rng: &mut Rng) -> Self {
         assert!(kernel >= 1 && stride >= 1, "Conv1d: kernel and stride must be at least 1");

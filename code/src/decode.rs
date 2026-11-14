@@ -3,14 +3,14 @@
 //! A CTC-trained network gives us, for each of T frames, a probability for
 //! each of C classes (class 0 is the blank). Training summed over every
 //! alignment of a *known* target. Decoding is the reverse problem: no target
-//! is given, and we want the labelling that is most probable.
+//! is given, and we want the labeling that is most probable.
 //!
 //! Three decoders live here, from simple to careful:
 //!
 //! * [`greedy`]: take the most probable class in every frame, then collapse.
 //!   Fast and often right, but it finds the most probable *alignment*, not
-//!   the most probable *labelling*, and those can differ.
-//! * [`prefix_beam_search`]: keep the best few labellings-so-far (prefixes)
+//!   the most probable *labeling*, and those can differ.
+//! * [`prefix_beam_search`]: keep the best few labelings-so-far (prefixes)
 //!   as we sweep over the frames, adding up the probability of all the
 //!   alignments that lead to each one.
 //! * [`lexicon_beam_search`]: the same search, but a prefix is only allowed
@@ -59,7 +59,7 @@ impl Alphabet {
         labels
     }
 
-    /// Class ids to text. Blanks are skipped (a collapsed labelling has none
+    /// Class ids to text. Blanks are skipped (a collapsed labeling has none
     /// anyway).
     pub fn decode(labels: &[usize]) -> String {
         labels.iter().filter(|&&label| label != Self::BLANK).map(|&label| Self::symbol(label)).collect()
@@ -105,13 +105,13 @@ pub fn greedy(log_probs: &Mat) -> Vec<usize> {
     collapse(&best_path(log_probs))
 }
 
-/// One decoded labelling and its score.
+/// One decoded labeling and its score.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hypothesis {
     /// The class ids, collapsed (no blanks, repeats only where intended).
     pub labels: Vec<usize>,
     /// `ln p(labels | input)`: the log of the summed probability of the
-    /// alignments the search kept for this labelling. With a wide enough beam
+    /// alignments the search kept for this labeling. With a wide enough beam
     /// that is all of them.
     pub log_prob: f32,
 }
@@ -130,7 +130,7 @@ pub struct Hypothesis {
 /// So we need to know how much of the prefix's probability is of each kind.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BeamEntry {
-    /// The labelling so far.
+    /// The labeling so far.
     pub labels: Vec<usize>,
     /// Log of the summed probability of the alignments of `labels` that end
     /// in a blank.
@@ -271,7 +271,7 @@ fn advance(beam: &[BeamEntry], frame: &[f32], beam_width: usize, lexicon: Option
 ///
 /// Sweeps over the frames once, keeping at most `beam_width` prefixes alive
 /// (see [`beam_step`] for what happens at each frame). Returns the surviving
-/// labellings, most probable first.
+/// labelings, most probable first.
 ///
 /// The search is exact if the beam never has to throw anything away, and an
 /// approximation otherwise: a prefix that is dropped takes its probability
@@ -284,8 +284,8 @@ pub fn prefix_beam_search(log_probs: &Mat, beam_width: usize) -> Vec<Hypothesis>
     beam.into_iter().map(|entry| Hypothesis { log_prob: entry.log_total(), labels: entry.labels }).collect()
 }
 
-/// The exact probability of **every** labelling, by enumerating all `C^T`
-/// alignments and adding each one's probability to the labelling it
+/// The exact probability of **every** labeling, by enumerating all `C^T`
+/// alignments and adding each one's probability to the labeling it
 /// collapses to. Most probable first.
 ///
 /// This is what beam search approximates. It is only feasible for toy inputs
@@ -355,7 +355,7 @@ impl Lexicon {
 
     /// Build a lexicon in which each word comes with a log-probability, for
     /// example the log of how often it occurs (a **unigram** model: each
-    /// word scored on its own, ignoring its neighbours).
+    /// word scored on its own, ignoring its neighbors).
     pub fn with_log_probs(words: &[(&str, f32)]) -> Self {
         let mut lexicon = Lexicon::new(&words.iter().map(|&(word, _)| word).collect::<Vec<_>>());
         // `insert` ignores repeated words, so look each one up again.
@@ -627,7 +627,7 @@ mod tests {
     }
 
     /// With a beam wide enough to hold every prefix, beam search is exact:
-    /// same labellings, same probabilities as the enumeration.
+    /// same labelings, same probabilities as the enumeration.
     #[test]
     fn wide_beam_matches_brute_force_exactly() {
         let mut rng = Rng::new(31);
@@ -699,8 +699,8 @@ mod tests {
     }
 
     /// With a wide beam the constrained search must return exactly the valid
-    /// labellings, each with its exact probability, and so its top answer is
-    /// the most probable *valid* labelling. Classes: blank, space, a, b.
+    /// labelings, each with its exact probability, and so its top answer is
+    /// the most probable *valid* labeling. Classes: blank, space, a, b.
     #[test]
     fn lexicon_search_matches_brute_force_over_valid_labellings() {
         let mut rng = Rng::new(33);
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn lexicon_fixes_a_misspelling() {
         let mut lp = Mat::from_fn(8, Alphabet::SIZE, |_, _| 0.002f32);
-        let spelled = Alphabet::encode("l_e_f_t_".replace('_', "").as_str());
+        let spelled = Alphabet::encode("left");
         for (i, &letter) in spelled.iter().enumerate() {
             lp[(2 * i, letter)] = 0.9;
             lp[(2 * i + 1, Alphabet::BLANK)] = 0.9;

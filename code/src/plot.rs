@@ -71,7 +71,7 @@ pub enum Color {
     Ink70,
     /// Ink at 48% opacity: captions, reference lines.
     Ink48,
-    /// Ink at 30% opacity: axes, de-emphasised series.
+    /// Ink at 30% opacity: axes, de-emphasized series.
     Ink30,
     /// The accent, `#047857`.
     Green,
@@ -510,14 +510,14 @@ impl LinePlot {
         self
     }
 
-    /// A dashed horizontal marker at `y` (a threshold, say), labelled at its
+    /// A dashed horizontal marker at `y` (a threshold, say), labeled at its
     /// right end.
     pub fn hline(mut self, y: f32, label: &str) -> Self {
         self.hlines.push(Marker { at: y, label: label.to_string(), color: Color::Ink48 });
         self
     }
 
-    /// Write a short note centred just above the data point `(x, y)`.
+    /// Write a short note centered just above the data point `(x, y)`.
     pub fn annotate(mut self, x: f32, y: f32, label: &str) -> Self {
         self.notes.push(Note { x, y, label: label.to_string() });
         self
@@ -578,7 +578,7 @@ impl LinePlot {
     }
 
     fn legend_entries(&self) -> Vec<(&str, Color, bool)> {
-        let labelled: Vec<_> = self
+        let labeled: Vec<_> = self
             .series
             .iter()
             .enumerate()
@@ -587,8 +587,8 @@ impl LinePlot {
             .collect();
         match self.legend {
             Some(false) => Vec::new(),
-            Some(true) => labelled,
-            None if labelled.len() >= 2 => labelled,
+            Some(true) => labeled,
+            None if labeled.len() >= 2 => labeled,
             None => Vec::new(),
         }
     }
@@ -915,7 +915,7 @@ impl Heatmap {
         self
     }
 
-    /// Draw a line through the centres of the given `(row, col)` cells, in
+    /// Draw a line through the centers of the given `(row, col)` cells, in
     /// order: a DTW warping path, a decoded alignment. The line is drawn
     /// above the cells but below any cell text.
     pub fn path(mut self, cells: &[(usize, usize)], color: Color) -> Self {
@@ -1069,7 +1069,7 @@ impl Heatmap {
             );
         } else {
             // Each cell is drawn a touch too large, so that it overlaps its
-            // right and lower neighbours. Cells that merely touch leave
+            // right and lower neighbors. Cells that merely touch leave
             // hairline gaps where the renderer rounds their edges apart.
             let overlap = 0.4;
             svg.push_str("<g>\n");
@@ -1089,7 +1089,7 @@ impl Heatmap {
             }
             svg.push_str("</g>\n");
         }
-        let centre = |row: usize, col: usize| {
+        let center = |row: usize, col: usize| {
             let (gx, gy) = self.grid_position(row, col);
             (area.x + (gx as f32 + 0.5) * cell_w, area.y + (gy as f32 + 0.5) * cell_h)
         };
@@ -1098,7 +1098,7 @@ impl Heatmap {
         for (cells, color) in &self.paths {
             let mut points = String::new();
             for &(row, col) in cells {
-                let (cx, cy) = centre(row, col);
+                let (cx, cy) = center(row, col);
                 let _ = write!(points, "{},{} ", px(cx), px(cy));
             }
             let _ = writeln!(
@@ -1114,7 +1114,7 @@ impl Heatmap {
             for row in 0..self.values.rows {
                 for col in 0..self.values.cols {
                     let value = self.values[(row, col)];
-                    let (cx, cy) = centre(row, col);
+                    let (cx, cy) = center(row, col);
                     let fill = if shade(value) > 0.55 { PAPER } else { INK };
                     let label = if value.is_finite() { tick_label(value, decimals) } else { "\u{221E}".to_string() };
                     text(svg, (cx, cy + 3.5), &label, TextStyle::Tick, Anchor::Middle, fill, 0.0);
@@ -1134,7 +1134,7 @@ impl Heatmap {
 
         // Outlined cells.
         for &(row, col, color) in &self.outlines {
-            let (cx, cy) = centre(row, col);
+            let (cx, cy) = center(row, col);
             let _ = writeln!(
                 svg,
                 "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"1.75\"/>",
@@ -1162,7 +1162,7 @@ impl Heatmap {
                     );
                 }
             } else {
-                // Without a range the axis counts cells; cell i is centred on i.
+                // Without a range the axis counts cells; cell i is centered on i.
                 let (lo, hi) = self.x_range.unwrap_or((-0.5, nx as f32 - 0.5));
                 let scale = Scale { lo, hi, px_lo: area.x, px_hi: right };
                 let (ticks, decimals) = nice_ticks(lo, hi, 8);
@@ -1250,7 +1250,7 @@ impl Heatmap {
                 );
             }
             if !label.is_empty() {
-                // Not an overline: units like "dB" must keep their capitalisation.
+                // Not an overline: units like "dB" must keep their capitalization.
                 text(svg, (bar_x, area.y - 9.0), label, TextStyle::Tick, Anchor::Start, Color::Ink48.css(), 0.0);
             }
         }
@@ -1407,12 +1407,12 @@ impl BarChart {
         let baseline = ys.at(0.0f32.clamp(lo, hi));
         let rotated = self.labels_are_rotated(area.w);
         for (i, (&value, label)) in self.values.iter().zip(&self.labels).enumerate() {
-            let centre = area.x + (i as f32 + 0.5) * slot;
+            let center = area.x + (i as f32 + 0.5) * slot;
             let top = ys.at(value.clamp(lo, hi));
             let _ = writeln!(
                 svg,
                 "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"1.5\" fill=\"{}\"/>",
-                px(centre - bar_w / 2.0),
+                px(center - bar_w / 2.0),
                 px(top.min(baseline)),
                 px(bar_w),
                 px((baseline - top).abs()),
@@ -1421,7 +1421,7 @@ impl BarChart {
             if let Some(decimals) = self.value_decimals {
                 text(
                     svg,
-                    (centre, top.min(baseline) - 5.0),
+                    (center, top.min(baseline) - 5.0),
                     &tick_label(value, decimals),
                     TextStyle::Tick,
                     Anchor::Middle,
@@ -1433,9 +1433,9 @@ impl BarChart {
                 // A highlighted bar gets a full-strength label.
                 let fill = if self.colors[i] == Color::Ink30 { Color::Ink70.css() } else { INK };
                 if rotated {
-                    text(svg, (centre + 3.0, bottom + 12.0), label, TextStyle::Category, Anchor::End, fill, -45.0);
+                    text(svg, (center + 3.0, bottom + 12.0), label, TextStyle::Category, Anchor::End, fill, -45.0);
                 } else {
-                    text(svg, (centre, bottom + 16.0), label, TextStyle::Category, Anchor::Middle, fill, 0.0);
+                    text(svg, (center, bottom + 16.0), label, TextStyle::Category, Anchor::Middle, fill, 0.0);
                 }
             }
         }
@@ -2153,7 +2153,7 @@ mod tests {
             *s = if i % 2 == 0 { 1.0 } else { -1.0 };
         }
         let art = waveform_ascii(&samples, 4, 2);
-        // Silence sits just below the centre line: the top half of row 1.
+        // Silence sits just below the center line: the top half of row 1.
         assert_eq!(art, "██\n██▀▀\n");
 
         // Faint noise around zero stays one steady thin line.

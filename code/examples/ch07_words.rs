@@ -67,7 +67,7 @@ impl Arch {
                 Layer::Relu,
                 Layer::linear(64, WORDS.len(), rng),
             ]),
-            // Three convolutions, each looking at 5 neighbouring frames of
+            // Three convolutions, each looking at 5 neighboring frames of
             // the layer below; the first two halve the frame rate. One
             // output frame sees 29 input frames, about 0.3 s.
             Arch::Conv => Model::new(vec![
@@ -115,7 +115,7 @@ struct Options {
     augment: bool,
 }
 
-/// One labelled set of clips: features and class ids.
+/// One labeled set of clips: features and class ids.
 struct Set {
     features: Vec<Mat>,
     labels: Vec<usize>,
@@ -233,7 +233,7 @@ fn load_sets(options: &Options) -> std::io::Result<[Set; 3]> {
 /// A cheap stand-in for "the speaker started a little earlier or later".
 /// The convolution and the GRU hardly care; the MLP, which has a separate
 /// weight for every frame, cares a great deal, and without this trick it
-/// simply memorises where each training clip happened to start.
+/// simply memorizes where each training clip happened to start.
 fn shift_in_time(features: &Mat, shift: i64) -> Mat {
     let last = features.rows as i64 - 1;
     Mat::from_fn(features.rows, features.cols, |r, c| features[((r as i64 - shift).clamp(0, last) as usize, c)])
@@ -242,7 +242,7 @@ fn shift_in_time(features: &Mat, shift: i64) -> Mat {
 /// Hide a random stretch of time and a random band of frequencies by
 /// setting them to zero (which, after normalization, is each band's average
 /// value): up to `max_frames` consecutive frames and up to `max_bands`
-/// neighbouring mel bands.
+/// neighboring mel bands.
 ///
 /// The network sees every training clip once per epoch, and after a few
 /// epochs it starts to recognize the *clips* rather than the words. Hiding

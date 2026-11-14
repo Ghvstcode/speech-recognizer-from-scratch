@@ -50,11 +50,24 @@
 //! false alarms. A tensor whose gradients are *all* tiny passes if no entry
 //! is off by more than a small absolute amount.
 //!
-//! One caveat: ReLU has a kink at zero. If a nudge pushes some unit across
-//! the kink, the numerical estimate is off for an honest reason. With small
-//! models and a fixed seed this is rarely a problem; if a ReLU model fails
-//! the check with a relative error of a few percent in one tensor, try
-//! another seed or tanh before hunting for a bug.
+//! # The ReLU caveat
+//!
+//! ReLU has a kink at zero, and a central difference that straddles a kink
+//! measures the average of two different slopes, which is the derivative of
+//! neither side. With `eps = 1e-2` this is not a rare accident: a nudge of
+//! that size moves the input of every unit a little, and in a ReLU network
+//! with a few dozen units some unit often sits close enough to zero to be
+//! pushed across. A perfectly correct backward pass can then fail the check,
+//! typically with a relative error of a few percent in one or two tensors
+//! while the others pass.
+//!
+//! Before hunting for a bug, run the check again with a smaller nudge
+//! (`eps = 1e-3`: fewer units are within reach of their kink, at the price
+//! of more rounding noise) or with another seed, so that the units sit
+//! somewhere else. A false alarm from a kink shrinks or disappears; a real
+//! bug stays at `0.1` or more whatever you do. Checking the same
+//! architecture with tanh in place of ReLU settles it for the other layers.
+//! `examples/ch06_gradcheck.rs` stages such a false alarm on purpose.
 
 use super::model::{Grads, Model};
 use crate::mat::Mat;
@@ -64,7 +77,9 @@ use std::fmt;
 /// Settings for [`gradcheck`].
 #[derive(Clone, Copy, Debug)]
 pub struct GradCheckConfig {
-    /// How far to nudge each value. `1e-2` suits `f32`; see the module docs.
+    /// How far to nudge each value. `1e-2` suits `f32` for smooth models. A
+    /// ReLU model can fail at that size without being wrong (a nudge crosses
+    /// a kink); retry with `1e-3` or another seed. See the module docs.
     pub eps: f32,
     /// Largest relative error that still counts as agreement.
     pub tolerance: f64,

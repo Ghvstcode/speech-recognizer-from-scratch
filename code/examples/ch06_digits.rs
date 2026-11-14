@@ -1,4 +1,4 @@
-//! Chapter 6: a neural network recognises the digits chapter 5 matched by
+//! Chapter 6: a neural network recognizes the digits chapter 5 matched by
 //! template.
 //!
 //! ```text
@@ -43,7 +43,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 const USAGE: &str = "usage: ch06_digits                      train, compare with DTW, save the model, write the figures
-       ch06_digits classify FILE.wav    load the saved model and recognise one recording";
+       ch06_digits classify FILE.wav    load the saved model and recognize one recording";
 
 /// Where the figures go, relative to `code/`.
 const FIGURES: &str = "../figures";
@@ -255,7 +255,7 @@ impl Recipe {
     }
 }
 
-/// A fresh, randomly initialised network. He initialisation for the layers
+/// A fresh, randomly initialized network. He initialization for the layers
 /// that feed a ReLU, Xavier for the last.
 fn new_model(n_inputs: usize, hidden: (usize, usize), rng: &mut Rng) -> Model {
     Model::new(vec![
@@ -397,7 +397,7 @@ fn with_spread(values: &[f32]) -> String {
     format!("{mean:>5.1}% ({low:.1}-{high:.1})")
 }
 
-/// Summarise [`accuracy_on_all_splits`]: per seed, the official-split
+/// Summarize [`accuracy_on_all_splits`]: per seed, the official-split
 /// accuracy and the mean over the six held-out speakers.
 fn official_and_unseen(runs: &[Vec<Trained>]) -> (Vec<f32>, Vec<f32>) {
     let official = runs[0].iter().map(Trained::test_accuracy).collect();
@@ -640,7 +640,7 @@ fn draw_dtw_vs_mlp(comparison: &Comparison, path: &str) -> io::Result<()> {
     let mut chart = BarChart::new("DTW (gray) against the MLP (green): known speakers, each speaker unseen, and the unseen mean", &labels, &values)
         .y_range(0.0, 115.0)
         .y_label("accuracy (%)")
-        .x_label("who is being recognised (\"known\": official split; a name: that speaker was left out)")
+        .x_label("who is being recognized (\"known\": official split; a name: that speaker was left out)")
         .show_values(1)
         .height(230.0);
     for mlp_bar in (1..values.len()).step_by(2) {

@@ -4,7 +4,10 @@
 //! so) unless both of these are available:
 //!
 //! - the model, in `$SPEECH_DATA/whisper-tiny.en/` (default `../data/...`);
-//! - a 16 kHz mono PCM16 recording, named by `WHISPER_TEST_WAV`.
+//! - a WAV recording, named by `WHISPER_TEST_WAV` (any sample rate and
+//!   channel count our reader understands; it is brought to 16 kHz mono).
+//!   The recipe below writes 16 kHz mono directly, so the test does not
+//!   depend on the resampler.
 //!
 //! Optionally `WHISPER_TEST_TEXT` gives words the transcript must contain
 //! (compared ignoring case and punctuation):
@@ -26,11 +29,11 @@ fn setup() -> Option<(Whisper, Vec<f32>)> {
         return None;
     }
     let Some(wav) = std::env::var_os("WHISPER_TEST_WAV").map(PathBuf::from) else {
-        eprintln!("skipping: set WHISPER_TEST_WAV to a 16 kHz mono WAV file to run this test");
+        eprintln!("skipping: set WHISPER_TEST_WAV to a WAV file to run this test");
         return None;
     };
     let model = Whisper::load(&dir).expect("the model files should load");
-    let samples = audio::read_wav_16k_mono(&wav).expect("WHISPER_TEST_WAV should be a 16 kHz mono PCM16 file");
+    let samples = audio::read_wav_16k_mono(&wav).expect("WHISPER_TEST_WAV should be a WAV file our reader understands");
     Some((model, samples))
 }
 

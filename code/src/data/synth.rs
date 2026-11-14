@@ -106,9 +106,9 @@ impl Default for TrimConfig {
 /// `None` if the clip should not be used.
 ///
 /// This is the endpoint detector of chapter 2 ([`find_speech`]) plus a
-/// margin. In roughly one clip in a hundred the detector finds nothing (the
+/// margin. In roughly one clip in three hundred the detector finds nothing (the
 /// recording is noise from end to end, or silent). We could keep the whole
-/// second in that case, but a second of noise labelled "seven" would teach
+/// second in that case, but a second of noise labeled "seven" would teach
 /// the recognizer the wrong thing, so we drop those clips. Nobody will miss
 /// them among 85,000 others.
 pub fn locate_word(samples: &[f32], config: &TrimConfig) -> Option<(usize, usize)> {
@@ -366,7 +366,7 @@ impl Utterance {
 
 /// Change the speed of a recording by reading it at a different rate:
 /// output sample `i` is the input at position `i * speed`, interpolated
-/// linearly between its two neighbours. `speed = 1.1` makes it 10% shorter
+/// linearly between its two neighbors. `speed = 1.1` makes it 10% shorter
 /// and, like a record played too fast, a little higher. (Linear
 /// interpolation dulls the very highest frequencies slightly; for a change
 /// of a few percent that is far below what the mel filterbank can see.)
@@ -403,7 +403,7 @@ fn fade_edges(samples: &mut [f32], fade: usize) {
 /// generator, the result would depend on which thread got there first.
 /// Instead every utterance gets a generator of its own, seeded from the
 /// stream's seed and its own number. (The odd constants only make sure that
-/// neighbouring indices and neighbouring seeds give unrelated generators;
+/// neighboring indices and neighboring seeds give unrelated generators;
 /// `Rng::new` scrambles the result further.)
 pub fn utterance_seed(seed: u64, index: u64) -> u64 {
     seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (index.wrapping_add(1)).wrapping_mul(0xD6E8_FEB8_6659_FD93)

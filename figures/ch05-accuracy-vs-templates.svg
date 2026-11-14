@@ -55,7 +55,7 @@
 <circle cx="369.28" cy="113.14" r="2.4" fill="#047857" stroke="#F5F3EF" stroke-width="0.75"/>
 <circle cx="745.87" cy="111.33" r="2.4" fill="#047857" stroke="#F5F3EF" stroke-width="0.75"/>
 </g>
-<text x="83.06" y="201.19" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">91.0%</text>
-<text x="143.32" y="116.69" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">98.8%</text>
-<text x="745.87" y="103.33" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">100.0%</text>
+<text x="122.23" y="229.36" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">91.0%</text>
+<text x="165.91" y="137.28" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">98.8%</text>
+<text x="742.86" y="100.08" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)">100.0%</text>
 </svg>

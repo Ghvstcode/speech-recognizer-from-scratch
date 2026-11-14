@@ -49,7 +49,7 @@ fn make_spiral(per_arm: usize, rng: &mut Rng) -> (Vec<[f32; 2]>, Vec<usize>) {
     let (mut points, mut arms) = (Vec::new(), Vec::new());
     for arm in 0..ARMS {
         for i in 0..per_arm {
-            let radius = (i as f32 + 0.5) / per_arm as f32; // 0 at the centre, 1 at the tip
+            let radius = (i as f32 + 0.5) / per_arm as f32; // 0 at the center, 1 at the tip
             // Each arm starts a third of a turn after the previous one and
             // winds a bit more than half a turn on its way out.
             let angle = arm as f32 * std::f32::consts::TAU / ARMS as f32 + radius * 4.0 + 0.15 * rng.normal();
@@ -110,7 +110,7 @@ fn main() {
     let (train_points, train_arms) = make_spiral(100, &mut rng);
     let (test_points, test_arms) = make_spiral(50, &mut rng);
 
-    // He initialisation for the two layers that feed a ReLU, Xavier for the last.
+    // He initialization for the two layers that feed a ReLU, Xavier for the last.
     let mut model = Model::new(vec![
         Layer::linear_he(2, 32, &mut rng),
         Layer::Relu,

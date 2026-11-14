@@ -11,7 +11,7 @@ pub mod dsp; // framing, windows, FFT, mel, MFCC         (chapters 2-4)
 pub mod plot; // SVG and terminal plots for the book's figures
 
 pub mod dtw; // dynamic time warping                     (chapter 5)
-pub mod nn; // layers, backprop, optimisers              (chapters 6-7)
+pub mod nn; // layers, backprop, optimizers              (chapters 6-7)
 pub mod ctc; // connectionist temporal classification    (chapter 8)
 pub mod decode; // greedy and beam search decoding       (chapter 10)
 pub mod metrics; // edit distance, WER, CER              (chapter 10)

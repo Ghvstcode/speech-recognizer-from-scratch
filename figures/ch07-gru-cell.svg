@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="430" viewBox="0 0 800 430" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>One step of a GRU</title>
+  <desc>The previous state enters on the left and travels along a green line at the top to a blend box, which outputs the new state on the right. Below, three boxes each read the input frame and the previous state: the reset gate r, the candidate n, and the update gate z. The reset gate feeds the candidate. The candidate and the update gate feed the blend, which computes the new state as one minus z times n, plus z times the previous state. Where z is near one the old state is copied straight through.</desc>
+  <defs>
+    <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.6" fill="rgba(25,22,21,.09)"/>
+    </pattern>
+    <marker id="g" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0.5,0.5 L7.5,4 L0.5,7.5 Z" fill="#047857"/>
+    </marker>
+    <marker id="k" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0.5,0.5 L7.5,4 L0.5,7.5 Z" fill="rgba(25,22,21,.60)"/>
+    </marker>
+    <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0.5,0.5 L7.5,4 L0.5,7.5 Z" fill="#B45309"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#F5F3EF"/>
+  <rect x="0" y="48" width="800" height="340" fill="url(#dots)"/>
+
+  <text x="24" y="30" font-size="15.5" font-weight="500" fill="#191615">One step of a GRU: two gates decide how the memory is rewritten</text>
+
+  <!-- group box: the cell -->
+  <rect x="96" y="62" width="650" height="296" rx="10" fill="none" stroke="rgba(25,22,21,.30)" stroke-dasharray="3 3"/>
+  <text x="110" y="80" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.60)">GRU, FRAME t</text>
+
+  <!-- the state line (copy path) -->
+  <path d="M24,120 L576,120" stroke="#047857" stroke-width="2" fill="none" marker-end="url(#g)"/>
+  <path d="M736,120 L786,120" stroke="#047857" stroke-width="2" fill="none" marker-end="url(#g)"/>
+  <text x="24" y="108" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#047857">h(t-1)</text>
+  <text x="752" y="108" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#047857">h(t)</text>
+  <rect x="236" y="109" width="216" height="22" rx="8" fill="#F5F3EF" stroke="rgba(25,22,21,.15)"/>
+  <text x="344" y="124" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#047857" text-anchor="middle">old state: copied where z ≈ 1</text>
+
+  <!-- branch of h(t-1) down to the input bus -->
+  <circle cx="60" cy="120" r="2.5" fill="#047857"/>
+  <path d="M60,120 L60,322" stroke="rgba(25,22,21,.60)" stroke-width="1.25" fill="none"/>
+  <!-- x(t) enters bottom-left -->
+  <text x="24" y="343" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#191615">x(t)</text>
+  <text x="24" y="359" font-size="11" fill="rgba(25,22,21,.60)">input frame</text>
+  <!-- the bus -->
+  <path d="M24,322 L655,322" stroke="rgba(25,22,21,.60)" stroke-width="1.25" fill="none"/>
+  <text x="250" y="340" font-size="11" fill="rgba(25,22,21,.60)">all three boxes read both x(t) and h(t-1)</text>
+  <circle cx="60" cy="322" r="2.5" fill="rgba(25,22,21,.60)"/>
+  <circle cx="190" cy="322" r="2.5" fill="rgba(25,22,21,.60)"/>
+  <circle cx="400" cy="322" r="2.5" fill="rgba(25,22,21,.60)"/>
+  <path d="M190,322 L190,274" stroke="rgba(25,22,21,.60)" stroke-width="1.25" fill="none" marker-end="url(#k)"/>
+  <path d="M400,322 L400,274" stroke="rgba(25,22,21,.60)" stroke-width="1.25" fill="none" marker-end="url(#k)"/>
+  <path d="M655,322 L655,274" stroke="rgba(25,22,21,.60)" stroke-width="1.25" fill="none" marker-end="url(#k)"/>
+
+  <!-- reset gate -->
+  <rect x="116" y="200" width="148" height="72" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,.15)"/>
+  <text x="128" y="219" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#B45309">RESET GATE</text>
+  <text x="128" y="240" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" fill="#191615">r = sigmoid(…)</text>
+  <text x="128" y="259" font-size="11" fill="rgba(25,22,21,.60)">between 0 and 1</text>
+
+  <!-- candidate -->
+  <rect x="316" y="200" width="168" height="72" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,.15)"/>
+  <text x="328" y="219" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.60)">CANDIDATE</text>
+  <text x="328" y="240" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" fill="#191615">n = tanh(… + r*…)</text>
+  <text x="328" y="259" font-size="11" fill="rgba(25,22,21,.60)">a proposed new state</text>
+
+  <!-- update gate -->
+  <rect x="581" y="200" width="148" height="72" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,.15)"/>
+  <text x="593" y="219" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#B45309">UPDATE GATE</text>
+  <text x="593" y="240" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" fill="#191615">z = sigmoid(…)</text>
+  <text x="593" y="259" font-size="11" fill="rgba(25,22,21,.60)">between 0 and 1</text>
+
+  <!-- r -> n -->
+  <path d="M264,236 L314,236" stroke="#B45309" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <text x="289" y="228" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#B45309" text-anchor="middle">r</text>
+
+  <!-- blend -->
+  <rect x="578" y="92" width="158" height="56" rx="8" fill="#FBFAF7" stroke="#047857" stroke-width="1.25"/>
+  <text x="590" y="111" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#047857">BLEND</text>
+  <text x="590" y="133" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" fill="#191615">(1-z)*n + z*h(t-1)</text>
+
+  <!-- n -> blend -->
+  <path d="M400,200 L400,168 L612,168 L612,150" stroke="rgba(25,22,21,.60)" stroke-width="1.5" fill="none" marker-end="url(#k)"/>
+  <text x="500" y="161" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#191615" text-anchor="middle">n</text>
+  <!-- z -> blend -->
+  <path d="M690,200 L690,150" stroke="#B45309" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <text x="702" y="180" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#B45309">z</text>
+
+  <text x="24" y="412" font-size="12" fill="rgba(25,22,21,.70)">h(t) is both this frame's output and the next frame's h(t-1). All arithmetic is element by element, on rows of H numbers.</text>
+</svg>

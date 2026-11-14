@@ -30,10 +30,10 @@
 //! * **The official split.** The dataset's authors reserve takes 0 to 4 of
 //!   every digit and speaker for testing (300 clips) and leave takes 5 to 49
 //!   for training (2,700 clips). Every test clip's speaker is also in the
-//!   training set. Question answered: *how well do we recognise people we
+//!   training set. Question answered: *how well do we recognize people we
 //!   have heard before?*
 //! * **Leave one speaker out.** Train on five speakers, test on all 500
-//!   clips of the sixth. Question answered: *how well do we recognise a
+//!   clips of the sixth. Question answered: *how well do we recognize a
 //!   stranger?* That is the question a real product faces, and it is much
 //!   harder.
 
@@ -127,8 +127,11 @@ pub fn load() -> io::Result<Vec<Clip>> {
 /// same seed picks the same clips on every machine.
 pub fn load_from(dir: &Path) -> io::Result<Vec<Clip>> {
     let listing = std::fs::read_dir(dir).map_err(|e| {
-        let hint = "download it with: git clone https://github.com/Jakobovski/free-spoken-digit-dataset $SPEECH_DATA/fsdd";
-        io::Error::new(e.kind(), format!("cannot open the digit recordings in {}: {e}\n({hint})", dir.display()))
+        let hint = "The Free Spoken Digit Dataset goes in ../data/fsdd, next to the code/ directory. From code/, run:\n    \
+                    git clone https://github.com/Jakobovski/free-spoken-digit-dataset ../data/fsdd\n\
+                    The clips are then in ../data/fsdd/recordings/. To keep the data somewhere else, set the\n\
+                    SPEECH_DATA environment variable to that directory and clone into $SPEECH_DATA/fsdd instead.";
+        io::Error::new(e.kind(), format!("cannot open the digit recordings in {}: {e}\n{hint}", dir.display()))
     })?;
     let mut clips = Vec::new();
     for entry in listing {
@@ -200,7 +203,7 @@ pub fn leave_one_speaker_out(clips: &[Clip]) -> Vec<(String, Split)> {
 
 /// The official split of a single speaker's clips: train on that speaker's
 /// takes 5 to 49, test on the same speaker's takes 0 to 4. This is the
-/// "train it on your own voice" setting of 1980s voice dialling.
+/// "train it on your own voice" setting of 1980s voice dialing.
 pub fn same_speaker_split(clips: &[Clip], speaker: &str) -> Split {
     let mut split = split_by(clips, Clip::is_official_test);
     split.train.retain(|&p| clips[p].speaker == speaker);

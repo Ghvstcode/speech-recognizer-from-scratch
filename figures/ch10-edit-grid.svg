@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="440" viewBox="0 0 800 440" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>The edit-distance grid for two short sentences</title>
+<desc>A five by five grid. Rows are the reference words turn, the, lights, off, preceded by an empty start row; columns are the hypothesis words turn, light, off, now, preceded by an empty start column. Each cell holds the smallest number of edits that turns the reference words so far into the hypothesis words so far. The top row counts 0 to 4 and so does the left column. The bottom-right cell holds 3, the edit distance. A highlighted path runs from the top-left to the bottom-right: a diagonal step for the match turn, a step down that deletes the, a diagonal step that substitutes light for lights, a diagonal step for the match off, and a step right that inserts now.</desc>
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="rgba(25,22,21,0.08)"/></pattern></defs>
+<rect width="100%" height="100%" fill="url(#dots)"/>
+<text x="40" y="36" font-size="16" font-weight="500" fill="#191615">Edit distance is a cheapest path through a grid</text>
+<text x="40" y="56" font-size="12.5" fill="rgba(25,22,21,0.7)">Each cell: the fewest edits that turn the reference words so far into the hypothesis words so far.</text>
+<text x="330.0" y="88" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)" text-anchor="middle">HYPOTHESIS (WHAT WE HEARD)</text>
+<text x="52" y="253.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)" text-anchor="middle" transform="rotate(-90 52 253.0)">REFERENCE (WHAT WAS SAID)</text>
+<g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#191615" text-anchor="middle">
+<text x="202" y="116" fill="rgba(25,22,21,0.48)">(start)</text>
+<text x="266" y="116">turn</text>
+<text x="330" y="116">light</text>
+<text x="394" y="116">off</text>
+<text x="458" y="116">now</text>
+</g>
+<g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#191615" text-anchor="end">
+<text x="158" y="157" fill="rgba(25,22,21,0.48)">(start)</text>
+<text x="158" y="207">turn</text>
+<text x="158" y="257">the</text>
+<text x="158" y="307">lights</text>
+<text x="158" y="357">off</text>
+</g>
+<rect x="170" y="128" width="320" height="250" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)"/>
+<g stroke="rgba(25,22,21,0.15)">
+<line x1="234" y1="128" x2="234" y2="378"/>
+<line x1="170" y1="178" x2="490" y2="178"/>
+<line x1="298" y1="128" x2="298" y2="378"/>
+<line x1="170" y1="228" x2="490" y2="228"/>
+<line x1="362" y1="128" x2="362" y2="378"/>
+<line x1="170" y1="278" x2="490" y2="278"/>
+<line x1="426" y1="128" x2="426" y2="378"/>
+<line x1="170" y1="328" x2="490" y2="328"/>
+</g>
+<polyline points="202,153 266,203 266,253 330,303 394,353 458,353" fill="none" stroke="#047857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="202" cy="153" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="202" y="158" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">0</text>
+<text x="266" y="158" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">1</text>
+<text x="330" y="158" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<text x="394" y="158" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="458" y="158" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">4</text>
+<text x="202" y="208" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">1</text>
+<circle cx="266" cy="203" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="266" y="208" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">0</text>
+<text x="330" y="208" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">1</text>
+<text x="394" y="208" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<text x="458" y="208" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="202" y="258" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<circle cx="266" cy="253" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="266" y="258" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">1</text>
+<text x="330" y="258" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">1</text>
+<text x="394" y="258" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<text x="458" y="258" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="202" y="308" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="266" y="308" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<circle cx="330" cy="303" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="330" y="308" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">2</text>
+<text x="394" y="308" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">2</text>
+<text x="458" y="308" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="202" y="358" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">4</text>
+<text x="266" y="358" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<text x="330" y="358" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="rgba(25,22,21,0.7)" text-anchor="middle">3</text>
+<circle cx="394" cy="353" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="394" y="358" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">2</text>
+<circle cx="458" cy="353" r="14" fill="#FBFAF7" stroke="#047857" stroke-width="1.5"/>
+<text x="458" y="358" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="500" fill="#047857" text-anchor="middle">3</text>
+<text x="490" y="400" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#047857" text-anchor="end">EDIT DISTANCE = 3</text>
+<rect x="530" y="96" width="238" height="150" rx="10" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-dasharray="3 3"/>
+<text x="548" y="120" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)">THREE WAYS INTO A CELL</text>
+<g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#191615">
+<text x="548" y="146">d[i][j] = min of</text>
+<text x="560" y="170">d[i-1][j-1] + 0 or 1</text>
+<text x="560" y="192">d[i-1][j]   + 1</text>
+<text x="560" y="214">d[i][j-1]   + 1</text>
+</g>
+<text x="548" y="234" font-size="11.5" fill="rgba(25,22,21,0.7)">0 if the two words are equal</text>
+<rect x="530" y="262" width="238" height="146" rx="10" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-dasharray="3 3"/>
+<text x="548" y="286" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)">READING THE GREEN PATH</text>
+<g font-size="12">
+<text x="548" y="310" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,0.48)">diagonal</text>
+<text x="622" y="310" fill="#191615">turn = turn</text>
+<text x="750" y="310" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#047857" text-anchor="end">+0</text>
+<text x="548" y="330" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,0.48)">down</text>
+<text x="622" y="330" fill="#191615">delete the</text>
+<text x="750" y="330" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#B45309" text-anchor="end">+1</text>
+<text x="548" y="350" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,0.48)">diagonal</text>
+<text x="622" y="350" fill="#191615">lights → light</text>
+<text x="750" y="350" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#B45309" text-anchor="end">+1</text>
+<text x="548" y="370" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,0.48)">diagonal</text>
+<text x="622" y="370" fill="#191615">off = off</text>
+<text x="750" y="370" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#047857" text-anchor="end">+0</text>
+<text x="548" y="390" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,0.48)">right</text>
+<text x="622" y="390" fill="#191615">insert now</text>
+<text x="750" y="390" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#B45309" text-anchor="end">+1</text>
+</g>
+</svg>

@@ -3,7 +3,7 @@
 //!
 //! A model's last layer produces one unbounded score per class for each row,
 //! the **logits**. Softmax turns a row of logits into probabilities (all
-//! positive, summing to 1) by exponentiating and normalising:
+//! positive, summing to 1) by exponentiating and normalizing:
 //!
 //! ```text
 //! p[c] = e^logit[c] / sum over k of e^logit[k]

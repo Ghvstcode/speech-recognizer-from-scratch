@@ -125,8 +125,13 @@ pub fn dft(input: &[Complex]) -> Vec<Complex> {
 
 /// The fast Fourier transform, in place. `buf.len()` must be a power of two.
 ///
-/// Same result as [`dft`], in `n log2(n)` steps instead of `n^2`. See
-/// [`Fft`] if you transform many buffers of the same length.
+/// Same result as [`dft`], in `n log2(n)` steps instead of `n^2`.
+///
+/// This builds a fresh [`Fft`] plan on every call, which means computing
+/// its table of `n/2` twiddle factors (a sine and a cosine each) again and
+/// throwing it away when the call returns. For a one-off that is fine; if
+/// you transform many buffers of the same length, build one
+/// [`Fft`] and call [`Fft::forward`] on it.
 pub fn fft(buf: &mut [Complex]) {
     Fft::new(buf.len()).forward(buf);
 }
@@ -186,7 +191,7 @@ impl Fft {
     /// of a single sample is the sample itself. [`fft_recursive`] does exactly
     /// that. Here we do the same work bottom-up, without recursion and
     /// without allocating: first put the samples in the order the recursion
-    /// would end up reading them, then combine neighbours into transforms of
+    /// would end up reading them, then combine neighbors into transforms of
     /// length 2, those into length 4, and so on.
     pub fn forward(&self, buf: &mut [Complex]) {
         let n = self.n;

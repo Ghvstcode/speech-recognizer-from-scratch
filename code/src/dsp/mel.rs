@@ -3,10 +3,10 @@
 //! The FFT spaces its bins evenly in Hz. Our ears do not work that way: the
 //! step from 200 Hz to 400 Hz sounds huge (an octave), the step from 6200 Hz
 //! to 6400 Hz is barely audible. The *mel scale* (from "melody") is a
-//! re-labelling of the frequency axis on which equal distances sound equally
+//! re-labeling of the frequency axis on which equal distances sound equally
 //! far apart: close to linear below about 1000 Hz, logarithmic above.
 //!
-//! A mel filterbank summarises the few hundred FFT bins as a few dozen
+//! A mel filterbank summarizes the few hundred FFT bins as a few dozen
 //! numbers by adding up the energy in overlapping bands that are evenly
 //! spaced *in mels*: narrow bands at the bottom, where the ear is picky, and
 //! wide ones at the top, where it is not.
@@ -38,7 +38,7 @@ pub fn mel_to_hz(mel: f32) -> f32 {
 /// to `fmax` inclusive.
 ///
 /// Filter `m` of the filterbank starts at point `m`, peaks at point `m + 1`
-/// and ends at point `m + 2`, so each filter's peak is where its neighbours
+/// and ends at point `m + 2`, so each filter's peak is where its neighbors
 /// begin and end.
 pub fn mel_points(n_mels: usize, fmin: f32, fmax: f32) -> Vec<f32> {
     let (mel_min, mel_max) = (hz_to_mel(fmin), hz_to_mel(fmax));
@@ -63,7 +63,7 @@ pub fn mel_points(n_mels: usize, fmin: f32, fmax: f32) -> Vec<f32> {
 /// # Normalization
 ///
 /// Every triangle has **peak height 1** (the HTK convention). Two things
-/// follow. Neighbouring triangles add up to exactly 1 everywhere between the
+/// follow. Neighboring triangles add up to exactly 1 everywhere between the
 /// first and the last peak, so no frequency in that range counts more than
 /// another. And the wide filters at the top collect more bins than the
 /// narrow ones at the bottom, so white noise gives mel energies that grow
@@ -96,10 +96,10 @@ mod tests {
     #[test]
     fn mel_scale_reference_points() {
         assert_eq!(hz_to_mel(0.0), 0.0);
-        // 2595 * log10(1 + 1000/700) = 2595 * 0.385340 = 999.99
+        // 2595 * log10(1 + 1000/700) = 2595 * 0.385351 = 999.99
         assert!((hz_to_mel(1000.0) - 1000.0).abs() < 0.1);
-        // 2595 * log10(1 + 8000/700) = 2595 * 1.094385 = 2839.93
-        assert!((hz_to_mel(8000.0) - 2839.93).abs() < 0.1);
+        // 2595 * log10(1 + 8000/700) = 2595 * 1.094421 = 2840.02
+        assert!((hz_to_mel(8000.0) - 2840.02).abs() < 0.01);
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod tests {
             let row = fb.row(m);
             assert!(row.iter().all(|w| (0.0..=1.0).contains(w)));
             let peak_bin = (0..row.len()).max_by(|&a, &b| row[a].total_cmp(&row[b])).unwrap();
-            // The tallest bin is the one nearest the filter's centre frequency...
+            // The tallest bin is the one nearest the filter's center frequency...
             assert!((peak_bin as f32 * hz_per_bin - points[m + 1]).abs() <= hz_per_bin, "filter {m} peaks at the wrong place");
             assert!(row[peak_bin] > 0.0, "filter {m} is empty: no FFT bin falls inside it");
             // ...weights rise up to it and fall after it...
