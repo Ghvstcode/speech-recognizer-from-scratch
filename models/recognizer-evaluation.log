@@ -1,0 +1,180 @@
+model: ../models/recognizer.bin (496508 weights)
+2000 validation and 2000 test utterances (95 min of test audio) scored in 5.2 s
+
+features + network: 5.3 ms per utterance on one thread (mean length 2.87 s, so 537x faster than real time)
+
+tuning the lexicon decoder's word bonus on the validation set (beam 16):
+  word bonus  -4.0   validation WER 8.13%
+  word bonus  -2.0   validation WER 8.02%
+  word bonus  -1.0   validation WER 8.02%
+  word bonus  +0.0   validation WER 8.03%
+  word bonus  +1.0   validation WER 8.05%
+  word bonus  +2.0   validation WER 8.08%
+  word bonus  +4.0   validation WER 8.15%
+  -> using word bonus -2.0
+
+| decoder (test set, 2000 utterances) |    CER |    WER | exact match | decode time |
+|------------------------------------|-------:|-------:|------------:|------------:|
+| greedy                             |  8.24% | 16.37% |       63.2% |     0.01 ms |
+| beam search, width 4               |  7.96% | 15.56% |       64.9% |     3.12 ms |
+| beam search, width 16              |  7.98% | 15.57% |       64.9% |    14.28 ms |
+| beam search, width 64              |  7.98% | 15.56% |       64.9% |    63.28 ms |
+| lexicon beam, width 4              |  7.95% | 10.54% |       75.0% |     0.45 ms |
+| lexicon beam, width 16             |  7.09% |  9.74% |       75.3% |     1.77 ms |
+| lexicon beam, width 64             |  7.06% |  9.69% |       75.4% |     7.24 ms |
+
+(the lexicon decoder returned nothing for 2 of 2000 utterances: no sequence of whole words survived in its beam)
+
+Errors greedy makes that the lexicon repairs:
+
+greedy:
+REF: happy wow six eight bird
+HYP: happy wow six eight bir
+                         S
+lexicon:
+REF: happy wow six eight bird
+HYP: happy wow six eight bird
+
+
+greedy:
+REF: one
+HYP: onr
+     S
+lexicon:
+REF: one
+HYP: one
+
+
+greedy:
+REF: yes nine nine three
+HYP: yes none nine three
+         S
+lexicon:
+REF: yes nine nine three
+HYP: yes nine nine three
+
+
+greedy:
+REF: four
+HYP: fourf
+     S
+lexicon:
+REF: four
+HYP: four
+
+
+greedy:
+REF: bed on eight nine tree
+HYP: cd  on eight nine tree
+     S
+lexicon:
+REF: bed on eight nine tree
+HYP: bed on eight nine tree
+
+
+greedy:
+REF: one nine go  right happy
+HYP: one nine gog right happy
+              S
+lexicon:
+REF: one nine go right happy
+HYP: one nine go right happy
+
+
+Errors that survive the lexicon:
+
+greedy:
+REF: three sheila yes  marvin three
+HYP: three sheila lern marvin three
+                  S
+lexicon:
+REF: three sheila yes  marvin three
+HYP: three sheila left marvin three
+                  S
+
+greedy:
+REF: stop zero one sheila on
+HYP: stop no   one sheila on
+          S
+lexicon:
+REF: stop zero one sheila on
+HYP: stop no   one sheila on
+          S
+
+greedy:
+REF: right down stop right
+HYP: right dog  stop right
+           S
+lexicon:
+REF: right down stop right
+HYP: right dog  stop right
+           S
+
+greedy:
+REF: off five visual dog
+HYP: off fig  visual dog
+         S
+lexicon:
+REF: off five visual dog
+HYP: off on   visual dog
+         S
+
+greedy:
+REF: right stop
+HYP: fiv   stop
+     S
+lexicon:
+REF: right stop
+HYP: five  stop
+     S
+
+utterances greedy gets wrong and the lexicon gets right: 245; the other way round: 1
+utterances greedy gets wrong and plain beam search (16) gets right: 44; the other way round: 9
+utterances still wrong with the lexicon: 493
+
+| words in utterance | utterances | greedy WER | lexicon WER | greedy exact | lexicon exact |
+|-------------------:|-----------:|-----------:|------------:|-------------:|--------------:|
+|                  1 |        403 |     17.12% |      10.67% |        83.4% |         89.3% |
+|                  2 |        408 |     19.36% |      11.64% |        66.9% |         79.4% |
+|                  3 |        384 |     14.93% |       9.03% |        64.8% |         77.1% |
+|                  4 |        392 |     15.69% |       9.12% |        55.6% |         69.4% |
+|                  5 |        413 |     16.37% |       9.69% |        45.3% |         61.7% |
+
+| noise                      | utterances | greedy WER | lexicon WER |
+|----------------------------|-----------:|-----------:|------------:|
+| none (hiss only)           |        422 |     13.16% |       7.97% |
+| SNR 20 to 30 dB            |        596 |     13.33% |       7.94% |
+| SNR 15 to 20 dB            |        335 |     16.40% |       9.14% |
+| SNR 10 to 15 dB            |        316 |     18.10% |      11.61% |
+| SNR 5 to 10 dB             |        331 |     23.88% |      13.88% |
+
+| speakers                   | utterances | greedy WER | lexicon WER |
+|----------------------------|-----------:|-----------:|------------:|
+| one speaker per utterance  |        480 |     16.27% |       9.92% |
+| a new speaker per word     |       1117 |     16.34% |       9.57% |
+
+most frequent word errors on the test set (said -> heard):
+  greedy                             lexicon
+   23  three -> tree                  23  three -> tree
+   17  tree -> three                  18  forward -> four
+   13  two -> to                      18  tree -> three
+    9  forward -> four                15  off -> up
+    8  bed -> be                      12  learn -> left
+    7  four -> for                    10  follow -> four
+    7  go -> no                        9  down -> dog
+    7  learn -> left                   9  go -> no
+    7  off -> up                       9  up -> off
+    6  dog -> do                       7  on -> off
+    6  off -> of                       7  one -> on
+    5  bed -> bd                       6  follow -> forward
+
+12.2% of the words greedy decoding spells are not among the 35 words at all (e.g. "lefd"); the lexicon makes that impossible.
+
+| other test conditions                         | utterances | greedy WER | lexicon WER | lexicon exact |
+|-----------------------------------------------|-----------:|-----------:|------------:|--------------:|
+| 6 to 8 words (training stopped at 5)          |        500 |     13.71% |       7.97% |         59.4% |
+| 2 to 5 words, no pauses (clips overlap)       |        500 |     14.72% |       7.67% |         77.2% |
+| SNR -5 to 5 dB (training stopped at 5)        |        500 |     45.69% |      30.33% |         40.0% |
+| single-word test clips, exactly as recorded   |      11005 |     17.66% |      11.29% |         88.7% |
+
+wrote ../figures/ch10-decoders.svg and ../figures/ch10-wer-by-length.svg

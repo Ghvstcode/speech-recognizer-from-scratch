@@ -1,6 +1,9 @@
 //! Dataset loaders: where the recordings live and how to read them.
 
 pub mod fsdd; // Free Spoken Digit Dataset: ten digits, six speakers (chapters 5-6)
+pub mod speech_commands; // Google Speech Commands: loader and official split (chapter 7)
+pub mod synth; // multi-word utterances built from single-word clips        (chapter 9)
+pub mod pipeline; // audio -> features -> network -> text, in one place     (chapters 9-11)
 
 use std::path::PathBuf;
 
