@@ -112,8 +112,10 @@ pub enum Decoder {
 impl Decoder {
     /// The beam width that is used when none is asked for.
     pub const DEFAULT_BEAM: usize = 16;
-    /// The word bonus tuned on the validation set in chapter 10.
-    pub const DEFAULT_WORD_BONUS: f32 = 0.0;
+    /// The word bonus tuned on the validation set in chapter 10 (it turned
+    /// out to matter very little: anything from -2 to +2 gives the same
+    /// error rate to within a tenth of a percent).
+    pub const DEFAULT_WORD_BONUS: f32 = -2.0;
 
     /// The decoder with this name (`greedy`, `beam` or `lexicon`) and
     /// default settings.

@@ -14,7 +14,7 @@
 
 use speech::data::pipeline::{Decoder, FrontEnd, Recognizer};
 use speech::data::speech_commands::{dataset_dir, load_background_noise, LoadOptions, SpeechCommands, Split, SAMPLE_RATE, WORDS};
-use speech::data::synth::{locate_word, Corpus, SynthConfig, Synthesizer, TrimConfig, Utterance, EVAL_UTTERANCES, TEST_SEED};
+use speech::data::synth::{locate_word, Corpus, NoiseBank, SynthConfig, Synthesizer, TrimConfig, Utterance, WordBank, EVAL_UTTERANCES, TEST_SEED};
 use speech::decode::Alphabet;
 use speech::mat::Mat;
 use speech::plot::{Color, Figure, Heatmap, LinePlot, Orientation, Series};
@@ -57,7 +57,7 @@ fn synthesis_figure(data: &SpeechCommands, corpus: &Corpus, front_end: &FrontEnd
     let duration = clean.seconds();
 
     // One raw clip of the first word, and what the trimmer keeps of it.
-    let clip = data.split(Split::Test).filter(|clip| clip.word == clean.words[0]).find(|clip| locate_word(&clip.audio(), &TrimConfig::default()).is_some_and(|(s, e)| (5000..9000).contains(&(e - s)) && s > 2500));
+    let clip = data.split(Split::Test).filter(|clip| clip.word == clean.words[0]).find(|clip| locate_word(&clip.audio(), &TrimConfig::default()).is_some_and(|(s, e)| (5000..9000).contains(&(e - s)) && s > 2500 && e < 13500));
     let clip = clip.expect("no test clip of that word");
     let audio = clip.audio_one_second();
     let (start, end) = locate_word(&clip.audio(), &TrimConfig::default()).expect("checked above");
@@ -113,20 +113,21 @@ fn training_curve() -> io::Result<()> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{LOG_PATH}: no training steps found")));
     }
     let last = *steps.last().unwrap_or(&1.0);
+    let errors = |title: &str, until: f32| {
+        let n = eval_steps.iter().filter(|&&step| step <= until).count();
+        LinePlot::new(title)
+            .y_label("error rate (%)")
+            .x_label("training step (32 utterances each)")
+            .series(Series::new("word error rate", &eval_steps[..n], &wers[..n]).color(Color::Amber).width(2.0).dots())
+            .series(Series::new("character error rate", &eval_steps[..n], &cers[..n]).color(Color::Green).width(2.0).dots())
+            .y_range(0.0, 100.0)
+            .x_range(0.0, until)
+    };
     Figure::new("Training the recognizer: loss, and errors on utterances it has never heard")
-        .desc("Top: the CTC loss per utterance over training steps, falling steeply at first. Bottom: character and word error rate on validation utterances with greedy decoding.")
-        .panel(LinePlot::new("CTC loss per utterance (average of the last 100 steps; the first value, off the chart, is about 400)").y_label("loss").series(Series::new("training loss", &steps, &losses).color(Color::Ink70)).y_range(0.0, 40.0).x_range(0.0, last).legend(false).height(170.0))
-        .panel(
-            LinePlot::new("error on 500 validation utterances, greedy decoding")
-                .y_label("error rate (%)")
-                .x_label("training step (32 utterances each)")
-                .series(Series::new("word error rate", &eval_steps, &wers).color(Color::Amber).width(2.0).dots())
-                .series(Series::new("character error rate", &eval_steps, &cers).color(Color::Green).width(2.0).dots())
-                .y_range(0.0, 100.0)
-                .x_range(0.0, last)
-                .height(190.0),
-        )
-        .share_x()
+        .desc("Top: the CTC loss per utterance over training steps, falling steeply at first and then slowly. Middle: character and word error rate on validation utterances with greedy decoding over the whole run. Bottom: the same for the first 2,000 steps, where the error falls from 100% to below 35%.")
+        .panel(LinePlot::new("CTC loss per utterance (average of 100 steps; it starts near 400, far off the chart)").y_label("loss").x_label("training step").series(Series::new("training loss", &steps, &losses).color(Color::Ink70)).y_range(0.0, 40.0).x_range(0.0, last).legend(false).height(150.0))
+        .panel(errors("500 validation utterances, greedy decoding", last).height(170.0))
+        .panel(errors("the first 2,000 steps of the same curves: nothing, then stray letters, then words", 2000.0).legend(false).height(150.0))
         .save("../figures/ch09-training-curve.svg")
 }
 
@@ -207,7 +208,7 @@ fn posteriors_over_training() -> io::Result<()> {
             100 => "step 100: it has learned one thing, to say blank everywhere".to_string(),
             300 => "step 300: the first letters poke through".to_string(),
             1000 => "step 1,000: most letters are there, some still unsure".to_string(),
-            s => format!("step {}: one sharp spike per letter, blank in between", thousands(s)),
+            s => format!("step {}, the finished model: short spikes for the letters, blank in between", thousands(s)),
         };
         let mut heatmap = Heatmap::new(&title, &grid).orientation(Orientation::TimeOnX).col_labels(&names).x_range(0.0, duration).value_range(0.0, 1.0).height(150.0);
         if k + 1 == chosen.len() {
@@ -244,7 +245,7 @@ fn alignment_figure(recognizer: &Recognizer, utterance: &Utterance) -> io::Resul
     // The probability of "some letter or space" per frame: the spikes.
     let times: Vec<f32> = (0..probabilities.rows).map(|t| (t as f32 + 0.5) * duration / probabilities.rows as f32).collect();
     let not_blank: Vec<f32> = (0..probabilities.rows).map(|t| 1.0 - probabilities[(t, Alphabet::BLANK)]).collect();
-    let mut spikes = LinePlot::new("probability that a frame is NOT blank: short spikes, one or two frames per letter").y_label("p(not blank)").series(Series::new("", &times, &not_blank).color(Color::Green)).x_range(0.0, duration).y_range(0.0, 1.0).height(90.0);
+    let mut spikes = LinePlot::new("probability that a frame is NOT blank: short spikes, one or two frames per letter").y_label("p(not blank)").series(Series::new("", &times, &not_blank).color(Color::Green)).x_range(0.0, duration).y_range(0.0, 1.3).height(100.0);
     for (&word, &(start, end)) in utterance.words.iter().zip(&utterance.spans) {
         spikes = spikes.span(start as f32 / 16000.0, end as f32 / 16000.0, WORDS[word]);
     }
@@ -259,11 +260,20 @@ fn alignment_figure(recognizer: &Recognizer, utterance: &Utterance) -> io::Resul
 
 /// Export a few test utterances (and one longer recording of several
 /// utterances with pauses between them, for the live demo of chapter 11).
-fn export_samples(recognizer: &Recognizer, test: &[Utterance]) -> io::Result<Vec<usize>> {
+fn export_samples(recognizer: &Recognizer, test: &[Utterance], words: &WordBank) -> io::Result<Vec<usize>> {
     // Readable examples: three or four words, mild noise or none, and ones
     // the recognizer gets right with plain greedy decoding. (The test set
     // also contains utterances it gets wrong; chapter 10 counts them.)
-    let suitable = |utt: &Utterance, n: usize| utt.words.len() == n && utt.snr_db.is_none_or(|snr| snr >= 15.0) && recognizer.transcribe(&utt.samples, &Decoder::Greedy) == utt.text();
+    let all_different = |words: &[usize]| words.iter().enumerate().all(|(i, w)| !words[..i].contains(w));
+    let suitable = |utt: &Utterance, n: usize| utt.words.len() == n && all_different(&utt.words) && utt.snr_db.is_none_or(|snr| snr >= 15.0) && recognizer.transcribe(&utt.samples, &Decoder::Greedy) == utt.text();
+    // Start clean: remove utterances exported by an earlier run (a
+    // different model may pick different ones).
+    for entry in std::fs::read_dir("../samples")? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if name.starts_with("utt_") && name.ends_with(".wav") {
+            std::fs::remove_file(format!("../samples/{name}"))?;
+        }
+    }
     let mut chosen: Vec<usize> = Vec::new();
     for n in [4, 3, 2, 5] {
         if let Some(i) = (0..test.len()).find(|&i| suitable(&test[i], n) && !chosen.contains(&i)) {
@@ -273,27 +283,36 @@ fn export_samples(recognizer: &Recognizer, test: &[Utterance]) -> io::Result<Vec
     let mut notes = String::from(
         "# Synthesized utterances\n\nMulti-word utterances for trying `speech transcribe` and `speech listen --from-file`\nwithout downloading any dataset. They were built by `code/examples/ch09_figures.rs` exactly\nlike the recognizer's test set (chapter 9): single-word clips from the **test** speakers of\nGoogle Speech Commands v0.02, trimmed, placed end to end with random pauses, with background\nnoise from the dataset's `_background_noise_` folder mixed in. The model never saw these\nspeakers or these stretches of noise in training.\n\n| File | Words | Background noise |\n|---|---|---|\n",
     );
-    let mut sequence: Vec<f32> = Vec::new();
-    let mut sequence_text = Vec::new();
     for &i in &chosen {
         let utt = &test[i];
         let name = format!("utt_{}.wav", utt.text().replace(' ', "_"));
         Wav::new(SAMPLE_RATE, utt.samples.clone()).write(format!("../samples/{name}"))?;
         let noise = utt.snr_db.map_or("none (faint hiss only)".to_string(), |snr| format!("SNR {snr:.0} dB"));
         notes.push_str(&format!("| `{name}` | \"{}\" | {noise} |\n", utt.text()));
-        // For the long recording: this utterance, then 1.2 s of its own
-        // quiet ending repeated (so the "silence" has the same faint hiss).
-        sequence.extend_from_slice(&utt.samples);
-        let tail = &utt.samples[utt.samples.len() - 800..];
-        for k in 0..(1.2 * SAMPLE_RATE as f32) as usize {
-            sequence.push(tail[k % tail.len()] * 0.5);
+    }
+
+    // One longer recording for the live demo: four utterances by test
+    // speakers with over a second of quiet between them. All four are made
+    // with the same level and the same faint hiss, so the "room" does not
+    // change from one utterance to the next.
+    let recipe = SynthConfig { min_words: 2, max_words: 4, noise_prob: 0.0, lead_ms: (600.0, 800.0), trail_ms: (600.0, 800.0), hiss_db: (-62.0, -62.0), utterance_gain_db: (-6.0, -6.0), ..SynthConfig::default() };
+    let no_noise = NoiseBank::empty();
+    let synthesizer = Synthesizer::new(words, &no_noise, recipe);
+    let (mut sequence, mut sequence_text): (Vec<f32>, Vec<String>) = (Vec::new(), Vec::new());
+    for index in 0..200u64 {
+        let utt = synthesizer.utterance_at(6006, index);
+        if all_different(&utt.words) && recognizer.transcribe(&utt.samples, &Decoder::Greedy) == utt.text() {
+            sequence.extend_from_slice(&utt.samples);
+            sequence_text.push(utt.text());
+            if sequence_text.len() == 4 {
+                break;
+            }
         }
-        sequence_text.push(utt.text());
     }
     Wav::new(SAMPLE_RATE, sequence).write("../samples/utterances_with_pauses.wav")?;
-    notes.push_str(&format!("| `utterances_with_pauses.wav` | the {} utterances above, one after another, 1.2 s of near-silence after each: \"{}\" | as above |\n", chosen.len(), sequence_text.join("\" ... \"")));
+    notes.push_str(&format!("| `utterances_with_pauses.wav` | four more utterances in one recording, more than a second of quiet between them: \"{}\" | none (faint hiss only) |\n", sequence_text.join("\" ... \"")));
     notes.push_str(&format!(
-        "\nThey are utterances {} of the fixed test set (seed {TEST_SEED}), chosen because they are short, not very\nnoisy, and recognized correctly: they are demonstrations, not a benchmark. Chapter 10 reports the\nerror rate over all {} test utterances.\n\n## License\n\nDerived from the Speech Commands dataset (Pete Warden, Google, 2018,\n<https://arxiv.org/abs/1804.03209>), which is licensed under\n[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).\nThese derived files are distributed under the same license. Changes made: clips were trimmed,\nchanged in speed by up to 10%, scaled, concatenated and mixed with the dataset's background noise.\n",
+        "\nThe single utterances are numbers {} of the fixed test set (seed {TEST_SEED}). All of these files were\nchosen because they are short, not very noisy, and recognized correctly by greedy decoding: they\nare demonstrations, not a benchmark. Chapter 10 reports the\nerror rate over all {} test utterances.\n\n## License\n\nDerived from the Speech Commands dataset (Pete Warden, Google, 2018,\n<https://arxiv.org/abs/1804.03209>), which is licensed under\n[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).\nThese derived files are distributed under the same license. Changes made: clips were trimmed,\nchanged in speed by up to 10%, scaled, concatenated and mixed with the dataset's background noise.\n",
         chosen.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "),
         test.len()
     ));
@@ -305,7 +324,7 @@ fn main() -> io::Result<()> {
     let threads = 8;
     let front_end = FrontEnd::new();
     let data = SpeechCommands::load_with(&dataset_dir(), &LoadOptions { threads, max_per_word: None, only: Some(vec![Split::Validation, Split::Test]) })?;
-    let corpus = Corpus::new(&data, &load_background_noise(&dataset_dir())?, threads);
+    let corpus = Corpus::new(&data, &load_background_noise(&dataset_dir())?, &TrimConfig::default(), threads);
 
     synthesis_figure(&data, &corpus, &front_end)?;
     println!("wrote ../figures/ch09-synthesis.svg");
@@ -316,7 +335,7 @@ fn main() -> io::Result<()> {
 
     let recognizer = Recognizer::load(Recognizer::default_path())?;
     let test = corpus.test_set(EVAL_UTTERANCES, threads);
-    let chosen = export_samples(&recognizer, &test)?;
+    let chosen = export_samples(&recognizer, &test, &corpus.test.words)?;
     println!("exported test utterances {chosen:?} to ../samples/ (see ../samples/UTTERANCES.md)");
     alignment_figure(&recognizer, &test[chosen[0]])?;
     println!("wrote ../figures/ch09-alignment.svg");

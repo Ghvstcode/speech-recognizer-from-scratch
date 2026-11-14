@@ -1,0 +1,658 @@
+loaded 105829 clips and 6 noise recordings in 4.7 s
+  train       83018 words from 2096 speakers, 906.7 min of speech after trimming (1825 clips rejected),  320 s of noise
+  validation   9843 words from  255 speakers, 107.6 min of speech after trimming (138 clips rejected),   40 s of noise
+  test        10869 words from  249 speakers, 120.5 min of speech after trimming (136 clips rejected),   40 s of noise
+trimmed every clip to its word in 0.6 s
+built 2000 validation and 2000 test utterances, and features of 11005 single-word test clips, in 2.3 s
+
+  0  Conv1d(40 -> 96, kernel 5, stride 2, padding 2)          19296 params
+  1  ReLU                                                         0 params
+  2  BiGru(96 -> 2 x 128)                                    173568 params
+  3  BiGru(256 -> 2 x 128)                                   296448 params
+  4  Linear(256 -> 28)                                         7196 params
+     total                                                   496508 params
+
+recipe: SynthConfig { min_words: 1, max_words: 5, same_speaker_prob: 0.3, gap_ms: (-40.0, 500.0), lead_ms: (50.0, 500.0), trail_ms: (50.0, 500.0), word_level_db: -26.0, word_gain_db: (-5.0, 5.0), speed: (0.9, 1.1), fade_ms: 5.0, noise_prob: 0.8, snr_db: (5.0, 30.0), hiss_db: (-75.0, -55.0), utterance_gain_db: (-15.0, 0.0) }
+training: 40000 steps of 32 utterances, Adam, peak learning rate 0.002 (warm-up 500 steps, cosine decay to 0.000100000005), gradient clipping at norm 5, 10 threads
+
+--- step 0: validation CER 257.8%  WER 100.5%  (500 utterances, greedy, 0.0 min elapsed)
+      truth: visual wow                   heard: tixwkfksfkfvpsftxkflnqfvwkxk
+      truth: two wow learn                heard: fkxksnfqfqtkxsuvufxsux
+      truth: nine eight learn tree        heard: fkfkxkxfvqftfkftfkfkxkxkfvpfsfskxfyqftfkfkfpndusyfsnsfkfxk
+      frames: tiiixwkkkkkkkkfffffkksssffkkfffffvpssssffffffffftxkkkkkkkkkflllnnnqqqfvvvvwkkkkkkxkkkkkkkkkkkkkkk
+step      1   loss 369.880   lr 0.00000   grad norm 544.51      90 utt/s
+step    100   loss 193.218   lr 0.00040   grad norm 237.00     484 utt/s
+--- step 100: validation CER 100.0%  WER 100.0%  (500 utterances, greedy, 0.1 min elapsed)
+      truth: visual wow                   heard: 
+      truth: two wow learn                heard: 
+      truth: nine eight learn tree        heard: 
+      frames: _________________________________________________________________________________________________
+step    200   loss  40.153   lr 0.00080   grad norm  18.29     441 utt/s
+--- step 200: validation CER 97.0%  WER 100.0%  (500 utterances, greedy, 0.2 min elapsed)
+      truth: visual wow                   heard: 
+      truth: two wow learn                heard: 
+      truth: nine eight learn tree        heard: 
+      frames: __________________________________________________________||_____________________________________
+step    300   loss  27.960   lr 0.00120   grad norm  18.86     442 utt/s
+--- step 300: validation CER 51.3%  WER 95.3%  (500 utterances, greedy, 0.4 min elapsed)
+      truth: visual wow                   heard: s o
+      truth: two wow learn                heard: steo o b
+      truth: nine eight learn tree        heard: nin eigh bn ti
+      frames: _________________________________ss_______________________|||__________o_________________________
+step    400   loss  19.997   lr 0.00160   grad norm  20.32     445 utt/s
+step    500   loss  15.985   lr 0.00200   grad norm  20.12     473 utt/s
+--- step 500: validation CER 31.3%  WER 69.5%  (500 utterances, greedy, 0.6 min elapsed)
+      truth: visual wow                   heard: se waw
+      truth: two wow learn                heard: to wow baed
+      truth: nine eight learn tree        heard: nine eigh bern t
+      frames: ________________________________sss________e_____________|||w_________aw_________________________
+step    600   loss  13.888   lr 0.00200   grad norm  19.69     465 utt/s
+step    700   loss  12.861   lr 0.00200   grad norm  19.90     428 utt/s
+--- step 700: validation CER 22.7%  WER 51.6%  (500 utterances, greedy, 0.8 min elapsed)
+      truth: visual wow                   heard: ul ww
+      truth: two wow learn                heard: two wow bd
+      truth: nine eight learn tree        heard: nine eight serd tree
+      frames: ___________________________________uu______ll____________|||w_________www________________________
+step    800   loss  11.487   lr 0.00200   grad norm  18.27     445 utt/s
+step    900   loss  11.048   lr 0.00200   grad norm  19.06     455 utt/s
+step   1000   loss  10.366   lr 0.00200   grad norm  18.16     474 utt/s
+--- step 1000: validation CER 19.0%  WER 43.5%  (500 utterances, greedy, 1.2 min elapsed)
+      truth: visual wow                   heard: sual lw
+      truth: two wow learn                heard: to wow lrn
+      truth: nine eight learn tree        heard: nine eight bern t
+      frames: ________________________________sssuu______al____________|||l____________w_______________________
+step   1100   loss   9.488   lr 0.00200   grad norm  17.80     458 utt/s
+step   1200   loss   9.073   lr 0.00200   grad norm  17.52     479 utt/s
+step   1300   loss   8.970   lr 0.00200   grad norm  18.58     472 utt/s
+step   1400   loss   8.714   lr 0.00200   grad norm  18.45     462 utt/s
+step   1500   loss   8.948   lr 0.00200   grad norm  18.11     476 utt/s
+step   1600   loss   8.444   lr 0.00200   grad norm  17.76     477 utt/s
+step   1700   loss   8.419   lr 0.00200   grad norm  17.72     457 utt/s
+step   1800   loss   7.960   lr 0.00199   grad norm  17.87     476 utt/s
+step   1900   loss   7.735   lr 0.00199   grad norm  17.43     509 utt/s
+step   2000   loss   7.770   lr 0.00199   grad norm  16.83     499 utt/s
+--- step 2000: validation CER 15.0%  WER 32.0%  (500 utterances, greedy, 2.3 min elapsed)
+      truth: visual wow                   heard: iua wow
+      truth: two wow learn                heard: two wow leifd
+      truth: nine eight learn tree        heard: nine eigh leairn toe
+      frames: _____________________________ii____uu______aa_____________||w__________oww_______________________
+step   2100   loss   7.472   lr 0.00199   grad norm  17.40     549 utt/s
+step   2200   loss   7.646   lr 0.00199   grad norm  17.35     563 utt/s
+step   2300   loss   7.188   lr 0.00199   grad norm  17.19     570 utt/s
+step   2400   loss   7.299   lr 0.00199   grad norm  17.89     577 utt/s
+step   2500   loss   7.064   lr 0.00199   grad norm  17.38     564 utt/s
+step   2600   loss   6.810   lr 0.00199   grad norm  16.98     564 utt/s
+step   2700   loss   7.304   lr 0.00199   grad norm  17.86     564 utt/s
+step   2800   loss   7.281   lr 0.00198   grad norm  17.41     554 utt/s
+step   2900   loss   7.087   lr 0.00198   grad norm  17.20     558 utt/s
+step   3000   loss   6.985   lr 0.00198   grad norm  17.03     474 utt/s
+--- step 3000: validation CER 12.5%  WER 27.2%  (500 utterances, greedy, 3.3 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow leane
+      truth: nine eight learn tree        heard: nine eight learn tee
+      frames: ___________________________vviissuuuuu_____aal__________|||w___________oww_______________________
+step   3100   loss   7.178   lr 0.00198   grad norm  17.79     374 utt/s
+step   3200   loss   6.828   lr 0.00198   grad norm  16.72     530 utt/s
+step   3300   loss   6.800   lr 0.00198   grad norm  17.28     556 utt/s
+step   3400   loss   6.506   lr 0.00197   grad norm  16.88     564 utt/s
+step   3500   loss   6.650   lr 0.00197   grad norm  17.00     559 utt/s
+step   3600   loss   6.599   lr 0.00197   grad norm  17.47     569 utt/s
+step   3700   loss   6.557   lr 0.00197   grad norm  17.42     561 utt/s
+step   3800   loss   6.853   lr 0.00197   grad norm  17.84     564 utt/s
+step   3900   loss   6.775   lr 0.00197   grad norm  17.12     564 utt/s
+step   4000   loss   6.514   lr 0.00196   grad norm  17.18     552 utt/s
+--- step 4000: validation CER 12.1%  WER 25.9%  (500 utterances, greedy, 4.3 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow len
+      truth: nine eight learn tree        heard: nine eigh learn tree
+      frames: ___________________________vviissuuuu______all____________||w__________oww_______________________
+step   4100   loss   6.363   lr 0.00196   grad norm  16.62     547 utt/s
+step   4200   loss   6.409   lr 0.00196   grad norm  17.29     564 utt/s
+step   4300   loss   6.559   lr 0.00196   grad norm  16.95     573 utt/s
+step   4400   loss   6.250   lr 0.00195   grad norm  16.75     576 utt/s
+step   4500   loss   6.398   lr 0.00195   grad norm  17.39     562 utt/s
+step   4600   loss   6.365   lr 0.00195   grad norm  17.67     561 utt/s
+step   4700   loss   6.207   lr 0.00195   grad norm  16.98     547 utt/s
+step   4800   loss   6.145   lr 0.00195   grad norm  17.31     561 utt/s
+step   4900   loss   6.283   lr 0.00194   grad norm  17.58     564 utt/s
+step   5000   loss   6.340   lr 0.00194   grad norm  17.33     554 utt/s
+--- step 5000: validation CER 11.8%  WER 25.1%  (500 utterances, greedy, 5.2 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow lain
+      truth: nine eight learn tree        heard: nine eight bir three
+      frames: ____________________________viis__uuuu_____aal____________||w__________oww_______________________
+step   5100   loss   6.235   lr 0.00194   grad norm  17.21     540 utt/s
+step   5200   loss   6.251   lr 0.00193   grad norm  17.67     568 utt/s
+step   5300   loss   6.046   lr 0.00193   grad norm  17.30     568 utt/s
+step   5400   loss   6.216   lr 0.00193   grad norm  16.86     542 utt/s
+step   5500   loss   5.859   lr 0.00193   grad norm  17.20     552 utt/s
+step   5600   loss   6.007   lr 0.00192   grad norm  17.34     563 utt/s
+step   5700   loss   6.220   lr 0.00192   grad norm  18.62     570 utt/s
+step   5800   loss   6.170   lr 0.00192   grad norm  18.06     550 utt/s
+step   5900   loss   6.238   lr 0.00191   grad norm  17.65     569 utt/s
+step   6000   loss   5.955   lr 0.00191   grad norm  17.60     564 utt/s
+--- step 6000: validation CER 11.2%  WER 23.9%  (500 utterances, greedy, 6.2 min elapsed)
+      truth: visual wow                   heard: visiual leow
+      truth: two wow learn                heard: two wow line
+      truth: nine eight learn tree        heard: nine eigh larn tree
+      frames: ___________________________vviisiuuuu______al____________||le__________ow________________________
+step   6100   loss   6.129   lr 0.00191   grad norm  18.09     533 utt/s
+step   6200   loss   6.068   lr 0.00190   grad norm  17.38     567 utt/s
+step   6300   loss   6.157   lr 0.00190   grad norm  17.94     570 utt/s
+step   6400   loss   5.948   lr 0.00190   grad norm  17.06     564 utt/s
+step   6500   loss   5.882   lr 0.00189   grad norm  17.73     567 utt/s
+step   6600   loss   6.154   lr 0.00189   grad norm  17.80     560 utt/s
+step   6700   loss   5.639   lr 0.00189   grad norm  16.82     561 utt/s
+step   6800   loss   6.025   lr 0.00188   grad norm  18.05     570 utt/s
+step   6900   loss   6.148   lr 0.00188   grad norm  18.57     560 utt/s
+step   7000   loss   5.714   lr 0.00188   grad norm  18.11     558 utt/s
+--- step 7000: validation CER 11.5%  WER 25.5%  (500 utterances, greedy, 7.1 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nin
+      truth: nine eight learn tree        heard: nine eight larn tree
+      frames: ___________________________viissuuuuu______al____________||w____________oww______________________
+step   7100   loss   5.952   lr 0.00187   grad norm  18.56     543 utt/s
+step   7200   loss   5.879   lr 0.00187   grad norm  17.78     568 utt/s
+step   7300   loss   6.082   lr 0.00186   grad norm  18.00     572 utt/s
+step   7400   loss   5.677   lr 0.00186   grad norm  17.92     576 utt/s
+step   7500   loss   5.735   lr 0.00186   grad norm  18.16     556 utt/s
+step   7600   loss   5.899   lr 0.00185   grad norm  17.93     572 utt/s
+step   7700   loss   6.163   lr 0.00185   grad norm  18.17     561 utt/s
+step   7800   loss   5.649   lr 0.00184   grad norm  17.71     567 utt/s
+step   7900   loss   5.627   lr 0.00184   grad norm  18.22     558 utt/s
+step   8000   loss   5.811   lr 0.00184   grad norm  17.99     558 utt/s
+--- step 8000: validation CER 11.3%  WER 23.6%  (500 utterances, greedy, 8.1 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nin
+      truth: nine eight learn tree        heard: nine eight lrn three
+      frames: _________________________vvvvissuuuuuuuu___aal___________||w____________oww______________________
+step   8100   loss   5.976   lr 0.00183   grad norm  19.12     546 utt/s
+step   8200   loss   5.629   lr 0.00183   grad norm  18.16     568 utt/s
+step   8300   loss   6.219   lr 0.00182   grad norm  18.91     557 utt/s
+step   8400   loss   5.634   lr 0.00182   grad norm  18.54     575 utt/s
+step   8500   loss   5.983   lr 0.00181   grad norm  18.91     558 utt/s
+step   8600   loss   5.842   lr 0.00181   grad norm  19.09     567 utt/s
+step   8700   loss   5.788   lr 0.00181   grad norm  18.02     549 utt/s
+step   8800   loss   5.741   lr 0.00180   grad norm  18.29     563 utt/s
+step   8900   loss   5.811   lr 0.00180   grad norm  17.70     568 utt/s
+step   9000   loss   5.683   lr 0.00179   grad norm  19.14     574 utt/s
+--- step 9000: validation CER 10.2%  WER 21.7%  (500 utterances, greedy, 9.0 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nearn
+      truth: nine eight learn tree        heard: nine eight br tree
+      frames: ___________________________vvissuuuuuuu____aal___________|||w__________oow_______________________
+step   9100   loss   5.731   lr 0.00179   grad norm  18.33     550 utt/s
+step   9200   loss   5.590   lr 0.00178   grad norm  18.45     558 utt/s
+step   9300   loss   5.549   lr 0.00178   grad norm  18.55     526 utt/s
+step   9400   loss   5.422   lr 0.00177   grad norm  18.12     486 utt/s
+step   9500   loss   5.785   lr 0.00177   grad norm  18.42     469 utt/s
+step   9600   loss   5.424   lr 0.00176   grad norm  18.81     497 utt/s
+step   9700   loss   5.588   lr 0.00176   grad norm  18.73     491 utt/s
+step   9800   loss   5.392   lr 0.00175   grad norm  18.74     499 utt/s
+step   9900   loss   5.990   lr 0.00175   grad norm  18.97     502 utt/s
+step  10000   loss   5.704   lr 0.00174   grad norm  18.78     493 utt/s
+--- step 10000: validation CER 10.6%  WER 22.3%  (500 utterances, greedy, 10.1 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nearn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ____________________________viiss_uuuu_____al____________||w___________oow_______________________
+step  10100   loss   5.619   lr 0.00174   grad norm  18.15     475 utt/s
+step  10200   loss   5.592   lr 0.00173   grad norm  18.62     489 utt/s
+step  10300   loss   5.495   lr 0.00173   grad norm  18.88     489 utt/s
+step  10400   loss   5.274   lr 0.00172   grad norm  18.26     475 utt/s
+step  10500   loss   5.688   lr 0.00172   grad norm  19.22     474 utt/s
+step  10600   loss   5.670   lr 0.00171   grad norm  18.46     496 utt/s
+step  10700   loss   5.206   lr 0.00170   grad norm  18.70     496 utt/s
+step  10800   loss   5.589   lr 0.00170   grad norm  18.90     490 utt/s
+step  10900   loss   5.547   lr 0.00169   grad norm  19.34     471 utt/s
+step  11000   loss   5.379   lr 0.00169   grad norm  18.75     492 utt/s
+--- step 11000: validation CER 11.0%  WER 24.1%  (500 utterances, greedy, 11.2 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn treea
+      frames: ___________________________viisssuuuuu____aal____________||w__________oow________________________
+step  11100   loss   5.660   lr 0.00168   grad norm  19.03     469 utt/s
+step  11200   loss   5.709   lr 0.00168   grad norm  19.57     488 utt/s
+step  11300   loss   5.597   lr 0.00167   grad norm  19.75     495 utt/s
+step  11400   loss   5.332   lr 0.00166   grad norm  18.22     492 utt/s
+step  11500   loss   5.488   lr 0.00166   grad norm  18.45     499 utt/s
+step  11600   loss   5.301   lr 0.00165   grad norm  18.51     492 utt/s
+step  11700   loss   5.568   lr 0.00165   grad norm  19.07     503 utt/s
+step  11800   loss   5.624   lr 0.00164   grad norm  19.94     464 utt/s
+step  11900   loss   5.334   lr 0.00164   grad norm  20.33     453 utt/s
+step  12000   loss   5.315   lr 0.00163   grad norm  18.96     490 utt/s
+--- step 12000: validation CER 10.8%  WER 21.9%  (500 utterances, greedy, 12.3 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow learn
+      truth: nine eight learn tree        heard: nine eight lrn tree
+      frames: ___________________________vvisssuuuu_____aall___________||w__________ooww_______________________
+step  12100   loss   5.388   lr 0.00162   grad norm  19.85     473 utt/s
+step  12200   loss   5.400   lr 0.00162   grad norm  20.27     499 utt/s
+step  12300   loss   5.552   lr 0.00161   grad norm  19.25     487 utt/s
+step  12400   loss   5.567   lr 0.00161   grad norm  20.60     484 utt/s
+step  12500   loss   5.335   lr 0.00160   grad norm  19.23     487 utt/s
+step  12600   loss   5.645   lr 0.00159   grad norm  18.70     492 utt/s
+step  12700   loss   5.356   lr 0.00159   grad norm  19.33     484 utt/s
+step  12800   loss   5.339   lr 0.00158   grad norm  20.14     488 utt/s
+step  12900   loss   5.218   lr 0.00157   grad norm  19.75     486 utt/s
+step  13000   loss   5.298   lr 0.00157   grad norm  19.52     495 utt/s
+--- step 13000: validation CER 10.4%  WER 21.1%  (500 utterances, greedy, 13.4 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow larne
+      truth: nine eight learn tree        heard: nine eight lrn three
+      frames: _________________________vvviissuuuuuu____aall___________|||w__________oww_______________________
+step  13100   loss   5.418   lr 0.00156   grad norm  19.14     464 utt/s
+step  13200   loss   5.422   lr 0.00156   grad norm  18.91     495 utt/s
+step  13300   loss   5.300   lr 0.00155   grad norm  20.41     505 utt/s
+step  13400   loss   5.371   lr 0.00154   grad norm  21.25     490 utt/s
+step  13500   loss   5.245   lr 0.00154   grad norm  19.90     490 utt/s
+step  13600   loss   5.644   lr 0.00153   grad norm  20.74     503 utt/s
+step  13700   loss   5.162   lr 0.00152   grad norm  18.48     507 utt/s
+step  13800   loss   5.152   lr 0.00152   grad norm  19.58     503 utt/s
+step  13900   loss   5.398   lr 0.00151   grad norm  19.77     505 utt/s
+step  14000   loss   5.161   lr 0.00150   grad norm  19.48     504 utt/s
+--- step 14000: validation CER 11.0%  WER 22.6%  (500 utterances, greedy, 14.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nan
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviisssuuuu_____aal____________||ww__________oow_______________________
+step  14100   loss   5.534   lr 0.00150   grad norm  20.13     486 utt/s
+step  14200   loss   5.666   lr 0.00149   grad norm  21.27     493 utt/s
+step  14300   loss   5.300   lr 0.00148   grad norm  20.14     502 utt/s
+step  14400   loss   5.288   lr 0.00148   grad norm  19.42     501 utt/s
+step  14500   loss   5.237   lr 0.00147   grad norm  20.25     504 utt/s
+step  14600   loss   5.195   lr 0.00146   grad norm  19.17     503 utt/s
+step  14700   loss   5.093   lr 0.00146   grad norm  19.96     505 utt/s
+step  14800   loss   5.314   lr 0.00145   grad norm  19.92     499 utt/s
+step  14900   loss   5.523   lr 0.00144   grad norm  20.11     493 utt/s
+step  15000   loss   5.494   lr 0.00144   grad norm  20.87     489 utt/s
+--- step 15000: validation CER 9.8%  WER 20.2%  (500 utterances, greedy, 15.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviissuuuuu_____aall___________||w___________oow_______________________
+step  15100   loss   5.179   lr 0.00143   grad norm  20.24     481 utt/s
+step  15200   loss   5.211   lr 0.00142   grad norm  19.95     503 utt/s
+step  15300   loss   5.249   lr 0.00141   grad norm  20.63     478 utt/s
+step  15400   loss   5.147   lr 0.00141   grad norm  20.87     465 utt/s
+step  15500   loss   5.301   lr 0.00140   grad norm  21.01     486 utt/s
+step  15600   loss   5.238   lr 0.00139   grad norm  21.23     492 utt/s
+step  15700   loss   4.967   lr 0.00139   grad norm  18.97     509 utt/s
+step  15800   loss   5.077   lr 0.00138   grad norm  20.31     492 utt/s
+step  15900   loss   5.223   lr 0.00137   grad norm  20.63     489 utt/s
+step  16000   loss   4.788   lr 0.00137   grad norm  19.50     512 utt/s
+--- step 16000: validation CER 9.4%  WER 19.3%  (500 utterances, greedy, 16.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow ein
+      truth: nine eight learn tree        heard: nine eight learn three
+      frames: ___________________________v_issuuuuu_____aal_____________||ww_________ow________________________
+step  16100   loss   4.757   lr 0.00136   grad norm  20.34     488 utt/s
+step  16200   loss   5.434   lr 0.00135   grad norm  22.12     500 utt/s
+step  16300   loss   5.316   lr 0.00134   grad norm  21.32     508 utt/s
+step  16400   loss   5.070   lr 0.00134   grad norm  19.48     499 utt/s
+step  16500   loss   5.066   lr 0.00133   grad norm  19.82     499 utt/s
+step  16600   loss   5.184   lr 0.00132   grad norm  20.30     506 utt/s
+step  16700   loss   5.192   lr 0.00131   grad norm  19.52     505 utt/s
+step  16800   loss   4.995   lr 0.00131   grad norm  20.13     502 utt/s
+step  16900   loss   5.112   lr 0.00130   grad norm  20.80     516 utt/s
+step  17000   loss   4.939   lr 0.00129   grad norm  20.58     504 utt/s
+--- step 17000: validation CER 9.5%  WER 19.0%  (500 utterances, greedy, 17.7 min elapsed)
+      truth: visual wow                   heard: viual wow
+      truth: two wow learn                heard: two wow nine
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________vvi___uuuuu_____all___________||ww___________oww______________________
+step  17100   loss   5.186   lr 0.00129   grad norm  20.55     469 utt/s
+step  17200   loss   4.725   lr 0.00128   grad norm  20.01     487 utt/s
+step  17300   loss   5.010   lr 0.00127   grad norm  19.97     560 utt/s
+step  17400   loss   5.040   lr 0.00126   grad norm  19.87     568 utt/s
+step  17500   loss   4.924   lr 0.00126   grad norm  20.34     569 utt/s
+step  17600   loss   5.056   lr 0.00125   grad norm  20.94     565 utt/s
+step  17700   loss   5.160   lr 0.00124   grad norm  20.72     565 utt/s
+step  17800   loss   4.914   lr 0.00123   grad norm  20.20     564 utt/s
+step  17900   loss   4.839   lr 0.00123   grad norm  19.36     562 utt/s
+step  18000   loss   5.071   lr 0.00122   grad norm  21.02     561 utt/s
+--- step 18000: validation CER 9.4%  WER 20.3%  (500 utterances, greedy, 18.7 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn three
+      frames: ___________________________viissuuuuu_____aal____________||ww__________oww_______________________
+step  18100   loss   5.080   lr 0.00121   grad norm  20.39     533 utt/s
+step  18200   loss   4.883   lr 0.00120   grad norm  21.36     571 utt/s
+step  18300   loss   4.995   lr 0.00120   grad norm  20.76     573 utt/s
+step  18400   loss   4.999   lr 0.00119   grad norm  20.45     577 utt/s
+step  18500   loss   4.917   lr 0.00118   grad norm  21.65     559 utt/s
+step  18600   loss   4.703   lr 0.00117   grad norm  20.27     571 utt/s
+step  18700   loss   4.721   lr 0.00117   grad norm  19.24     577 utt/s
+step  18800   loss   4.936   lr 0.00116   grad norm  22.02     564 utt/s
+step  18900   loss   4.964   lr 0.00115   grad norm  21.65     567 utt/s
+step  19000   loss   4.878   lr 0.00114   grad norm  21.35     561 utt/s
+--- step 19000: validation CER 10.2%  WER 20.1%  (500 utterances, greedy, 19.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow narn
+      truth: nine eight learn tree        heard: nine eight learn three
+      frames: ___________________________viissuuuuu______all___________||w___________oow_______________________
+step  19100   loss   4.751   lr 0.00114   grad norm  21.41     541 utt/s
+step  19200   loss   4.679   lr 0.00113   grad norm  19.81     573 utt/s
+step  19300   loss   4.645   lr 0.00112   grad norm  20.31     544 utt/s
+step  19400   loss   4.729   lr 0.00111   grad norm  21.24     541 utt/s
+step  19500   loss   4.776   lr 0.00111   grad norm  20.18     551 utt/s
+step  19600   loss   4.859   lr 0.00110   grad norm  20.83     564 utt/s
+step  19700   loss   4.832   lr 0.00109   grad norm  22.03     474 utt/s
+step  19800   loss   4.967   lr 0.00108   grad norm  22.40     512 utt/s
+step  19900   loss   4.632   lr 0.00108   grad norm  22.34     553 utt/s
+step  20000   loss   4.612   lr 0.00107   grad norm  19.92     555 utt/s
+--- step 20000: validation CER 8.8%  WER 16.9%  (500 utterances, greedy, 20.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nin
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________vvisssuuuu_____aall___________|||w__________oow_______________________
+step  20100   loss   4.529   lr 0.00106   grad norm  20.22     514 utt/s
+step  20200   loss   4.594   lr 0.00105   grad norm  21.19     547 utt/s
+step  20300   loss   4.843   lr 0.00105   grad norm  20.93     532 utt/s
+step  20400   loss   4.479   lr 0.00104   grad norm  21.36     556 utt/s
+step  20500   loss   4.653   lr 0.00103   grad norm  20.74     560 utt/s
+step  20600   loss   4.839   lr 0.00102   grad norm  21.39     550 utt/s
+step  20700   loss   4.762   lr 0.00102   grad norm  21.49     544 utt/s
+step  20800   loss   4.698   lr 0.00101   grad norm  20.14     553 utt/s
+step  20900   loss   4.656   lr 0.00100   grad norm  21.46     503 utt/s
+step  21000   loss   4.897   lr 0.00099   grad norm  22.06     540 utt/s
+--- step 21000: validation CER 9.1%  WER 18.3%  (500 utterances, greedy, 21.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nine
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vv_is_uuuuuu____aal____________|||w__________oow_______________________
+step  21100   loss   4.672   lr 0.00099   grad norm  21.11     490 utt/s
+step  21200   loss   4.855   lr 0.00098   grad norm  20.94     467 utt/s
+step  21300   loss   4.714   lr 0.00097   grad norm  20.73     488 utt/s
+step  21400   loss   4.427   lr 0.00096   grad norm  20.62     470 utt/s
+step  21500   loss   4.547   lr 0.00096   grad norm  21.71     476 utt/s
+step  21600   loss   4.551   lr 0.00095   grad norm  21.72     452 utt/s
+step  21700   loss   4.732   lr 0.00094   grad norm  20.48     497 utt/s
+step  21800   loss   4.228   lr 0.00093   grad norm  20.22     503 utt/s
+step  21900   loss   4.425   lr 0.00093   grad norm  21.09     500 utt/s
+step  22000   loss   4.590   lr 0.00092   grad norm  21.42     485 utt/s
+--- step 22000: validation CER 8.4%  WER 17.4%  (500 utterances, greedy, 22.7 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow learne
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________vvissssuuuu____aall___________|||w__________oow_______________________
+step  22100   loss   4.521   lr 0.00091   grad norm  21.14     472 utt/s
+step  22200   loss   4.584   lr 0.00090   grad norm  22.66     487 utt/s
+step  22300   loss   4.540   lr 0.00090   grad norm  20.50     494 utt/s
+step  22400   loss   4.532   lr 0.00089   grad norm  20.72     477 utt/s
+step  22500   loss   4.445   lr 0.00088   grad norm  22.42     497 utt/s
+step  22600   loss   4.532   lr 0.00087   grad norm  22.70     482 utt/s
+step  22700   loss   4.390   lr 0.00087   grad norm  19.76     481 utt/s
+step  22800   loss   4.466   lr 0.00086   grad norm  22.18     472 utt/s
+step  22900   loss   4.368   lr 0.00085   grad norm  20.85     484 utt/s
+step  23000   loss   4.394   lr 0.00084   grad norm  20.85     471 utt/s
+--- step 23000: validation CER 8.4%  WER 17.2%  (500 utterances, greedy, 23.8 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu_____all___________||ww___________ow_______________________
+step  23100   loss   4.538   lr 0.00084   grad norm  20.89     457 utt/s
+step  23200   loss   4.428   lr 0.00083   grad norm  21.13     482 utt/s
+step  23300   loss   4.647   lr 0.00082   grad norm  21.02     480 utt/s
+step  23400   loss   4.261   lr 0.00081   grad norm  20.56     444 utt/s
+step  23500   loss   4.504   lr 0.00081   grad norm  21.31     467 utt/s
+step  23600   loss   4.682   lr 0.00080   grad norm  23.09     470 utt/s
+step  23700   loss   4.367   lr 0.00079   grad norm  20.04     476 utt/s
+step  23800   loss   4.294   lr 0.00079   grad norm  21.58     503 utt/s
+step  23900   loss   4.604   lr 0.00078   grad norm  20.01     495 utt/s
+step  24000   loss   4.460   lr 0.00077   grad norm  20.85     494 utt/s
+--- step 24000: validation CER 8.1%  WER 16.9%  (500 utterances, greedy, 24.9 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow narne
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________vvissssuuuuu____all___________||ww___________oww______________________
+step  24100   loss   4.205   lr 0.00076   grad norm  19.84     484 utt/s
+step  24200   loss   4.298   lr 0.00076   grad norm  19.74     509 utt/s
+step  24300   loss   4.400   lr 0.00075   grad norm  20.99     495 utt/s
+step  24400   loss   4.174   lr 0.00074   grad norm  19.87     457 utt/s
+step  24500   loss   4.430   lr 0.00074   grad norm  20.25     406 utt/s
+step  24600   loss   4.499   lr 0.00073   grad norm  21.16     503 utt/s
+step  24700   loss   4.288   lr 0.00072   grad norm  19.58     481 utt/s
+step  24800   loss   4.168   lr 0.00071   grad norm  20.37     454 utt/s
+step  24900   loss   4.158   lr 0.00071   grad norm  19.60     419 utt/s
+step  25000   loss   4.298   lr 0.00070   grad norm  19.84     495 utt/s
+--- step 25000: validation CER 8.0%  WER 16.5%  (500 utterances, greedy, 26.0 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____aal____________|||w__________oww_______________________
+step  25100   loss   4.183   lr 0.00069   grad norm  20.31     490 utt/s
+step  25200   loss   4.041   lr 0.00069   grad norm  20.35     512 utt/s
+step  25300   loss   4.088   lr 0.00068   grad norm  19.29     496 utt/s
+step  25400   loss   4.164   lr 0.00067   grad norm  21.66     495 utt/s
+step  25500   loss   4.290   lr 0.00066   grad norm  20.98     484 utt/s
+step  25600   loss   4.286   lr 0.00066   grad norm  20.61     496 utt/s
+step  25700   loss   4.260   lr 0.00065   grad norm  19.33     484 utt/s
+step  25800   loss   4.009   lr 0.00064   grad norm  19.15     500 utt/s
+step  25900   loss   4.201   lr 0.00064   grad norm  20.96     507 utt/s
+step  26000   loss   4.178   lr 0.00063   grad norm  19.87     452 utt/s
+--- step 26000: validation CER 7.9%  WER 15.6%  (500 utterances, greedy, 27.1 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nire
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____all____________||w___________oww_______________________
+step  26100   loss   3.957   lr 0.00062   grad norm  18.67     387 utt/s
+step  26200   loss   4.214   lr 0.00062   grad norm  21.92     402 utt/s
+step  26300   loss   4.164   lr 0.00061   grad norm  20.18     397 utt/s
+step  26400   loss   4.114   lr 0.00060   grad norm  21.37     407 utt/s
+step  26500   loss   3.922   lr 0.00060   grad norm  21.85     398 utt/s
+step  26600   loss   4.152   lr 0.00059   grad norm  21.77     411 utt/s
+step  26700   loss   4.192   lr 0.00058   grad norm  20.74     413 utt/s
+step  26800   loss   4.194   lr 0.00058   grad norm  21.54     420 utt/s
+step  26900   loss   4.135   lr 0.00057   grad norm  20.67     420 utt/s
+step  27000   loss   3.899   lr 0.00056   grad norm  19.89     419 utt/s
+--- step 27000: validation CER 8.2%  WER 15.7%  (500 utterances, greedy, 28.4 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nine
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____all____________|||w__________oww_______________________
+step  27100   loss   4.187   lr 0.00056   grad norm  21.39     399 utt/s
+step  27200   loss   3.899   lr 0.00055   grad norm  20.76     412 utt/s
+step  27300   loss   3.749   lr 0.00054   grad norm  19.77     416 utt/s
+step  27400   loss   4.103   lr 0.00054   grad norm  20.49     424 utt/s
+step  27500   loss   3.986   lr 0.00053   grad norm  19.90     415 utt/s
+step  27600   loss   3.936   lr 0.00053   grad norm  19.27     423 utt/s
+step  27700   loss   4.188   lr 0.00052   grad norm  20.28     423 utt/s
+step  27800   loss   3.957   lr 0.00051   grad norm  20.69     410 utt/s
+step  27900   loss   4.000   lr 0.00051   grad norm  20.29     420 utt/s
+step  28000   loss   3.791   lr 0.00050   grad norm  20.48     411 utt/s
+--- step 28000: validation CER 7.5%  WER 15.0%  (500 utterances, greedy, 29.7 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn three
+      frames: __________________________vviissuuuuuu____aal____________||ww__________oow_______________________
+step  28100   loss   3.812   lr 0.00049   grad norm  18.88     376 utt/s
+step  28200   loss   3.753   lr 0.00049   grad norm  18.55     422 utt/s
+step  28300   loss   3.955   lr 0.00048   grad norm  20.05     413 utt/s
+step  28400   loss   3.942   lr 0.00048   grad norm  20.20     409 utt/s
+step  28500   loss   4.010   lr 0.00047   grad norm  20.37     412 utt/s
+step  28600   loss   4.066   lr 0.00046   grad norm  21.54     416 utt/s
+step  28700   loss   3.878   lr 0.00046   grad norm  20.51     402 utt/s
+step  28800   loss   4.138   lr 0.00045   grad norm  20.26     398 utt/s
+step  28900   loss   3.759   lr 0.00045   grad norm  20.09     419 utt/s
+step  29000   loss   3.764   lr 0.00044   grad norm  20.23     409 utt/s
+--- step 29000: validation CER 7.7%  WER 15.3%  (500 utterances, greedy, 31.0 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow leirne
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviissuuuuuu____aal____________||ww__________oow_______________________
+step  29100   loss   4.102   lr 0.00044   grad norm  20.70     399 utt/s
+step  29200   loss   3.962   lr 0.00043   grad norm  20.63     403 utt/s
+step  29300   loss   3.752   lr 0.00042   grad norm  20.56     409 utt/s
+step  29400   loss   3.748   lr 0.00042   grad norm  20.11     394 utt/s
+step  29500   loss   3.976   lr 0.00041   grad norm  21.91     413 utt/s
+step  29600   loss   3.935   lr 0.00041   grad norm  20.71     410 utt/s
+step  29700   loss   3.589   lr 0.00040   grad norm  22.05     416 utt/s
+step  29800   loss   3.579   lr 0.00040   grad norm  18.74     418 utt/s
+step  29900   loss   3.646   lr 0.00039   grad norm  19.07     418 utt/s
+step  30000   loss   3.765   lr 0.00039   grad norm  19.71     416 utt/s
+--- step 30000: validation CER 7.6%  WER 14.4%  (500 utterances, greedy, 32.3 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nine
+      truth: nine eight learn tree        heard: nine eight learn trele
+      frames: __________________________vviisssuuuuu____aal____________||w___________oow_______________________
+step  30100   loss   3.676   lr 0.00038   grad norm  19.28     449 utt/s
+step  30200   loss   3.839   lr 0.00037   grad norm  20.97     482 utt/s
+step  30300   loss   3.910   lr 0.00037   grad norm  22.56     482 utt/s
+step  30400   loss   3.785   lr 0.00036   grad norm  20.28     478 utt/s
+step  30500   loss   3.741   lr 0.00036   grad norm  20.78     493 utt/s
+step  30600   loss   3.759   lr 0.00035   grad norm  20.64     483 utt/s
+step  30700   loss   3.853   lr 0.00035   grad norm  20.86     483 utt/s
+step  30800   loss   3.546   lr 0.00034   grad norm  19.25     483 utt/s
+step  30900   loss   3.852   lr 0.00034   grad norm  22.08     453 utt/s
+step  31000   loss   3.670   lr 0.00033   grad norm  21.02     476 utt/s
+--- step 31000: validation CER 7.4%  WER 14.3%  (500 utterances, greedy, 33.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nairn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviissuuuuuu____all____________||w___________oww_______________________
+step  31100   loss   3.955   lr 0.00033   grad norm  20.05     437 utt/s
+step  31200   loss   3.656   lr 0.00032   grad norm  21.10     456 utt/s
+step  31300   loss   3.466   lr 0.00032   grad norm  20.12     475 utt/s
+step  31400   loss   3.555   lr 0.00031   grad norm  19.08     484 utt/s
+step  31500   loss   3.746   lr 0.00031   grad norm  20.21     484 utt/s
+step  31600   loss   3.603   lr 0.00030   grad norm  19.73     473 utt/s
+step  31700   loss   3.704   lr 0.00030   grad norm  19.56     466 utt/s
+step  31800   loss   3.773   lr 0.00030   grad norm  20.39     480 utt/s
+step  31900   loss   3.647   lr 0.00029   grad norm  21.40     475 utt/s
+step  32000   loss   3.564   lr 0.00029   grad norm  19.77     489 utt/s
+--- step 32000: validation CER 7.4%  WER 14.3%  (500 utterances, greedy, 34.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nirn
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________vvissuuuuuu____aal____________||w___________oww_______________________
+step  32100   loss   3.589   lr 0.00028   grad norm  18.68     474 utt/s
+step  32200   loss   3.408   lr 0.00028   grad norm  18.93     509 utt/s
+step  32300   loss   3.566   lr 0.00027   grad norm  19.34     493 utt/s
+step  32400   loss   3.588   lr 0.00027   grad norm  20.78     494 utt/s
+step  32500   loss   3.528   lr 0.00026   grad norm  19.68     479 utt/s
+step  32600   loss   3.665   lr 0.00026   grad norm  19.13     471 utt/s
+step  32700   loss   3.653   lr 0.00026   grad norm  20.88     454 utt/s
+step  32800   loss   3.426   lr 0.00025   grad norm  18.46     517 utt/s
+step  32900   loss   3.660   lr 0.00025   grad norm  19.54     481 utt/s
+step  33000   loss   3.674   lr 0.00024   grad norm  20.37     490 utt/s
+--- step 33000: validation CER 7.5%  WER 14.7%  (500 utterances, greedy, 35.7 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nain
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviissuuuuuu____aall___________||ww__________oww_______________________
+step  33100   loss   3.519   lr 0.00024   grad norm  19.60     513 utt/s
+step  33200   loss   3.985   lr 0.00024   grad norm  19.78     571 utt/s
+step  33300   loss   3.522   lr 0.00023   grad norm  20.41     554 utt/s
+step  33400   loss   3.591   lr 0.00023   grad norm  19.73     561 utt/s
+step  33500   loss   3.517   lr 0.00022   grad norm  19.36     562 utt/s
+step  33600   loss   3.491   lr 0.00022   grad norm  20.73     569 utt/s
+step  33700   loss   3.565   lr 0.00022   grad norm  19.62     582 utt/s
+step  33800   loss   3.547   lr 0.00021   grad norm  18.23     561 utt/s
+step  33900   loss   3.588   lr 0.00021   grad norm  20.91     554 utt/s
+step  34000   loss   3.687   lr 0.00021   grad norm  19.39     571 utt/s
+--- step 34000: validation CER 7.2%  WER 14.3%  (500 utterances, greedy, 36.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nain
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: __________________________vviissuuuuuu____aal____________||w___________oww_______________________
+step  34100   loss   3.619   lr 0.00020   grad norm  18.23     556 utt/s
+step  34200   loss   3.445   lr 0.00020   grad norm  18.35     578 utt/s
+step  34300   loss   3.393   lr 0.00020   grad norm  19.31     562 utt/s
+step  34400   loss   3.390   lr 0.00019   grad norm  18.61     577 utt/s
+step  34500   loss   3.338   lr 0.00019   grad norm  22.25     574 utt/s
+step  34600   loss   3.661   lr 0.00019   grad norm  21.12     559 utt/s
+step  34700   loss   3.611   lr 0.00018   grad norm  19.88     566 utt/s
+step  34800   loss   3.438   lr 0.00018   grad norm  20.28     534 utt/s
+step  34900   loss   3.320   lr 0.00018   grad norm  18.47     570 utt/s
+step  35000   loss   3.530   lr 0.00017   grad norm  19.13     557 utt/s
+--- step 35000: validation CER 7.0%  WER 13.3%  (500 utterances, greedy, 37.6 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nain
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____aal____________||ww__________oww_______________________
+step  35100   loss   3.408   lr 0.00017   grad norm  18.70     546 utt/s
+step  35200   loss   3.453   lr 0.00017   grad norm  19.19     566 utt/s
+step  35300   loss   3.433   lr 0.00017   grad norm  18.88     564 utt/s
+step  35400   loss   3.406   lr 0.00016   grad norm  20.00     568 utt/s
+step  35500   loss   3.430   lr 0.00016   grad norm  20.34     574 utt/s
+step  35600   loss   3.460   lr 0.00016   grad norm  18.15     564 utt/s
+step  35700   loss   3.410   lr 0.00016   grad norm  19.20     559 utt/s
+step  35800   loss   3.294   lr 0.00015   grad norm  19.23     565 utt/s
+step  35900   loss   3.536   lr 0.00015   grad norm  20.32     587 utt/s
+step  36000   loss   3.377   lr 0.00015   grad norm  19.00     567 utt/s
+--- step 36000: validation CER 6.9%  WER 13.7%  (500 utterances, greedy, 38.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow leain
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____aall___________||ww__________oww_______________________
+step  36100   loss   3.338   lr 0.00015   grad norm  19.97     540 utt/s
+step  36200   loss   3.524   lr 0.00014   grad norm  19.19     553 utt/s
+step  36300   loss   3.334   lr 0.00014   grad norm  19.82     574 utt/s
+step  36400   loss   3.480   lr 0.00014   grad norm  25.62     571 utt/s
+step  36500   loss   3.527   lr 0.00014   grad norm  20.18     566 utt/s
+step  36600   loss   3.581   lr 0.00013   grad norm  19.89     551 utt/s
+step  36700   loss   3.434   lr 0.00013   grad norm  20.92     549 utt/s
+step  36800   loss   3.370   lr 0.00013   grad norm  18.93     559 utt/s
+step  36900   loss   3.217   lr 0.00013   grad norm  18.81     564 utt/s
+step  37000   loss   3.472   lr 0.00013   grad norm  19.64     560 utt/s
+--- step 37000: validation CER 6.8%  WER 13.1%  (500 utterances, greedy, 39.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow narne
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viisssuuuuu____aall___________||ww__________oww_______________________
+step  37100   loss   3.325   lr 0.00013   grad norm  19.57     539 utt/s
+step  37200   loss   3.098   lr 0.00012   grad norm  18.46     568 utt/s
+step  37300   loss   3.307   lr 0.00012   grad norm  18.85     574 utt/s
+step  37400   loss   3.405   lr 0.00012   grad norm  19.05     557 utt/s
+step  37500   loss   3.343   lr 0.00012   grad norm  18.40     546 utt/s
+step  37600   loss   3.350   lr 0.00012   grad norm  19.08     552 utt/s
+step  37700   loss   3.321   lr 0.00012   grad norm  18.41     569 utt/s
+step  37800   loss   3.377   lr 0.00011   grad norm  20.45     539 utt/s
+step  37900   loss   3.128   lr 0.00011   grad norm  18.25     541 utt/s
+step  38000   loss   3.227   lr 0.00011   grad norm  19.74     563 utt/s
+--- step 38000: validation CER 6.3%  WER 12.2%  (500 utterances, greedy, 40.5 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow nein
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viissuuuuuu____aall___________||ww__________oww_______________________
+step  38100   loss   3.339   lr 0.00011   grad norm  19.02     533 utt/s
+step  38200   loss   3.140   lr 0.00011   grad norm  18.06     571 utt/s
+step  38300   loss   3.220   lr 0.00011   grad norm  18.47     570 utt/s
+step  38400   loss   3.092   lr 0.00011   grad norm  18.33     568 utt/s
+step  38500   loss   3.515   lr 0.00011   grad norm  19.37     575 utt/s
+step  38600   loss   3.325   lr 0.00011   grad norm  19.33     568 utt/s
+step  38700   loss   3.200   lr 0.00011   grad norm  18.31     557 utt/s
+step  38800   loss   3.317   lr 0.00010   grad norm  19.76     542 utt/s
+step  38900   loss   3.141   lr 0.00010   grad norm  18.19     573 utt/s
+step  39000   loss   3.338   lr 0.00010   grad norm  19.92     569 utt/s
+--- step 39000: validation CER 6.7%  WER 13.1%  (500 utterances, greedy, 41.4 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow leain
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viisssuuuuu____aall___________||w___________oww_______________________
+step  39100   loss   3.217   lr 0.00010   grad norm  18.56     545 utt/s
+step  39200   loss   3.347   lr 0.00010   grad norm  19.27     571 utt/s
+step  39300   loss   3.293   lr 0.00010   grad norm  18.18     569 utt/s
+step  39400   loss   3.401   lr 0.00010   grad norm  20.50     561 utt/s
+step  39500   loss   3.549   lr 0.00010   grad norm  20.01     557 utt/s
+step  39600   loss   3.465   lr 0.00010   grad norm  19.39     555 utt/s
+step  39700   loss   3.288   lr 0.00010   grad norm  18.14     571 utt/s
+step  39800   loss   3.434   lr 0.00010   grad norm  19.41     555 utt/s
+step  39900   loss   3.191   lr 0.00010   grad norm  18.08     550 utt/s
+step  40000   loss   3.343   lr 0.00010   grad norm  19.49     555 utt/s
+--- step 40000: validation CER 6.8%  WER 12.7%  (500 utterances, greedy, 42.4 min elapsed)
+      truth: visual wow                   heard: visual wow
+      truth: two wow learn                heard: two wow lein
+      truth: nine eight learn tree        heard: nine eight learn tree
+      frames: ___________________________viisssuuuuu____aall___________||ww__________oww_______________________
+
+trained on 1280000 utterances in 42.4 minutes
+
+| set (greedy decoding)                 | utterances |   CER |   WER | exact match |
+|---------------------------------------|-----------:|------:|------:|------------:|
+| synthesized validation                |       2000 |  7.0% | 13.6% |       68.8% |
+| synthesized test                      |       2000 |  8.2% | 16.4% |       63.2% |
+| single-word test clips, as recorded   |      11005 | 11.0% | 17.7% |       82.4% |
+
+saved the model to ../models/recognizer.bin and posterior snapshots to ../models/recognizer-posteriors.txt

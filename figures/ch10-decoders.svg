@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="324" viewBox="0 0 800 324" role="img">
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<title>Word error rate on the test set, by decoder</title>
+<desc>Bar chart (word error rate (%)).</desc>
+<text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">Word error rate on the test set, by decoder</text>
+<line x1="68" y1="290" x2="776" y2="290" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="293.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">0</text>
+<line x1="68" y1="222.14" x2="776" y2="222.14" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="225.64" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">5</text>
+<line x1="68" y1="154.27" x2="776" y2="154.27" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="157.77" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">10</text>
+<line x1="68" y1="86.41" x2="776" y2="86.41" stroke="rgba(25,22,21,.10)" stroke-width="1" stroke-linecap="round"/>
+<text x="60" y="89.91" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end" fill="rgba(25,22,21,.48)">15</text>
+<rect x="90.57" y="67.78" width="56" height="222.22" rx="1.5" fill="#B45309"/>
+<text x="118.57" y="62.78" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">16.37</text>
+<text x="118.57" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="#191615">greedy</text>
+<rect x="191.71" y="78.85" width="56" height="211.15" rx="1.5" fill="#B3B1AE"/>
+<text x="219.71" y="73.85" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">15.56</text>
+<text x="219.71" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="rgba(25,22,21,.70)">beam 4</text>
+<rect x="292.86" y="78.63" width="56" height="211.37" rx="1.5" fill="#B3B1AE"/>
+<text x="320.86" y="73.63" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">15.57</text>
+<text x="320.86" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="rgba(25,22,21,.70)">beam 16</text>
+<rect x="394" y="78.85" width="56" height="211.15" rx="1.5" fill="#B3B1AE"/>
+<text x="422" y="73.85" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">15.56</text>
+<text x="422" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="rgba(25,22,21,.70)">beam 64</text>
+<rect x="495.14" y="146.9" width="56" height="143.1" rx="1.5" fill="#B3B1AE"/>
+<text x="523.14" y="141.9" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">10.54</text>
+<text x="523.14" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="rgba(25,22,21,.70)">lexicon 4</text>
+<rect x="596.29" y="157.75" width="56" height="132.25" rx="1.5" fill="#047857"/>
+<text x="624.29" y="152.75" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">9.74</text>
+<text x="624.29" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="#191615">lexicon 16</text>
+<rect x="697.43" y="158.43" width="56" height="131.57" rx="1.5" fill="#B3B1AE"/>
+<text x="725.43" y="153.43" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="middle" fill="rgba(25,22,21,.70)">9.69</text>
+<text x="725.43" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="middle" fill="rgba(25,22,21,.70)">lexicon 64</text>
+<line x1="68" y1="50" x2="68" y2="290" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<line x1="68" y1="290" x2="776" y2="290" stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-linecap="round"/>
+<text x="20" y="170" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" text-anchor="middle" fill="rgba(25,22,21,.70)" transform="rotate(-90 20 170)">word error rate (%)</text>
+</svg>

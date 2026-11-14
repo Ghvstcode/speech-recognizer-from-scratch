@@ -19,7 +19,7 @@
 
 use speech::data::pipeline::{decode, load_audio_16k, Decoder, Recognizer};
 use speech::data::speech_commands::{dataset_dir, load_background_noise, parallel_map, LoadOptions, SpeechCommands, Split, WORDS};
-use speech::data::synth::{Corpus, SynthConfig, Synthesizer, Utterance, EVAL_UTTERANCES};
+use speech::data::synth::{Corpus, TrimConfig, SynthConfig, Synthesizer, Utterance, EVAL_UTTERANCES};
 use speech::mat::Mat;
 use speech::metrics::{align, format_alignment, words, EditOp, ErrorTally};
 use speech::plot::{BarChart, Color, LinePlot, Series};
@@ -147,7 +147,7 @@ fn main() -> std::io::Result<()> {
     // ---- data: the same fixed sets chapter 9 evaluated on ------------------
     let started = Instant::now();
     let data = SpeechCommands::load_with(&dataset_dir(), &LoadOptions { threads, max_per_word: None, only: Some(vec![Split::Validation, Split::Test]) })?;
-    let corpus = Corpus::new(&data, &load_background_noise(&dataset_dir())?, threads);
+    let corpus = Corpus::new(&data, &load_background_noise(&dataset_dir())?, &TrimConfig::default(), threads);
     let validation = score(&recognizer, &corpus.validation_set(EVAL_UTTERANCES, threads), threads);
     let test_utterances = corpus.test_set(EVAL_UTTERANCES, threads);
     let test = score(&recognizer, &test_utterances, threads);
@@ -227,12 +227,13 @@ fn main() -> std::io::Result<()> {
     println!("| words in utterance | utterances | greedy WER | lexicon WER | greedy exact | lexicon exact |");
     println!("|-------------------:|-----------:|-----------:|------------:|-------------:|--------------:|");
     let max_words = test.iter().map(|s| s.n_words).max().unwrap_or(1);
-    let (mut length_greedy, mut length_lexicon) = (Vec::new(), Vec::new());
+    let (mut length_greedy, mut length_lexicon, mut length_any_error) = (Vec::new(), Vec::new(), Vec::new());
     for n in 1..=max_words {
         let (g, l) = (tally(&test, greedy, |s| s.n_words == n), tally(&test, lexicon, |s| s.n_words == n));
         println!("| {n:>18} | {:>10} | {:>9.2}% | {:>10.2}% | {:>11.1}% | {:>12.1}% |", g.utterances, 100.0 * g.wer(), 100.0 * l.wer(), 100.0 * g.exact_match_rate(), 100.0 * l.exact_match_rate());
         length_greedy.push(100.0 * g.wer());
         length_lexicon.push(100.0 * l.wer());
+        length_any_error.push(100.0 * (1.0 - l.exact_match_rate()));
     }
 
     println!("\n| noise                      | utterances | greedy WER | lexicon WER |");
@@ -307,13 +308,14 @@ fn main() -> std::io::Result<()> {
             .height(240.0)
             .save("../figures/ch10-decoders.svg")?;
         let xs: Vec<f32> = (1..=max_words).map(|n| n as f32).collect();
-        LinePlot::new("Longer utterances, more chances to slip")
+        LinePlot::new("Per word, length hardly matters; per utterance, every extra word is another chance to slip")
             .x_label("words in the utterance")
-            .y_label("word error rate (%)")
-            .series(Series::new("greedy", &xs, &length_greedy).color(Color::Amber).width(2.0).dots())
-            .series(Series::new("lexicon beam search", &xs, &length_lexicon).color(Color::Green).width(2.0).dots())
-            .y_range(0.0, (length_greedy.iter().cloned().fold(0.0f32, f32::max) * 1.25).max(1.0))
-            .x_range(0.5, max_words as f32 + 0.5)
+            .y_label("error (%)")
+            .series(Series::new("word error rate, greedy", &xs, &length_greedy).color(Color::Amber).width(2.0).dots())
+            .series(Series::new("word error rate, lexicon", &xs, &length_lexicon).color(Color::Green).width(2.0).dots())
+            .series(Series::new("utterances with any error, lexicon", &xs, &length_any_error).color(Color::Ink48).dashed().dots())
+            .y_range(0.0, (length_any_error.iter().cloned().fold(0.0f32, f32::max) * 1.2).max(1.0))
+            .x_range(1.0, max_words as f32)
             .height(240.0)
             .save("../figures/ch10-wer-by-length.svg")?;
         println!("\nwrote ../figures/ch10-decoders.svg and ../figures/ch10-wer-by-length.svg");

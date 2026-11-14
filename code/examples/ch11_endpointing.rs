@@ -73,7 +73,7 @@ fn main() -> std::io::Result<()> {
 
     let times: Vec<f32> = (0..levels.len()).map(|i| (i as f32 + 0.5) * 0.01).collect();
     let duration = seconds(segmenter.samples_seen());
-    let mut level_plot = LinePlot::new("loudness of each 10 ms block, and the utterances the endpoint detector cut out (shaded, with what was recognized)")
+    let mut level_plot = LinePlot::new("loudness of every 10 ms block; shaded: the utterances that were cut out, with the recognized text")
         .y_label("level (dB)")
         .series(Series::new("", &times, &levels).color(Color::Ink70).width(1.0))
         .x_range(0.0, duration)
@@ -86,7 +86,7 @@ fn main() -> std::io::Result<()> {
     // start a few blocks late and the end 600 ms late: that is the price of
     // not being fooled by clicks and by pauses between words.
     let state: Vec<f32> = active.iter().map(|&a| if a { 1.0 } else { 0.0 }).collect();
-    let state_plot = LinePlot::new("the detector's state while listening: it reports the end of speech 600 ms after the last loud block")
+    let state_plot = LinePlot::new("the detector's state: it notices the end of speech 600 ms after the last loud block")
         .y_label("in speech?")
         .x_label("time (s)")
         .series(Series::new("", &times, &state).color(Color::Green).width(1.5))

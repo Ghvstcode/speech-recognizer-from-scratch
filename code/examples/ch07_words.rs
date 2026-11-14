@@ -14,7 +14,7 @@
 //! input. The other two slide the same weights along the time axis.
 //!
 //! ```text
-//! cargo run --release --example ch07_words -- train                 # all three, ~10 minutes
+//! cargo run --release --example ch07_words -- train                 # all three, about 10 minutes
 //! cargo run --release --example ch07_words -- train --model conv+gru --epochs 4
 //! cargo run --release --example ch07_words -- classify ../samples/seven.wav
 //! ```
@@ -31,7 +31,7 @@ use speech::plot::{BarChart, Color, Figure, Heatmap, LinePlot, Series};
 use speech::rng::Rng;
 use std::time::Instant;
 
-const USAGE: &str = "usage: ch07_words train [--model mlp|conv|conv+gru|all] [--epochs 12] [--batch 64] [--lr 0.002]
+const USAGE: &str = "usage: ch07_words train [--model mlp|conv|conv+gru|all] [--epochs 20] [--batch 64] [--lr 0.002]
                         [--threads 10] [--max-per-word N] [--seed 7] [--no-save] [--no-augment]
        ch07_words classify <file.wav>... [--model-file ../models/words.bin]";
 
@@ -83,19 +83,12 @@ impl Arch {
             // One convolution to find local patterns and halve the frame
             // rate, then a GRU in each direction that can remember the
             // whole word.
-            Arch::ConvGru if std::env::var("V3").is_ok() => Model::new(vec![
+            Arch::ConvGru => Model::new(vec![
                 Layer::conv1d(features, 64, 5, 2, 2, rng),
                 Layer::Relu,
                 Layer::bigru(64, 128, rng),
                 Layer::MeanPool,
                 Layer::linear(256, WORDS.len(), rng),
-            ]),
-            Arch::ConvGru => Model::new(vec![
-                Layer::conv1d(features, 64, 5, 2, 2, rng),
-                Layer::Relu,
-                Layer::bigru(64, 96, rng),
-                Layer::MeanPool,
-                Layer::linear(192, WORDS.len(), rng),
             ]),
         }
     }
@@ -158,7 +151,7 @@ fn main() {
 }
 
 fn parse_train(args: &[String]) -> Result<Options, String> {
-    let mut o = Options { archs: vec![Arch::Mlp, Arch::Conv, Arch::ConvGru], epochs: 12, batch: 64, lr: 2e-3, threads: 10, max_per_word: None, seed: 7, save: true, augment: true };
+    let mut o = Options { archs: vec![Arch::Mlp, Arch::Conv, Arch::ConvGru], epochs: 20, batch: 64, lr: 2e-3, threads: 10, max_per_word: None, seed: 7, save: true, augment: true };
     let mut i = 0;
     while i < args.len() {
         if args[i] == "--no-save" {

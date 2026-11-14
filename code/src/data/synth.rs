@@ -1,12 +1,12 @@
 //! Making multi-word utterances out of single-word clips.
 //!
 //! Our recognizer should hear "seven three go left" and spell it out. To
-//! learn that it needs thousands of hours... or at least many thousands of
-//! examples of several words in a row, each with its transcript. Speech
-//! Commands has no such thing: every clip is one word. So we *build* the
-//! utterances: pick a few clips, cut the silence off each, lay them end to
-//! end with pauses of random length, and add background noise. The
-//! transcript comes for free, because we chose the words.
+//! learn that, it needs many thousands of examples of several words in a
+//! row, each with its transcript. Speech Commands has no such thing: every
+//! clip is one word. So we *build* the utterances: pick a few clips, cut the
+//! silence off each, lay them end to end with pauses of random length, and
+//! add background noise. The transcript comes for free, because we chose
+//! the words.
 //!
 //! ```text
 //! clips      [ seven ]      [ three ]   [ go ]        each trimmed, sped up or slowed
@@ -570,11 +570,11 @@ pub struct Corpus {
 
 impl Corpus {
     /// Build the corpus from a loaded dataset and the noise recordings.
-    pub fn new(data: &super::speech_commands::SpeechCommands, noise_tracks: &[(String, Vec<f32>)], threads: usize) -> Corpus {
+    pub fn new(data: &super::speech_commands::SpeechCommands, noise_tracks: &[(String, Vec<f32>)], trim: &TrimConfig, threads: usize) -> Corpus {
         use super::speech_commands::Split;
         let part = |split: Split, from: f32, to: f32| {
             let clips: Vec<&Clip> = data.split(split).collect();
-            Part { words: WordBank::from_clips(&clips, &TrimConfig::default(), threads), noise: NoiseBank::from_tracks(noise_tracks, from, to) }
+            Part { words: WordBank::from_clips(&clips, trim, threads), noise: NoiseBank::from_tracks(noise_tracks, from, to) }
         };
         Corpus { train: part(Split::Train, 0.0, 0.8), validation: part(Split::Validation, 0.8, 0.9), test: part(Split::Test, 0.9, 1.0) }
     }
@@ -585,7 +585,7 @@ impl Corpus {
         use super::speech_commands::{load_background_noise, LoadOptions, SpeechCommands};
         let data = SpeechCommands::load_with(root, &LoadOptions { threads, max_per_word, only: None })?;
         let noise = load_background_noise(root)?;
-        Ok(Corpus::new(&data, &noise, threads))
+        Ok(Corpus::new(&data, &noise, &TrimConfig::default(), threads))
     }
 
     /// The fixed validation set: `count` utterances from validation
@@ -736,9 +736,9 @@ mod tests {
             for (k, (&word, &(start, end))) in utt.words.iter().zip(&utt.spans).enumerate() {
                 // With gaps >= 10 ms the words do not overlap, so each span
                 // holds exactly one constant "word". All were scaled to the
-                // same RMS (-20 dB = 0.1), and the middle of the span tells
-                // us nothing about identity any more... so recover identity
-                // from the span length instead (1600 + 160 * (word % 3)).
+                // same RMS (-20 dB = 0.1), so the level no longer tells the
+                // words apart; the span length (1600 + 160 * (word % 3))
+                // still does.
                 assert_eq!(end - start, 1600 + 160 * (word % 3), "word {k} of {:?}", utt.text());
                 let level = rms(&utt.samples[start..end]);
                 assert!((level - 0.1).abs() < 1e-3, "level {level}");
@@ -827,5 +827,60 @@ mod tests {
             let utt = synth.utterance_at(11, index);
             assert!(utt.samples.iter().all(|s| s.abs() <= 0.9901), "peak above 0.99");
         }
+    }
+    /// A hand-made dataset: six speakers, two per part, every clip a burst
+    /// of tone inside faint noise so that the trimmer finds a "word".
+    fn toy_dataset() -> super::super::speech_commands::SpeechCommands {
+        use super::super::speech_commands::{SpeechCommands, Split};
+        let mut rng = Rng::new(21);
+        let mut clips = Vec::new();
+        for speaker in 0..6u32 {
+            let split = [Split::Train, Split::Train, Split::Validation, Split::Validation, Split::Test, Split::Test][speaker as usize];
+            for word in 0..WORDS.len() {
+                let mut audio: Vec<f32> = (0..16000).map(|_| 0.001 * (rng.uniform() - 0.5)).collect();
+                let (start, len) = (3000 + 200 * speaker as usize, 5000 + 50 * word);
+                for (i, s) in audio[start..start + len].iter_mut().enumerate() {
+                    *s += 0.2 * (i as f32 * (0.1 + 0.01 * word as f32)).sin();
+                }
+                clips.push(Clip { word, speaker, take: 0, split, samples: to_i16(&audio) });
+            }
+        }
+        // One clip of pure silence: the trimmer must reject it.
+        clips.push(Clip { word: 0, speaker: 0, take: 1, split: Split::Train, samples: vec![0; 16000] });
+        SpeechCommands { clips, speakers: (0..6).map(|s| format!("speaker{s}")).collect() }
+    }
+
+    #[test]
+    fn the_corpus_keeps_speakers_and_noise_apart() {
+        let data = toy_dataset();
+        let noise = vec![("ramp".to_string(), (0..20_000).map(|i| i as f32 * 1e-6).collect::<Vec<f32>>())];
+        let corpus = Corpus::new(&data, &noise, &TrimConfig::default(), 3);
+        assert_eq!((corpus.train.words.len(), corpus.validation.words.len(), corpus.test.words.len()), (70, 70, 70));
+        assert_eq!(corpus.train.words.rejected, 1);
+        assert!(corpus.speakers_are_disjoint());
+        let mut train_speakers = corpus.train.words.speaker_ids();
+        train_speakers.sort();
+        assert_eq!(train_speakers, vec![0, 1]);
+        let mut test_speakers = corpus.test.words.speaker_ids();
+        test_speakers.sort();
+        assert_eq!(test_speakers, vec![4, 5]);
+        // Noise: train 0..16000, validation 16000..18000, test 18000..20000.
+        assert_eq!(corpus.train.noise.tracks[0].1.len(), 16_000);
+        assert!(corpus.validation.noise.tracks[0].1[0] > *corpus.train.noise.tracks[0].1.last().unwrap());
+        assert!(corpus.test.noise.tracks[0].1[0] > *corpus.validation.noise.tracks[0].1.last().unwrap());
+
+        // The fixed sets are the same every time and for any thread count,
+        // and validation and test differ.
+        let (a, b) = (corpus.test_set(6, 1), corpus.test_set(6, 4));
+        assert_eq!(a, b);
+        assert_ne!(a[0].samples, corpus.validation_set(6, 2)[0].samples);
+        // A trimmed word is roughly the burst plus 50 ms on each side.
+        let word = &corpus.train.words.words[0];
+        assert!((5000 + 1000..5000 + 2400).contains(&word.samples.len()), "{} samples", word.samples.len());
+
+        // A corpus whose parts share a speaker must be noticed.
+        let mut leaky = toy_dataset();
+        leaky.clips[0].split = super::super::speech_commands::Split::Test;
+        assert!(!Corpus::new(&leaky, &noise, &TrimConfig::default(), 2).speakers_are_disjoint());
     }
 }

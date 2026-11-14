@@ -23,10 +23,10 @@
 //! is the point of the chapter.
 
 use speech::ctc::ctc_loss;
-use speech::data::pipeline::{decode, command_lexicon, Decoder, FrontEnd};
+use speech::data::pipeline::FrontEnd;
 use speech::data::speech_commands::{dataset_dir, parallel_map, LoadOptions, SpeechCommands, Split};
-use speech::data::synth::{Corpus, SynthConfig, Synthesizer, Utterance, EVAL_UTTERANCES};
-use speech::decode::{best_path, log_softmax, Alphabet};
+use speech::data::synth::{Corpus, SynthConfig, Synthesizer, TrimConfig, Utterance, EVAL_UTTERANCES};
+use speech::decode::{best_path, greedy, log_softmax, Alphabet};
 use speech::mat::Mat;
 use speech::metrics::ErrorTally;
 use speech::nn::{batch_gradients, clip_global_norm, Adam, Layer, LrSchedule, Model};
@@ -36,7 +36,8 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: ch09_train [--quick] [--steps N] [--batch 32] [--lr 0.002] [--conv 96] [--hidden 128] [--layers 2]
                   [--threads 10] [--seed 9] [--eval-every 1000] [--max-words 5] [--max-per-word N]
-                  [--out ../models/recognizer.bin] [--snapshots ../models/recognizer-posteriors.txt]";
+                  [--out ../models/recognizer.bin] [--snapshots ../models/recognizer-posteriors.txt]
+                  [--init model.bin]   (start from saved weights instead of random ones)";
 
 struct Options {
     steps: usize,
@@ -50,6 +51,8 @@ struct Options {
     eval_every: usize,
     max_words: usize,
     max_per_word: Option<usize>,
+    /// Start from these saved weights instead of random ones.
+    init: Option<String>,
     out: String,
     snapshots: String,
 }
@@ -67,6 +70,7 @@ fn parse_options() -> Result<Options, String> {
         eval_every: 1000,
         max_words: 5,
         max_per_word: None,
+        init: None,
         out: "../models/recognizer.bin".to_string(),
         snapshots: "../models/recognizer-posteriors.txt".to_string(),
     };
@@ -95,6 +99,7 @@ fn parse_options() -> Result<Options, String> {
             "--eval-every" => o.eval_every = value.parse().map_err(|_| bad())?,
             "--max-words" => o.max_words = value.parse().map_err(|_| bad())?,
             "--max-per-word" => o.max_per_word = Some(value.parse().map_err(|_| bad())?),
+            "--init" => o.init = Some(value.clone()),
             "--out" => o.out = value.clone(),
             "--snapshots" => o.snapshots = value.clone(),
             other => return Err(format!("unknown option {other:?}")),
@@ -138,9 +143,13 @@ fn examples_from(utterances: &[Utterance], front_end: &FrontEnd, threads: usize)
     parallel_map(utterances, threads, |_, utt| Example { features: front_end.features(&utt.samples), text: utt.text() })
 }
 
-/// What the model currently hears in one example, by greedy decoding.
+/// What the model currently hears in one example, by greedy decoding: the
+/// most probable class of every frame, repeats merged, blanks dropped
+/// (chapter 10 looks at this, and at better decoders, in detail).
 fn hear(model: &Model, features: &Mat) -> String {
-    decode(&log_softmax(&model.predict(features)), &Decoder::Greedy, &command_lexicon())
+    let text = Alphabet::decode(&greedy(&log_softmax(&model.predict(features))));
+    // A space spelled before the first word or after the last is not an error.
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Greedy-decode every example and count the errors.
@@ -189,7 +198,7 @@ fn main() -> std::io::Result<()> {
     let noise = speech::data::speech_commands::load_background_noise(&dataset_dir())?;
     println!("loaded {} clips and {} noise recordings in {:.1} s", data.clips.len(), noise.len(), started.elapsed().as_secs_f32());
     let started = Instant::now();
-    let corpus = Corpus::new(&data, &noise, threads);
+    let corpus = Corpus::new(&data, &noise, &TrimConfig::default(), threads);
     assert!(corpus.speakers_are_disjoint(), "a speaker appears in more than one part of the split");
     for (name, part) in [("train", &corpus.train), ("validation", &corpus.validation), ("test", &corpus.test)] {
         println!(
@@ -226,14 +235,17 @@ fn main() -> std::io::Result<()> {
 
     // ---- model ---------------------------------------------------------
     let mut rng = Rng::new(options.seed);
-    let mut model = build_model(&options, &mut rng);
+    let mut model = match &options.init {
+        Some(path) => Model::load(path)?,
+        None => build_model(&options, &mut rng),
+    };
     println!();
     print!("{}", model.summary());
     let schedule = LrSchedule { peak_lr: options.lr, final_lr: options.lr / 20.0, warmup_steps: 500.min(options.steps / 4).max(1), total_steps: options.steps };
     let mut adam = Adam::new(options.lr);
     let recipe = SynthConfig { max_words: options.max_words, ..SynthConfig::default() };
     println!("\nrecipe: {recipe:?}");
-    println!("training: {} steps of {} utterances, Adam, peak learning rate {} (warm-up {} steps, cosine decay to {}), gradient clipping at norm {CLIP}, {} threads\n", options.steps, options.batch, options.lr, schedule.warmup_steps, schedule.final_lr, threads);
+    println!("training: {} steps of {} utterances, Adam, peak learning rate {} (warm-up {} steps, cosine decay to {:.5}), gradient clipping at norm {CLIP}, {} threads\n", options.steps, options.batch, options.lr, schedule.warmup_steps, schedule.final_lr, threads);
     let synthesizer = Synthesizer::new(&corpus.train.words, &corpus.train.noise, recipe);
 
     // ---- the loop ------------------------------------------------------
