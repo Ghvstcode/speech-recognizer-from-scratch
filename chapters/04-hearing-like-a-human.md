@@ -12,11 +12,11 @@ The first is the comb of thin horizontal stripes, evenly spaced: the *harmonics*
 
 The second is the handful of broad dark regions, each a few hundred Hz wide, that the stripes pass through: the formants, the resonances of the throat and mouth, which move around when the tongue and lips move. The smooth outline you would get by draping a cloth over the tops of the harmonics is called the *spectral envelope*.
 
-Here is the thing: the word is in the envelope. Chapter 3 opened with "ee" sliding into "oo" on one note: the comb does not move at all, only the envelope changes. Now say "ee" low and then high: the comb stretches, the envelope stays, and it is still "ee". A recognizer fed raw FFT bins has to discover for itself that the comb is somebody's voice and not somebody's word, and it has to discover it from examples. We know it already, so let's hand the recognizer something where the comb is mostly smoothed away.
+Here is the thing: for the English words we want to recognize, the word is in the envelope. (Not in every language. In a tonal language such as Mandarin the movement of the pitch is part of the word, and in English it carries stress and the difference between a statement and a question. Our single digits and commands lose nothing by ignoring it.) Chapter 3 opened with "ee" sliding into "oo" on one note: the comb does not move at all, only the envelope changes. Now say "ee" low and then high: the comb stretches, the envelope stays, and it is still "ee". A recognizer fed raw FFT bins has to discover for itself that the comb is somebody's voice and not somebody's word, and it has to discover it from examples. We know it already, so let's hand the recognizer something where the comb is mostly smoothed away.
 
 There is a second thing we know. Our ears are sharp at low frequencies and blurry at high ones. The step from 200 Hz to 400 Hz sounds huge (it is an octave), the step from 6200 Hz to 6400 Hz is barely audible. Speech evolved to be heard by ears, so it is a fair bet that the distinctions that matter are spread out the way ears spread them: lots of detail needed at the bottom, little at the top. The FFT does the opposite of what we want here. Its bins are 31.25 Hz apart everywhere, so half of our 257 numbers describe the range from 4000 to 8000 Hz.
 
-So that is the plan: average neighboring bins together, a few at a time at the bottom and many at a time at the top. We need a ruler that tells us how many.
+So that is the plan: pool neighboring bins together, a few at a time at the bottom and many at a time at the top. We need a ruler that tells us how many.
 
 ### The Mel Scale
 
@@ -93,7 +93,7 @@ Look at the last line. The same 100 Hz step is worth ten times as much at the bo
 *The mel scale. The dashed line is what it would be if we heard pitch linearly.*
 
 **Aside** <br>
-There is no single "the" mel scale. The formula above is the one used by HTK (the Hidden Markov Model Toolkit, a hugely influential speech toolkit from Cambridge) and it is usually credited to O'Shaughnessy's 1987 textbook. The other common one is Malcolm Slaney's, from his Auditory Toolbox: exactly linear below 1000 Hz and logarithmic above. Whisper was trained with Slaney's, so when we get to chapter 12 we will have to write that one too. The two differ by a few percent. Neither is "right"; what matters is that you extract features for recognition exactly the way you extracted them for training.
+There is no single "the" mel scale. The formula above is the one used by HTK (the Hidden Markov Model Toolkit, a hugely influential speech toolkit from Cambridge) and it is usually credited to O'Shaughnessy's 1987 textbook. The other common one is Malcolm Slaney's, from his Auditory Toolbox: exactly linear below 1000 Hz and logarithmic above. Whisper was trained with Slaney's, so when we get to chapter 12 we will have to write that one too. They do not put the bands in the same places: for 40 bands from 20 to 8000 Hz, the lowest band of our scale peaks at 65 Hz and Slaney's at 93 Hz. Neither is "right"; what matters is that you extract features for recognition exactly the way you extracted them for training.
 
 ### A Bank Of Triangles
 
@@ -122,7 +122,7 @@ pub fn mel_points(n_mels: usize, fmin: f32, fmax: f32) -> Vec<f32> {
 }
 ```
 
-Why a triangle and not a plain box that averages the bins between two points? With boxes, a harmonic that drifts across the border between two bands would jump from one to the other in a single step. With overlapping triangles it fades out of one band while it fades into the next. A band's weight for a frequency is 1 at the band's peak and falls in a straight line to 0 at the peaks of its two neighbors.
+Why a triangle and not a plain box that adds up the bins between two points? With boxes, a harmonic that drifts across the border between two bands would jump from one to the other in a single step. With overlapping triangles it fades out of one band while it fades into the next. A band's weight for a frequency is 1 at the band's peak and falls in a straight line to 0 at the peaks of its two neighbors.
 
 A set of bands like this is called a *filterbank*, and each triangle is a *filter*: something that lets some frequencies through and blocks others. We need each filter's weight at each of the 257 FFT bins. That is 40 lists of 257 numbers, which is a grid, and for grids we have a type.
 
@@ -210,7 +210,7 @@ fn a_tiny_filterbank_by_hand() {
 Two more tests next to it check every filter of the real 16 kHz and 8 kHz banks: a single peak at the right frequency, zero outside the band, and one more property that deserves its own paragraph.
 
 **Aside** <br>
-We had a choice to make about how tall the triangles are, and it is one of those choices that libraries quietly disagree on. Ours all have **peak height 1**, the HTK convention. Because each triangle falls exactly as fast as its neighbor rises, the weights at any frequency between the first and last peak add up to exactly 1 (the test checks this for every bin), so no frequency counts more than another. The price is that a wide filter adds up more bins than a narrow one: the weights of filter 0 sum to 1.6 and those of filter 39 to 15.9, so a perfectly flat spectrum would come out sloping upwards. The alternative, Slaney's again, divides each triangle by its width so that every filter has the same area and a flat spectrum stays flat. Since the next thing we do is take a logarithm, the two conventions differ only by a fixed offset per band, which the normalization at the end of this chapter or the first layer of a network removes without noticing.
+We had a choice to make about how tall the triangles are, and it is one of those choices that libraries quietly disagree on. Ours all have **peak height 1**, the HTK convention. Because each triangle falls exactly as fast as its neighbor rises, the weights at any frequency between the first and last peak add up to exactly 1 (the test checks this for every bin), so no frequency counts more than another. The price is that a wide filter adds up more bins than a narrow one: the weights of filter 0 sum to 1.6 and those of filter 39 to 15.9, so a perfectly flat spectrum would come out sloping upwards. The alternative, Slaney's again, divides each triangle by its width so that every filter has the same area and a flat spectrum stays flat. Since the next thing we do is take a logarithm, the two conventions differ by a fixed offset per band, at least where a band's energy is well above the small floor we are about to add (close to the floor the offset shrinks, the same effect as in exercise 4). The normalization at the end of this chapter subtracts such an offset out, and a network trained on either convention gets used to its own. What no network can do is train on one convention and be fed the other.
 
 ### Applying It Is A Matrix Product
 
@@ -460,7 +460,7 @@ Also notice the left and right edges. In the top panel the silence is blank pape
 
 For the models we train from chapter 6 onward, the 98 × 40 log-mel picture is the input, and we could stop here. But the next chapter builds a recognizer with no learning in it at all, one that compares two recordings by measuring plain distances between their frames, and for that kind of model log-mel has two flaws.
 
-First, the 40 numbers in a row are far from independent. The triangles overlap and the envelope is smooth, so if band 17 is high, band 18 almost certainly is too. I measured it on `seven.wav`: the correlation between neighboring bands, averaged over the 39 pairs, is 0.99. A distance that adds up 40 differences is counting nearly the same difference many times over. Second, the lowest bands still wiggle with the harmonics of the voice, as we saw.
+First, the 40 numbers in a row are far from independent. The triangles overlap and the envelope is smooth, so if band 17 is high, band 18 almost certainly is too. I measured it on `seven.wav`: the correlation between neighboring bands, averaged over the 39 pairs, is 0.99. A distance that adds up 40 differences is counting nearly the same difference many times over, and it has no way to tell the broad shape of the row from its fine ripple. Second, the lowest bands still wiggle with the harmonics of the voice, as we saw.
 
 What we would like is a handful of numbers that describe the *shape* of a log-mel row: how high it is overall, whether it tilts up or down, whether it has one hump or two. If you have been paying attention, you'll notice we have done this before. In chapter 3 we described a wiggly signal by asking "how much of each sinusoid is in it?". A row of 40 log-mel values is just another list of numbers, and we can ask the same question of it.
 
@@ -523,7 +523,7 @@ fn dct_by_hand() {
 }
 ```
 
-The middle case tells us what coefficient 0 means: it is the sum of the inputs times a constant, so for a log-mel row, **c0 is the overall loudness of the frame**. The next few coefficients describe tilt and humps, which is the envelope. The high ones describe fast ripple from band to band, which is mostly leftover harmonics. So we keep the first 13 and drop the other 27. What we keep are the *mel-frequency cepstral coefficients*, MFCCs. ("Cepstral" is "spectral" with its first four letters reversed, a 1960s pun for "a spectrum of a spectrum" that stuck.)
+The middle case tells us what coefficient 0 means: it is the sum of the inputs times a constant, so for a log-mel row, **c0 is the overall level of the frame**: √40 times the average of its 40 log energies. Turn the gain up and every log energy rises by the same amount, so c0 rises with it, which is why we will loosely say that c0 follows loudness. It is not the energy of chapter 2, though. An average of logarithms gives a faint band the same vote as a strong one, so c0 also depends on how the energy is spread over the bands. The next few coefficients describe tilt and humps, which is the envelope. The high ones describe fast ripple from band to band, which is mostly leftover harmonics. So we keep the first 13 and drop the other 27. What we keep are the *mel-frequency cepstral coefficients*, MFCCs. ("Cepstral" is "spectral" with its first four letters reversed, a 1960s pun for "a spectrum of a spectrum" that stuck.)
 
 Just like the filterbank, a DCT is a fixed set of weights applied by dot products, so we can write it as a matrix and transform all 98 frames at once:
 
@@ -569,9 +569,17 @@ A test in the repository, `mfcc_is_the_truncated_dct_of_log_mel`, checks that th
 
 Did it do what we wanted? On `seven.wav`, the 13 coefficients we keep hold 99.6% of the squared size of the log-mel rows (91% if we leave c0 out of the count), and the average correlation between neighboring coefficients is 0.25, down from 0.99 for neighboring bands. Not zero, but a different world.
 
+One thing needs saying plainly, because it is easy to get wrong. Rearranging the numbers does not, by itself, change any distance. The full 40 × 40 DCT is orthonormal, which means it preserves lengths, so for two log-mel rows `x` and `y` with DCTs `X` and `Y`:
+
+```text
+sum over k of (X[k] - Y[k])^2  =  sum over m of (x[m] - y[m])^2
+```
+
+A recognizer that measures plain distances would behave identically on all 40 coefficients and on the 40 bands they came from. What changes the distances is what we *leave out*: the 27 high coefficients here, and c0 in the next chapter. The DCT's contribution is to sort a row into overall level, broad shape and fine ripple, so that there is something clean to leave out. Uncorrelated numbers for their own sake mattered to the statistical models of the 1980s, which is the other reason MFCCs became the standard.
+
 ![A heatmap of 13 MFCCs over time for the word seven. Row 0 is pale during the silence and dark during the word. The rows above it flicker between light and dark with no obvious pattern](../figures/ch04-mfcc.svg)
 
-*The MFCCs of "seven", each row normalized. Row 0 follows the loudness; the rest are not meant for human eyes.*
+*The MFCCs of "seven", each row normalized. Row 0 follows the overall level; the rest are not meant for human eyes.*
 
 I should be honest about where MFCCs stand today. They were introduced by Davis and Mermelstein in 1980 and were *the* speech feature for the next three decades, because the statistical models of that era needed inputs that were compact and uncorrelated. Neural networks have no such need. A network can learn its own version of the DCT if that helps, and learns something better if not, so modern recognizers work as well or better on log-mel directly. That is what we will feed ours, and what Whisper eats. We built MFCCs for two reasons: you will meet them in every older paper and tutorial, and the template matcher in the next chapter is exactly the kind of simple model that benefits from them.
 
@@ -672,7 +680,88 @@ fn a_tone_above_the_new_nyquist_is_removed_not_aliased() {
 
 In speech, that false tone would be the hiss of every "s" folded down on top of the vowels.
 
-Our `resample` does it properly. The samples pin down exactly one smooth curve with no frequencies above Nyquist; resampling reads that curve off at the new sample times, and when the rate goes down it first smooths away everything above the *new* Nyquist frequency. We will not walk through it line by line. The function is well commented, and it gets its first use in the next chapter, when a 16 kHz clip meets a recognizer built from 8 kHz recordings. From then on it runs whenever a clip's rate differs from the one a model expects.
+Our `resample` does it properly, and the idea fits in three steps.
+
+**The curve between the samples.** Chapter 1 said that samples taken fast enough pin down the sound exactly. The sampling theorem also says how to get the sound back. Put one pulse on every sample, as tall as the sample, and add the pulses up. The pulse is called a *sinc*, `sinc(u) = sin(πu) / (πu)`: it is 1 at its own sample and 0 at every other sample position, so the sum passes through all the samples, and it is the one curve through them that contains nothing above the Nyquist frequency. With time `t` measured in input samples:
+
+```text
+x(t) = sum over k of  x[k] * sinc(t - k)
+```
+
+Resampling reads that curve off at the new sample times. Output sample `m` sits at `t = m * step`, where `step = from_rate / to_rate` is 2 when we go from 16 kHz to 8 kHz and 0.5 the other way.
+
+**Going down, smooth first.** A wider pulse draws a smoother curve. Stretch the sinc by a factor `1 / c` (and multiply by `c`, so the sum keeps its size) and the curve contains nothing above `c` times the old Nyquist frequency. With `c = to_rate / from_rate` that limit is the *new* Nyquist frequency, so one stretched pulse does both jobs: it removes what the new rate cannot hold and it interpolates.
+
+**A pulse that ends.** A sinc ripples on forever, and we have a finite loop to write. We keep 16 zero crossings on each side of the peak. Chopping the rest off would be the sharp edge of chapter 2 all over again, so we fade the pulse out with a Hann window, the symmetric one this time. That gives the pulse we really use, `h`, and the whole algorithm:
+
+```text
+h(u)  = sinc(u) * (0.5 + 0.5 * cos(π u / 16))     for |u| <= 16, and 0 beyond
+
+y[m]  = c * sum over k of  x[k] * h(c * (m * step - k))
+
+c     = 0.94 * min(1, to_rate / from_rate)
+```
+
+```rust
+// src/dsp/resample.rs
+
+/// How many zero crossings of the sinc we keep on each side of its peak.
+/// More is more accurate (a sharper cutoff) and slower.
+const ZERO_CROSSINGS: usize = 16;
+
+/// We put the filter's cutoff a little below the Nyquist frequency, because
+/// a finite filter cannot drop from "pass" to "block" instantly.
+const ROLLOFF: f64 = 0.94;
+
+/// Convert `samples` from `from_rate` to `to_rate` samples per second.
+///
+/// The result has `round(len * to_rate / from_rate)` samples. Frequencies
+/// that both rates can represent are preserved; when downsampling, those
+/// above the new Nyquist frequency are filtered out.
+pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    assert!(from_rate > 0 && to_rate > 0, "sample rates must be positive");
+    if from_rate == to_rate {
+        return samples.to_vec();
+    }
+
+    // Cutoff as a fraction of the *input* Nyquist frequency: 1 (well, 0.94)
+    // when upsampling, lower when downsampling.
+    let cutoff = ROLLOFF * (to_rate as f64 / from_rate as f64).min(1.0);
+    let kernel = SincKernel::new();
+    // The kernel is `ZERO_CROSSINGS` zero crossings wide on each side; at a
+    // lower cutoff the crossings are further apart, measured in input samples.
+    let half_width = ZERO_CROSSINGS as f64 / cutoff;
+
+    let out_len = ((samples.len() as u64 * to_rate as u64 + from_rate as u64 / 2) / from_rate as u64) as usize;
+    let step = from_rate as f64 / to_rate as f64; // input samples per output sample
+    let mut out = Vec::with_capacity(out_len);
+    for m in 0..out_len {
+        // Where output sample m falls on the input's time axis.
+        let position = m as f64 * step;
+        let first = (position - half_width).ceil().max(0.0) as usize;
+        let last = ((position + half_width).floor() as usize).min(samples.len().saturating_sub(1));
+        let mut sum = 0.0f64;
+        for (k, &x) in samples.iter().enumerate().take(last + 1).skip(first) {
+            // Distance from this input sample to the output position,
+            // measured in zero crossings of the stretched sinc.
+            let distance = (position - k as f64) * cutoff;
+            sum += x as f64 * kernel.at(distance);
+        }
+        // A sinc stretched by 1/cutoff is 1/cutoff times as tall in total;
+        // multiplying by the cutoff keeps the loudness the same.
+        out.push((sum * cutoff) as f32);
+    }
+    out
+}
+```
+
+`kernel.at(u)` is `h(u)`. It is read from a table with 512 entries per zero crossing and a straight line between neighboring entries, so the inner loop needs no trigonometry. The sum only runs over the input samples within 16 zero crossings of the output position, since `h` is zero beyond that.
+
+The 0.94 is the price of a pulse that ends. An endless sinc would pass everything below its cutoff untouched and block everything above. Ours cannot change its mind that fast, and slides from "pass" to "block" over several hundred Hz. Center that slide on the Nyquist frequency and its upper half lets through frequencies that alias, so we move the cutoff down to 94% of Nyquist. I measured the result going from 16 kHz to 8 kHz, where the new Nyquist frequency is 4000 Hz and the cutoff 3760 Hz. A tone at 3400 Hz comes through at 99% of its amplitude, one at 3760 Hz at exactly half, one at 3900 Hz at 22%. On the far side, a 4100 Hz tone, which ought to vanish, leaks through at 1.6% and lands at 3900 Hz; at 4500 Hz the leak is 0.2%, at 5000 Hz 0.03%. So this is an approximation to the ideal, on both sides: we give up a little of the very top of the band, and a trace of what lies just above it still folds back. More zero crossings would narrow the slide and slow the loop.
+
+The ends of the clip are approximate too. The sum treats the samples before the first one and after the last one as zeros, so the first and last 2 ms or so of the output are built from a pulse with one side missing. The tests measure away from the edges for that reason.
+
+`resample` gets its first use in the next chapter, when a 16 kHz clip meets a recognizer built from 8 kHz recordings. From then on it runs whenever a clip's rate differs from the one a model expects.
 
 One thing resampling cannot do is invent information. I upsampled the 8 kHz `seven_jackson.wav` to 16 kHz (3457 samples become 6914) and took its log-mel: the bands above 4000 Hz sit at −13.8, the floor. The rate is right, but the top of the picture is empty.
 
@@ -688,12 +777,13 @@ Here is the rest of the example's output for `seven.wav`:
   MFCC               98 x 13    (frames x coefficients)
   log-mel values run from -13.8 to 4.6 (silence would be ln(1e-6) = -13.8)
 
-  loudest frame (#42):
-    log-mel, first 10 bands:    -4.0   -2.6   -2.4    0.1   -0.3    0.6    0.8    2.6    3.9    4.4
-    its 13 MFCCs:                0.9    1.8   -3.0   -4.0   -4.2   -2.7   -2.6   -3.9    1.8    2.0    0.6   -0.8   -3.9
-    DCT of the log-mel row:      0.9    1.8   -3.0   -4.0   -4.2   -2.7   -2.6   -3.9    1.8    2.0    0.6   -0.8   -3.9   (the same, computed directly)
-    normalized MFCCs:            1.7    0.3   -1.7   -0.6   -2.1   -1.1   -1.3   -1.2    1.5    0.8    0.8   -1.3   -2.0
-    their deltas:                0.0   -0.0   -0.1   -0.1   -0.1    0.1   -0.2    0.2    0.2   -0.3   -0.3   -0.0    0.1
+  loudest frame (#45):
+    log-mel, first 10 bands:    -4.2   -3.0   -2.6   -0.3   -0.8    0.4    0.7    2.1    4.6    4.6
+    its 13 MFCCs:                0.4    1.9   -3.4   -4.8   -4.4   -2.7   -3.2   -3.3    2.6    1.7    0.5   -1.0   -3.4
+    DCT of the log-mel row:      0.4    1.9   -3.4   -4.8   -4.4   -2.7   -3.2   -3.3    2.6    1.7    0.5   -1.0   -3.4   (the same, computed directly)
+    c0 = sqrt(40) x the row's average (0.058) = 0.37; the largest c0 of the clip is 0.87, in frame #42
+    normalized MFCCs:            1.7    0.3   -1.9   -0.8   -2.3   -1.1   -1.8   -0.9    2.0    0.5    0.7   -1.5   -1.7
+    their deltas:               -0.0    0.1   -0.2   -0.0    0.2   -0.1   -0.0   -0.1   -0.0    0.0    0.2    0.1   -0.2
 
   log-mel spectrogram (time left to right, band 0 at the bottom, darker = more energy):
 
@@ -719,7 +809,7 @@ timing on this 1.00 s clip (best of 5 batches of 200 runs):
 ...
 ```
 
-A few things to check off. The shapes are the ones in the pipeline figure. Frame 42 sits in the middle of the first vowel, and its first MFCC is 0.9: the 40 log-mel values of that row average 0.137, and 0.137 × √40 is 0.87. The line under it is `dct2` applied to that one row, and it agrees with the matrix version to the last printed digit. And there is "seven" in your terminal, "s" at the top left, vowels at the bottom.
+A few things to check off. The shapes are the ones in the pipeline figure. Frame 45 is the loudest frame of chapters 2 and 3, in the middle of the first vowel. The line under its MFCCs is `dct2` applied to that one row, and it agrees with the matrix version to the last printed digit. Its first MFCC is 0.37, which is √40 times the average of the row, as promised. And here is the difference between c0 and loudness in one line of output: the frame with the most energy is 45, but the largest c0 belongs to frame 42, three frames earlier. A mean of squared samples and an average of log band energies are different measurements, and they need not peak in the same place. And there is "seven" in your terminal, "s" at the top left, vowels at the bottom.
 
 When run without arguments, the program also writes this chapter's four generated figures into `../figures/` (drawn by a small SVG helper in the repository). Give it a file name and it analyzes that instead, so try `-- ../samples/seven_jackson.wav` to see the 8 kHz numbers: 129 bins, and a 0.43-second clip that comes out as 41 × 40.
 
@@ -733,14 +823,14 @@ The other two lines deserve an honest reading. Building the window, the FFT tabl
 2. **Turn off the logarithm.** In `FeatureExtractor::log_mel`, return `mel_energy` without the `.map(...)`. Several tests should fail, which is the point of having them, and the terminal heatmap should show little more than the loudest part of the vowel, because everything else is tiny next to it.
 3. **Turn off pre-emphasis.** Set `preemphasis: 0.0` in the config and compare the heatmaps. The "s" at the top left should fade relative to the vowels: pre-emphasis is what was propping up the high frequencies.
 4. **Half the volume.** Multiply every sample of the clip by 0.5 before extracting. The loud parts of the log-mel should drop by `ln 0.25 = -1.39` and nothing else. Then look at the quietest parts: they move by less, because the floor does not scale with the audio. That is why, when I tried it, the normalized features of the two versions were close but not identical (the largest difference was 0.16).
-5. **See the comb.** Print all 40 DCT outputs for frame 42 with `dct2(mel.row(loudest), 40)` in place of 13. Compare the sizes of the first 13 with the rest, and remember that the rest is what we are throwing away.
+5. **See the comb.** Print all 40 DCT outputs for frame 45 with `dct2(mel.row(loudest), 40)` in place of 13. Compare the sizes of the first 13 with the rest, and remember that the rest is what we are throwing away.
 
 ### Loose Ends
 
 * **Our mel scale is not Whisper's.** We use the HTK formula and peak-1 triangles. Whisper needs the Slaney scale, area-normalized triangles, 80 bands, a base-10 log and its own scaling. Chapter 12 writes that variant next to this one.
 * **The floor is a fixed number.** `1e-6` assumes samples between −1 and 1. Audio at a very different scale would sit differently against it, and near the floor a change of gain is no longer a clean shift (exercise 4).
 * **Normalization needs the whole utterance.** Fine for files, a problem for live audio. Chapter 11 lives with it: the live recognizer waits until the speaker has stopped.
-* **The resampler was only toured.** We tested that it does not alias and that tones keep their frequency and loudness, but we did not derive the windowed-sinc filter inside it.
+* **The resampler is the plain kind.** We took the sinc from the sampling theorem on trust, and we measured what the Hann taper and the 0.94 do to the edge of the filter without deriving it. Julius Smith's pages in the references have the theory, and the tricks that make production resamplers fast.
 
 What's next on our agenda? Let's take stock, because this is the end of the first part of the book. We started with air pressure wobbling against a microphone. Chapter 1 turned that into a list of 16,000 numbers per second. Chapter 2 cut the list into overlapping 25 ms frames. Chapter 3 found the frequencies inside each frame. And in this chapter we reshaped the result to match what an ear cares about: 40 mel bands, on a logarithmic scale, 98 rows for one second of sound. A spoken word is now a small picture, 98 × 40, and we can make one in under half a millisecond with nothing but the standard library. Everything from here on consumes that picture and never looks at a raw sample again.
 

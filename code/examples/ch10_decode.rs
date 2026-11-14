@@ -20,6 +20,7 @@
 use speech::data::pipeline::{decode, load_audio_16k, Decoder, Recognizer};
 use speech::data::speech_commands::{dataset_dir, load_background_noise, parallel_map, LoadOptions, SpeechCommands, Split, WORDS};
 use speech::data::synth::{Corpus, TrimConfig, SynthConfig, Synthesizer, Utterance, EVAL_UTTERANCES};
+use speech::dsp::resample::resample;
 use speech::mat::Mat;
 use speech::metrics::{align, format_alignment, words, EditOp, ErrorTally};
 use speech::plot::{BarChart, Color, LinePlot, Series};
@@ -47,17 +48,27 @@ fn score(recognizer: &Recognizer, utterances: &[Utterance], threads: usize) -> V
     parallel_map(utterances, threads, |_, utt| Scored { text: utt.text(), n_words: utt.words.len(), snr_db: utt.snr_db, same_speaker: utt.same_speaker, log_probs: recognizer.log_probs(&utt.samples) })
 }
 
-/// Decode every utterance of a set. Returns the hypotheses and the mean
-/// decoding time per utterance in milliseconds (the decoder alone; the
-/// network's time is not included).
-fn decode_all(recognizer: &Recognizer, set: &[Scored], decoder: &Decoder, threads: usize) -> (Vec<String>, f32) {
-    let results = parallel_map(set, threads, |_, scored| {
-        let started = Instant::now();
-        let text = decode(&scored.log_probs, decoder, &recognizer.lexicon);
-        (text, started.elapsed().as_secs_f32())
-    });
-    let total: f32 = results.iter().map(|(_, seconds)| seconds).sum();
-    (results.into_iter().map(|(text, _)| text).collect(), 1000.0 * total / set.len().max(1) as f32)
+/// Decode every utterance of a set, on all threads.
+fn decode_all(recognizer: &Recognizer, set: &[Scored], decoder: &Decoder, threads: usize) -> Vec<String> {
+    parallel_map(set, threads, |_, scored| decode(&scored.log_probs, decoder, &recognizer.lexicon))
+}
+
+/// How many utterances the timings are taken on: the first this many of
+/// the test set, for the network and for every decoder alike.
+const TIMED_UTTERANCES: usize = 200;
+
+/// Mean decoding time per utterance in milliseconds, measured the way the
+/// network's time is: one utterance after the other on this thread, nothing
+/// else of ours running. (The decoder alone; the network's time is not
+/// included.) Timing inside `decode_all` would not do: ten decoders running
+/// side by side slow each other down, and the numbers could not be compared
+/// with a network that was timed alone.
+fn decode_time_ms(recognizer: &Recognizer, set: &[Scored], decoder: &Decoder) -> f32 {
+    let started = Instant::now();
+    for scored in set {
+        std::hint::black_box(decode(&scored.log_probs, decoder, &recognizer.lexicon));
+    }
+    1000.0 * started.elapsed().as_secs_f32() / set.len().max(1) as f32
 }
 
 /// Error counts over the utterances selected by `keep`.
@@ -156,19 +167,20 @@ fn main() -> std::io::Result<()> {
     println!("{} validation and {} test utterances ({:.0} min of test audio) scored in {:.1} s\n", validation.len(), test.len(), audio_seconds / 60.0, started.elapsed().as_secs_f32());
 
     // How long does the network itself take? One thread, 200 utterances.
+    let timed = TIMED_UTTERANCES.min(test.len());
     let started = Instant::now();
-    for utt in &test_utterances[..200] {
+    for utt in &test_utterances[..timed] {
         std::hint::black_box(recognizer.log_probs(&utt.samples));
     }
-    let network_ms = 1000.0 * started.elapsed().as_secs_f32() / 200.0;
-    let mean_seconds = test_utterances[..200].iter().map(Utterance::seconds).sum::<f32>() / 200.0;
+    let network_ms = 1000.0 * started.elapsed().as_secs_f32() / timed as f32;
+    let mean_seconds = test_utterances[..timed].iter().map(Utterance::seconds).sum::<f32>() / timed as f32;
     println!("features + network: {network_ms:.1} ms per utterance on one thread (mean length {mean_seconds:.2} s, so {:.0}x faster than real time)\n", 1000.0 * mean_seconds / network_ms);
 
     // ---- tune the word bonus on VALIDATION ---------------------------------
     println!("tuning the lexicon decoder's word bonus on the validation set (beam {}):", Decoder::DEFAULT_BEAM);
     let mut best_bonus = (f32::MAX, 0.0f32);
     for bonus in [-4.0f32, -2.0, -1.0, 0.0, 1.0, 2.0, 4.0] {
-        let (hypotheses, _) = decode_all(&recognizer, &validation, &Decoder::Lexicon { width: Decoder::DEFAULT_BEAM, word_bonus: bonus }, threads);
+        let hypotheses = decode_all(&recognizer, &validation, &Decoder::Lexicon { width: Decoder::DEFAULT_BEAM, word_bonus: bonus }, threads);
         let wer = tally(&validation, &hypotheses, |_| true).wer();
         println!("  word bonus {bonus:>+5.1}   validation WER {:.2}%", 100.0 * wer);
         if wer < best_bonus.0 {
@@ -193,14 +205,15 @@ fn main() -> std::io::Result<()> {
     let mut outputs: Vec<Vec<String>> = Vec::new();
     let mut tallies: Vec<ErrorTally> = Vec::new();
     for (name, decoder) in &decoders {
-        let (hypotheses, ms) = decode_all(&recognizer, &test, decoder, threads);
+        let hypotheses = decode_all(&recognizer, &test, decoder, threads);
         let t = tally(&test, &hypotheses, |_| true);
-        table_row(name, &t, ms);
+        table_row(name, &t, decode_time_ms(&recognizer, &test[..timed], decoder));
         outputs.push(hypotheses);
         tallies.push(t);
     }
     let (greedy, beam, lexicon) = (&outputs[0], &outputs[2], &outputs[5]);
     let empty = lexicon.iter().filter(|h| h.is_empty()).count();
+    println!("\n(decode time: mean over the first {timed} test utterances, one after the other on one thread, like the network's time above)");
     println!("\n(the lexicon decoder returned nothing for {empty} of {} utterances: no sequence of whole words survived in its beam)", test.len());
 
     // ---- aligned examples --------------------------------------------------
@@ -275,8 +288,8 @@ fn main() -> std::io::Result<()> {
     println!("|-----------------------------------------------|-----------:|-----------:|------------:|--------------:|");
     let lexicon_tuned = Decoder::Lexicon { width: 16, word_bonus: bonus };
     let report = |name: &str, set: &[Scored]| {
-        let (g, _) = decode_all(&recognizer, set, &Decoder::Greedy, threads);
-        let (l, _) = decode_all(&recognizer, set, &lexicon_tuned, threads);
+        let g = decode_all(&recognizer, set, &Decoder::Greedy, threads);
+        let l = decode_all(&recognizer, set, &lexicon_tuned, threads);
         let (g, l) = (tally(set, &g, |_| true), tally(set, &l, |_| true));
         println!("| {name:<45} | {:>10} | {:>9.2}% | {:>10.2}% | {:>12.1}% |", g.utterances, 100.0 * g.wer(), 100.0 * l.wer(), 100.0 * l.exact_match_rate());
     };
@@ -296,6 +309,14 @@ fn main() -> std::io::Result<()> {
     let clips: Vec<_> = data.split(Split::Test).collect();
     let single: Vec<Scored> = parallel_map(&clips, threads, |_, clip| Scored { text: WORDS[clip.word].to_string(), n_words: 1, snr_db: None, same_speaker: true, log_probs: recognizer.log_probs(&clip.audio()) });
     report("single-word test clips, exactly as recorded", &single);
+    // The same clips with everything above 4 kHz removed: down to 8 kHz (the
+    // sample rate of a telephone line) and back up. Nothing else changes, so
+    // the difference to the row above is what the missing band costs.
+    let narrow: Vec<Scored> = parallel_map(&clips, threads, |_, clip| {
+        let telephone = resample(&resample(&clip.audio(), 16_000, 8_000), 8_000, 16_000);
+        Scored { text: WORDS[clip.word].to_string(), n_words: 1, snr_db: None, same_speaker: true, log_probs: recognizer.log_probs(&telephone) }
+    });
+    report("the same clips through 8 kHz and back", &narrow);
 
     if figures {
         let labels = ["greedy", "beam 4", "beam 16", "beam 64", "lexicon 4", "lexicon 16", "lexicon 64"];

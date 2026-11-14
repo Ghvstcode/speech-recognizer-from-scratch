@@ -890,6 +890,40 @@ mod tests {
         assert!((0.0..1e-3).contains(&loss), "loss {loss}");
     }
 
+    /// The same 500 frames with the lattice held as plain `f64` probabilities,
+    /// the way the chapter's first table is computed. The cells shrink frame
+    /// by frame until the last row is exactly zero and the loss is `-ln 0`.
+    #[test]
+    fn plain_probabilities_underflow_on_long_inputs() {
+        let mut rng = Rng::new(27);
+        let logits = random_logits(&mut rng, 500, 28, 3.0);
+        let target: Vec<usize> = (0..60).map(|i| 1 + (i * 7) % 27).collect();
+        let extended = extend_with_blanks(&target);
+        let p: Vec<f64> = log_softmax_f64(&logits).iter().map(|lp| lp.exp()).collect();
+
+        let s_len = extended.len();
+        let mut alpha = vec![0.0f64; s_len];
+        alpha[0] = p[BLANK];
+        alpha[1] = p[extended[1]];
+        for t in 1..500 {
+            let mut next = vec![0.0f64; s_len];
+            for s in 0..s_len {
+                let mut arriving = alpha[s];
+                if s >= 1 {
+                    arriving += alpha[s - 1];
+                }
+                if can_skip_into(&extended, s) {
+                    arriving += alpha[s - 2];
+                }
+                next[s] = arriving * p[t * 28 + extended[s]];
+            }
+            alpha = next;
+        }
+        assert!(alpha.iter().all(|&a| a == 0.0));
+        // In log space the same input has an ordinary, finite loss.
+        assert!(ctc_loss(&logits, &target).0.is_finite());
+    }
+
     /// The forward recursion written the slow, obvious way: one `log_add`
     /// per term, never leaving log space. The real one must agree with it.
     fn forward_reference(lp: &[f64], classes: usize, extended: &[usize]) -> Vec<f64> {

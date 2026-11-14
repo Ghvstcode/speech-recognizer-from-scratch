@@ -292,7 +292,7 @@ The forward lattice alpha, as probabilities (rows: frames, columns: positions in
 
 ### Why We Need Logarithms
 
-The alpha values in the table shrink as we move right, and that is a problem waiting to happen. Every cell is a sum of products of `t` numbers below 1. Suppose an untrained network spreads its probability evenly over 28 classes: a path is then worth 28^-T. In an `f32` that becomes exactly zero at 32 frames. In an `f64` it lasts until 224 frames, a bit over two seconds of audio at 10 ms per frame. After that the lattice is all zeros, the loss is `-ln 0`, and training is over.
+The alpha values in the table shrink as we move right, and that is a problem waiting to happen. Every cell is a sum of products of `t` numbers below 1. Suppose an untrained network spreads its probability evenly over 28 classes: a single path is then worth 28^-T. In an `f32` that becomes exactly zero at 32 frames, and in an `f64` at 224 frames, a bit over two seconds of audio at 10 ms per frame. A cell adds up many paths, so it holds out longer than one path does, but it is on the same slide. One of the tests in `ctc.rs` takes 500 frames of random logits and a 60-label target, and `p(target)` comes out near 10^-996. The smallest positive `f64` is about 5 × 10^-324. Filled in with plain probabilities, that lattice ends in a row of zeros, the loss is `-ln 0`, and training is over.
 
 The cure is the one chapter 6 used for softmax: store logarithms. The log of a product is a sum of logs, and sums of a few hundred modest negative numbers do not underflow. An impossible cell, probability zero, holds `-inf`.
 
@@ -308,7 +308,7 @@ Multiplication got easy. Addition got hard: we have `a = ln x` and `b = ln y` an
 ln(e^a + e^b) = hi + ln(1 + e^(lo - hi))        where hi is the larger of a, b and lo the smaller
 ```
 
-The exponent `lo - hi` is never positive, so `e^(lo - hi)` is between 0 and 1 and nothing overflows or vanishes.
+The exponent `lo - hi` is never positive, so `e^(lo - hi)` is between 0 and 1 and nothing overflows. When `lo` is far below `hi` it rounds to zero, and no harm is done: the answer is then `hi`, which is correct to every digit an `f64` has.
 
 ```rust
 // src/ctc.rs
@@ -329,7 +329,60 @@ The network hands us logits, so we also need log-probabilities per frame. `log_s
 **Aside** <br>
 Why `f64` in here when the rest of the crate is `f32`? Inputs and gradients stay `f32`, but the lattice is computed in `f64` and rounded on the way out. The loss is a long chain of additions of numbers of very different sizes, and when we get to the gradient check we will subtract two losses that differ in the sixth decimal place. An `f32` carries about seven digits. The check would be testing rounding noise.
 
-We could now write the recurrence with one `log_add` per term, and the tests of `ctc.rs` contain exactly that, as a slow reference called `forward_reference`. The real `forward` does the same additions more cheaply, and since it will run millions of times in the next chapter, let's go through it.
+We can now write the recurrence in code. It is the formula from the last section with `+` where the `*` was and `log_add` where the `+` was. (`lp` holds the log-probabilities, `classes` of them per frame, and the lattice is one flat buffer, `T` rows of `S` cells.)
+
+```rust
+// src/ctc.rs (tests)
+/// The forward recursion written the slow, obvious way: one `log_add`
+/// per term, never leaving log space. The real one must agree with it.
+fn forward_reference(lp: &[f64], classes: usize, extended: &[usize]) -> Vec<f64> {
+    let (s_len, t_len) = (extended.len(), lp.len() / classes);
+    let mut alpha = vec![LOG_ZERO; t_len * s_len];
+    alpha[0] = lp[BLANK];
+    if s_len > 1 {
+        alpha[1] = lp[extended[1]];
+    }
+    for t in 1..t_len {
+        for s in 0..s_len {
+            let mut arriving = alpha[(t - 1) * s_len + s];
+            if s >= 1 {
+                arriving = log_add(arriving, alpha[(t - 1) * s_len + s - 1]);
+            }
+            if can_skip_into(extended, s) {
+                arriving = log_add(arriving, alpha[(t - 1) * s_len + s - 2]);
+            }
+            alpha[t * s_len + s] = arriving + lp[t * classes + extended[s]];
+        }
+    }
+    alpha
+}
+```
+
+Reading the answer off the last row is the end rule: trailing blank plus last label.
+
+```rust
+// src/ctc.rs
+/// `ln p(target)` read off a forward lattice: the paths that end at frame
+/// `T - 1` on the trailing blank, plus those that end on the last label.
+fn total_log_prob(alpha: &[f64], t_len: usize, s_len: usize) -> f64 {
+    if t_len == 0 {
+        // No frames: the only thing we can have "said" is nothing.
+        return if s_len == 1 { 0.0 } else { LOG_ZERO };
+    }
+    let last_row = &alpha[(t_len - 1) * s_len..];
+    if s_len == 1 {
+        last_row[0]
+    } else {
+        log_add(last_row[s_len - 1], last_row[s_len - 2])
+    }
+}
+```
+
+That is the whole forward algorithm, and it is the version to keep in your head for the rest of the chapter. The crate keeps `forward_reference` in its tests, as the slow, obvious recursion that the real one is compared with.
+
+### One Exponential Per Row
+
+The real `forward` does the same additions more cheaply, and since it will run millions of times in the next chapter, let's go through it. This section is about speed and nothing else. On a first reading you can skim down to the two tests at its end: all the rest of the chapter needs from it is that `forward` fills in the same lattice as `forward_reference`.
 
 `log_add` costs an `exp` and a logarithm per addition, and a cell needs up to two additions. But all the cells of frame `t` read from the same row, frame `t - 1`. So we can leave log space *once per row*: find the row's maximum `m`, and compute `e^(value - m)` for each cell. The largest cell becomes exactly 1 and the rest land between 0 and 1. It is `log_add`'s trick applied to a whole row.
 
@@ -429,27 +482,7 @@ fn forward(lp: &[f64], classes: usize, extended: &[usize]) -> Vec<f64> {
 }
 ```
 
-The `break` guards the same NaN we met in `log_add`: if a whole row is `-inf`, subtracting the maximum would compute `-inf - (-inf)`.
-
-Reading the answer off the last row is the end rule: trailing blank plus last label.
-
-```rust
-// src/ctc.rs
-/// `ln p(target)` read off a forward lattice: the paths that end at frame
-/// `T - 1` on the trailing blank, plus those that end on the last label.
-fn total_log_prob(alpha: &[f64], t_len: usize, s_len: usize) -> f64 {
-    if t_len == 0 {
-        // No frames: the only thing we can have "said" is nothing.
-        return if s_len == 1 { 0.0 } else { LOG_ZERO };
-    }
-    let last_row = &alpha[(t_len - 1) * s_len..];
-    if s_len == 1 {
-        last_row[0]
-    } else {
-        log_add(last_row[s_len - 1], last_row[s_len - 2])
-    }
-}
-```
+The `break` guards against the NaN we met in `log_add`. If a whole row is `-inf`, `exp_relative_to_max` has just computed `-inf - (-inf)` for every cell and filled `scaled` with NaNs, and we stop before any of them is used.
 
 How do we know the fast version is right? Two tests. One compares `forward` cell by cell with `forward_reference`, including on a nasty input where a network is certain of blank for 30 frames, so that some cells sit hundreds of orders of magnitude below their row's maximum and are forced into the careful lane. The other is the one that matters most, the lattice against the odometer, on random logits and a list of awkward targets (empty, repeated letters, too long to fit):
 
@@ -701,7 +734,7 @@ A real dataset will hand `ctc_loss` every awkward input there is. Three are wort
 
 The test `impossible_targets_give_infinite_loss_and_zero_gradient` pins all of this down, including the two-frame `aa`.
 
-There is also a test for the reason we went to log space in the first place: 500 frames of random logits and a 60-label target. The loss comes out above 745, which means `p(target)` is below `e^-745`, smaller than the smallest positive `f64`. Stored as a plain probability it would have been zero. Stored as a logarithm it is an unremarkable number, and every element of the gradient is finite.
+There is also a test for the reason we went to log space in the first place: 500 frames of random logits and a 60-label target. The loss comes out at 2,293, which means `p(target)` is about `e^-2293`, or 10^-996, far below the smallest positive `f64`. A second test, `plain_probabilities_underflow_on_long_inputs`, fills in the same lattice with plain probabilities and gets exactly zero. Stored as a logarithm it is an unremarkable number, and every element of the gradient is finite.
 
 ### Watching An Alignment Appear
 

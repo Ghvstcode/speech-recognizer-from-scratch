@@ -119,6 +119,7 @@ impl Adam {
 
     /// Update the model's weights in place from one set of gradients.
     pub fn step(&mut self, model: &mut Model, grads: &Grads) {
+        let is_bias = model.param_is_bias();
         let mut params = model.params_mut();
         assert_eq!(params.len(), grads.tensors.len(), "Adam: the gradients do not match the model");
         if self.m.is_empty() {
@@ -131,9 +132,9 @@ impl Adam {
         let correct_m = 1.0 / (1.0 - (self.beta1 as f64).powi(self.steps as i32)) as f32;
         let correct_v = 1.0 / (1.0 - (self.beta2 as f64).powi(self.steps as i32)) as f32;
 
-        for (((p, g), m), v) in params.iter_mut().zip(&grads.tensors).zip(&mut self.m).zip(&mut self.v) {
-            // A tensor with one row is a bias; those are not decayed.
-            let decay = if p.rows > 1 { self.lr * self.weight_decay } else { 0.0 };
+        for ((((p, g), m), v), &bias) in params.iter_mut().zip(&grads.tensors).zip(&mut self.m).zip(&mut self.v).zip(&is_bias) {
+            // Biases are not decayed.
+            let decay = if bias { 0.0 } else { self.lr * self.weight_decay };
             for (((w, &gw), mw), vw) in p.data.iter_mut().zip(&g.data).zip(&mut m.data).zip(&mut v.data) {
                 *mw = self.beta1 * *mw + (1.0 - self.beta1) * gw;
                 *vw = self.beta2 * *vw + (1.0 - self.beta2) * gw * gw;
@@ -158,7 +159,12 @@ fn zeros_like(grads: &Grads) -> Vec<Mat> {
 /// such step can throw the weights so far that training never recovers. The
 /// cure: if the length of the whole gradient, all tensors taken together as
 /// one vector, exceeds `max_norm`, scale all of it down so its length is
-/// exactly `max_norm`. The direction is unchanged, only the step is shortened.
+/// exactly `max_norm`. The gradient keeps its direction and loses only its
+/// length.
+///
+/// With [`Sgd`] that shortens the step in proportion. With [`Adam`] it does
+/// not, because Adam divides by the typical size of the gradient; there,
+/// clipping limits how far one extreme batch can move the running averages.
 pub fn clip_global_norm(grads: &mut Grads, max_norm: f32) -> f32 {
     let norm = grads.global_norm();
     if norm > max_norm {
@@ -268,6 +274,20 @@ mod tests {
     }
 
     #[test]
+    fn adam_weight_decay_reaches_a_weight_with_one_row() {
+        // The weight of Linear(1 -> 2) is 1 x 2, the same shape as its bias.
+        // Decay must tell them apart by role, not by shape.
+        let mut model = Model::new(vec![Layer::Linear(Linear { weight: Mat::from_vec(1, 2, vec![1.0, -2.0]), bias: Mat::from_vec(1, 2, vec![1.0, -2.0]) })]);
+        let g = Grads::zeros_like(&model); // zero gradient: only decay acts
+        let mut adam = Adam::new(0.1);
+        adam.weight_decay = 0.5;
+        adam.step(&mut model, &g);
+        let (weight, bias) = (&model.params()[0].data, &model.params()[1].data);
+        assert!((weight[0] - 0.95).abs() < 1e-6 && (weight[1] + 1.9).abs() < 1e-6, "{weight:?}"); // w - 0.1 * 0.5 * w
+        assert_eq!(bias, &vec![1.0, -2.0]);
+    }
+
+    #[test]
     fn adam_finds_the_minimum_of_a_parabola() {
         // loss = (w - 3)^2, gradient = 2 (w - 3).
         let mut model = one_weight();
@@ -289,6 +309,47 @@ mod tests {
         assert_eq!(g.tensors[0].data[0], 3.0);
         assert_eq!(clip_global_norm(&mut g, 1.0), 5.0);
         assert!((g.tensors[0].data[0] - 0.6).abs() < 1e-6 && (g.tensors[1].data[0] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn clipping_shortens_an_sgd_step_but_not_adams_first_step() {
+        let step_with = |clip: bool, adam: bool| {
+            let mut model = one_weight();
+            let mut g = grads_of(&model, 500.0);
+            if clip {
+                clip_global_norm(&mut g, 5.0);
+            }
+            if adam {
+                Adam::new(0.01).step(&mut model, &g);
+            } else {
+                Sgd::new(0.01, 0.0).step(&mut model, &g);
+            }
+            1.0 - weight(&model)
+        };
+        // SGD: the step is lr * g, so a gradient cut from 500 to 5 moves the
+        // weight a hundred times less.
+        assert!((step_with(false, false) - 5.0).abs() < 1e-5 && (step_with(true, false) - 0.05).abs() < 1e-6);
+        // Adam: the first step is lr either way.
+        assert!((step_with(false, true) - 0.01).abs() < 1e-6 && (step_with(true, true) - 0.01).abs() < 1e-6);
+    }
+
+    #[test]
+    fn adam_steps_shrink_when_the_gradient_keeps_flipping() {
+        // Gradients +1, -1, +1, ...: v_hat stays at 1 while m nearly cancels.
+        let mut model = one_weight();
+        let mut adam = Adam::new(0.01);
+        let mut steps = Vec::new();
+        for i in 0..20 {
+            let before = weight(&model);
+            let g = grads_of(&model, if i % 2 == 0 { 1.0 } else { -1.0 });
+            adam.step(&mut model, &g);
+            steps.push((weight(&model) - before).abs());
+        }
+        assert!((steps[0] - 0.01).abs() < 1e-6); // the first step is always lr
+        // After that every step is a fraction of lr (the third is the largest,
+        // about a third of it), settling near lr / 19.
+        assert!(steps[1..].iter().all(|&s| s < 0.004), "{steps:?}");
+        assert!(steps[18] < 0.001 && steps[19] < 0.001, "{steps:?}");
     }
 
     #[test]

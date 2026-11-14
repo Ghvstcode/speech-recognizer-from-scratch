@@ -33,7 +33,7 @@ use std::f32::consts::PI;
 /// The periodic Hann window: `0.5 - 0.5 cos(2 pi i / n)`.
 ///
 /// One full period of a raised cosine. It starts at exactly 0, peaks at 1 in
-/// the middle, and is our default for everything.
+/// the middle, ends one step short of 0, and is our default for everything.
 pub fn hann(n: usize) -> Vec<f32> {
     raised_cosine(n, n, 0.5)
 }

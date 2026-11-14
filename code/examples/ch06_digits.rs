@@ -348,8 +348,9 @@ fn train(inputs: &[Vec<f32>], clips: &[Clip], split: &Split, recipe: &Recipe, se
             sgd.step(&mut model, &grads);
             if recipe.weight_decay > 0.0 {
                 let keep = 1.0 - sgd.lr * recipe.weight_decay;
-                // Weight matrices only; a bias has a single row and is left alone.
-                model.params_mut().into_iter().filter(|p| p.rows > 1).for_each(|weights| weights.scale(keep));
+                // Weight matrices only; biases are left alone.
+                let is_bias = model.param_is_bias();
+                model.params_mut().into_iter().zip(is_bias).filter(|(_, bias)| !bias).for_each(|(weights, _)| weights.scale(keep));
             }
         }
 

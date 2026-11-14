@@ -15,7 +15,7 @@ So "from scratch" has an asterisk in this chapter: the recognizer is ours down t
 ![A diagram in two rows. Top row: a microphone feeds an ffmpeg child process, which writes raw samples into a pipe at 32,000 bytes per second; inside our program a PcmDecoder turns bytes into samples and a Segmenter cuts the stream into utterances. Bottom row, once per utterance: features, network, decoder, and a printed line of text.](../figures/ch11-live-pipeline.svg)
 *Everything left of the pipe is borrowed. Everything right of it we have built, most of it in earlier chapters.*
 
-The bottom row is old news: features from chapter 4, the network from chapter 9, a decoder from chapter 10. The new code is the top right corner, about 500 lines in `src/mic.rs`. Enough of the talk, let's write some code!
+The bottom row is old news: features from chapter 4, the network from chapter 9, a decoder from chapter 10. The new code is the top right corner, about 550 lines in `src/mic.rs`. Enough of the talk, let's write some code!
 
 ### Two Bytes Make A Sample, Usually
 
@@ -160,40 +160,103 @@ Starting the child is `std::process::Command`, with care about its three standar
 pub struct Microphone {
     child: Child,
     stream: PcmStream<ChildStdout>,
+    /// Delivers the end of the child's stderr once that stream has closed.
+    complaint: Receiver<String>,
 }
 
 impl Microphone {
     /// Start any command that writes s16le audio to its standard output.
     pub fn spawn(command: &mut Command, chunk_samples: usize) -> io::Result<Microphone> {
-        // stdout is the audio; stderr is kept so we can show ffmpeg's own
-        // error message if it gives up; stdin is closed so the child never
-        // waits for (or steals) our keyboard input.
+        // stdout is the audio; stderr is a second pipe, so we can show
+        // ffmpeg's own error message if it gives up; stdin is closed so the
+        // child never waits for (or steals) our keyboard input.
         let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| {
             // ... a NotFound error becomes "it is not installed or not on your PATH" plus a hint
         })?;
         let stdout = child.stdout.take().expect("stdout was requested as a pipe");
-        Ok(Microphone { child, stream: PcmStream::new(stdout, chunk_samples) })
+        let stderr = child.stderr.take().expect("stderr was requested as a pipe");
+        // Two pipes need two readers: we read stdout, a thread reads stderr.
+        Ok(Microphone { child, stream: PcmStream::new(stdout, chunk_samples), complaint: drain_stderr(stderr) })
     }
 }
 ```
 
-`Microphone::open` calls this with `ffmpeg` and the default arguments; `with_input_args` lets you replace the input part. Because `spawn` takes *any* command, the unit test does not need `ffmpeg` at all: it uses `cat` on a file of raw bytes, and `cat` on a missing file to check that a failing child's complaint ends up in our error message. That happens in `explain_end`: when the pipe closes, we `wait` for the child, and if its exit status is a failure we read its standard error and return it as the error, with a hint about installing `ffmpeg` and about microphone permission.
+`Microphone::open` calls this with `ffmpeg` and the default arguments; `with_input_args` lets you replace the input part.
 
-The last piece matters more than its four lines suggest:
+Why a thread for standard error? A pipe is a buffer of limited size inside the operating system, typically 64 KB. When it is full, the writer is put to sleep until somebody reads. Suppose we left the child's stderr alone and only read it after the child had exited. A child that writes more than a pipe's worth of messages would fall asleep in the middle of one, and it would never write another sample or exit. We would be waiting for audio from a process that is waiting for us: a deadlock, and no error message to tell us so. `-loglevel error` keeps `ffmpeg` terse, but terse is not a bound, and `spawn` accepts any command at all. The rule for a child with two output pipes is that both must be read for as long as it lives. Our one thread is blocked on stdout, so stderr gets a thread of its own:
+
+```rust
+// src/mic.rs
+
+/// How much of a child's standard error we remember for an error message.
+const STDERR_TAIL_BYTES: usize = 4096;
+
+fn drain_stderr(mut stderr: impl Read + Send + 'static) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut tail = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stderr.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    tail.extend_from_slice(&buffer[..n]);
+                    if tail.len() > STDERR_TAIL_BYTES {
+                        tail.drain(..tail.len() - STDERR_TAIL_BYTES);
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        // Nobody is listening any more if the `Microphone` was dropped.
+        let _ = sender.send(String::from_utf8_lossy(&tail).into_owned());
+    });
+    receiver
+}
+```
+
+The thread reads until the stream closes and throws away everything but the last 4 KB, so a child that complains for hours costs us no memory. The reason for a failure is usually in a program's last lines, and that is the part we keep. When the stream closes, which happens when the child exits, the thread sends the tail through a channel and ends.
+
+The other end of that channel is used in `explain_end`. When the audio pipe closes, we `wait` for the child. If its exit status is a failure, we take the tail from the channel and return it as our error, with a hint about installing `ffmpeg` and about microphone permission:
+
+```rust
+// src/mic.rs (inside impl Microphone)
+
+    fn explain_end(&mut self) -> io::Result<usize> {
+        let status = self.child.wait()?;
+        if status.success() {
+            return Ok(0);
+        }
+        // The child is gone, so its stderr closes and the tail arrives at
+        // once. The time limit is for the odd case of a grandchild that
+        // inherited the pipe and still holds it open.
+        let complaint = self.complaint.recv_timeout(STDERR_PATIENCE).unwrap_or_default();
+        Err(io::Error::other(format!("the recording process stopped ({status}): {}\n{MICROPHONE_HELP}", complaint.trim())))
+    }
+```
+
+`STDERR_PATIENCE` is two seconds. We use `recv_timeout` and not a `join` on the thread because the thread ends when the *pipe* closes, and a pipe stays open as long as any process holds its writing end. If the child had started a process of its own that outlived it, a `join` would wait for that stranger.
+
+Because `spawn` takes any command, the unit tests do not need `ffmpeg` at all. One uses `cat` on a file of raw bytes, and `cat` on a missing file to check that a failing child's complaint ends up in our error message. Another runs a shell script that writes a megabyte to standard error before its first sample; with nobody reading stderr that test never gets its sample, so it runs under a ten-second limit and fails if the limit is reached.
+
+The last piece matters more than its few lines suggest:
 
 ```rust
 // src/mic.rs
 
 impl Drop for Microphone {
     fn drop(&mut self) {
-        // Both calls fail harmlessly if the child has already exited.
+        // Both calls fail harmlessly if the child has already exited. The
+        // stderr thread is not joined: it ends by itself when the dead
+        // child's pipe closes.
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 ```
 
-A child process does not die because the `Child` value goes out of scope. Without `kill`, an error anywhere in our program would leave an `ffmpeg` running with the microphone open. Without `wait`, the killed child would linger in the process table as a zombie until we exit. The test spawns `sleep 1000`, drops it, and checks that the drop returns within five seconds.
+A child process does not die because the `Child` value goes out of scope. Without `kill`, an error anywhere in our program would leave an `ffmpeg` running with the microphone open. Without `wait`, the killed child would linger in the process table as a zombie until we exit. One test spawns `sleep 1000`, drops it, and checks that the drop returns within five seconds. Another drops a child that is writing to standard error without end, and checks that the reading thread finishes too.
 
 **Aside** <br>
 `Drop` runs when our program returns or unwinds normally. Ctrl-C is different: the default handler ends the process on the spot and no destructors run. What should save us there is the terminal itself, which sends the interrupt to the whole foreground job, child included. I say "should" because it depends on how the program was started. If you ever suspect a leftover, `pgrep ffmpeg` tells you.
@@ -311,7 +374,7 @@ pub fn listen(source: &mut dyn AudioSource, config: SegmenterConfig, mut on_even
 }
 ```
 
-Notice that everything happens on one thread. While the closure is busy recognizing, nobody reads the pipe. That is fine as long as recognition is quick: the operating system buffers the pipe for us, and we are about to see that an utterance takes a few milliseconds.
+Notice that all the audio work happens on one thread. While the closure is busy recognizing, nobody reads the audio pipe. That is fine as long as recognition is quick: the operating system buffers the pipe for us, and we are about to see that an utterance takes a few milliseconds.
 
 ### From A Segment To Text
 
@@ -481,7 +544,7 @@ It listens. Now the fine print, because a demo that only gets shown its favorite
 
 **Nothing appears while you speak.** Run the real-time file again with a stopwatch: the first line, for audio that ends at 2.78 s, prints 3.20 s into the run. The last loud block is at 2.60 s, and 600 ms of hangover later we know the speaker has stopped. Only then do we normalize, and normalization wants the whole utterance. Dictation software shows words while you are still talking; ours cannot, by construction.
 
-**It knows 35 words, and has no way of saying "I don't know that one".** macOS has a speech synthesizer on the command line, `say`, so I had it speak a few phrases into 16 kHz WAV files (`say -v Samantha -o hello.wav --data-format=LEI16@16000 "hello world"`) and transcribed each with `--decoder greedy` and with the default. A comma makes the voice pause:
+**It knows 35 words, and has no way of saying "I don't know that one".** macOS has a speech synthesizer on the command line, `say`, so I had it speak a few phrases into 16 kHz WAV files (`say -v Samantha -o hello.wav --data-format=LEI16@16000 "hello world"`) and transcribed each with `--decoder greedy` and with the default. A comma makes the voice pause. (The voices differ between macOS versions and the recordings are not in the repository, so read the table as an illustration; yours may come out differently.)
 
 ```
 said                      greedy               lexicon
@@ -493,11 +556,11 @@ go left                   zlla                 follow
 go, left                  go left              go left
 ```
 
-Greedy shows what the network really spells: fragments of sound, "o wo" for "hello world". The lexicon decoder may only output vocabulary words, so it forces those fragments onto the nearest ones and reports "no on" with a straight face. In-vocabulary words inside a foreign sentence often survive ("right off"). When the output surprises you, switch to `--decoder greedy`; it is the more honest of the two.
+Greedy shows what the network really spells: fragments of sound, "o wo" for "hello world". The lexicon decoder may only output vocabulary words, so it reports the ones that score best on those same frames, "no on", with a straight face. (It does not correct greedy's string. It searches the frame probabilities again with only the 35 words allowed.) In-vocabulary words inside a foreign sentence often survive ("right off"). When the output surprises you, switch to `--decoder greedy`; it is the more honest of the two.
 
 **It wants pauses.** Look at the last two rows. The model learned from single-word clips glued together, never from fluent speech where words run into each other. "Go left" in one breath comes out as "follow"; with a pause it is fine.
 
-**Telephone-quality audio fails.** `samples/seven_jackson.wav` is an 8 kHz recording, so after upsampling there is nothing above 4 kHz in it. `speech transcribe` hears "marvin" (greedy: "mn"), while `samples/seven.wav`, the same word from the 16 kHz dataset, comes out as "seven". The model has only ever seen spectrograms with the top half filled in.
+**A recording unlike the training data can fail outright.** `samples/seven_jackson.wav` is the word "seven" from chapter 5's digit dataset. `speech transcribe` hears "marvin" (greedy: "mn"), while `samples/seven.wav`, the same word from Speech Commands, comes out as "seven". The two clips differ in speaker, microphone and dataset, and the first was recorded at 8 kHz, the sample rate of a telephone line, so after upsampling it has nothing above 4 kHz. Ten of our 40 mel bands are centered above 4 kHz, and the model has never seen them empty. The missing band is only part of the story, though. `ch10_decode` also runs the 11,005 single-word test clips a second time after taking them down to 8 kHz and back, which changes nothing else, and the lexicon decoder's word error rate goes from 11.3% to 14.9%. Worse, and far from broken. The rest of what went wrong with this clip is a voice and a recording setup the model had never met, and one clip cannot tell us more than that.
 
 **The noise floor only learns in silence.** Chapter 2's endpointer adapts its background estimate only while it believes nobody is speaking. Suppose a fan switches on and the background jumps by more than 10 dB. The detector takes that for speech, the floor is frozen during speech, and so it never finds out that this is the new quiet. It would stay "in speech" for as long as the fan runs, and the segmenter would buffer forever. That is what the 10-second forced cut is for: the audio is handed to the recognizer anyway, marked `cut at the maximum length`, and the buffer starts over. It is a guard, not a cure.
 
@@ -512,7 +575,7 @@ Greedy shows what the network really spells: fragments of sound, "o wo" for "hel
 ### Loose Ends
 
 * **We borrowed the capture.** `ffmpeg` is a large program standing in for a small job. A from-scratch version would talk to Core Audio or ALSA directly.
-* **One thread.** Recognition runs inside the read loop. At a few milliseconds per utterance that is harmless; with a slow model, audio would queue up in the pipe and a reader thread with a channel would be the fix.
+* **One thread for audio.** Recognition runs inside the read loop. At a few milliseconds per utterance that is harmless; with a slow model, audio would queue up in the pipe and a reader thread with a channel would be the fix.
 * **No streaming recognition.** Per-utterance normalization and a bidirectional network both need the end of the utterance before they can start. Printing words as they are spoken needs a running normalization and a model that only looks backward.
 * **No rejection.** There is no confidence score and no "that was not one of my words".
 * **Endpointing by loudness.** A door slam is speech to us. Real systems use a small trained voice activity detector.
@@ -520,7 +583,7 @@ Greedy shows what the network really spells: fragments of sound, "o wo" for "hel
 
 What's next on our agenda? Let's take stock, because this is the end of Part III. Starting from an empty `Cargo.toml` we parsed WAV files, built an FFT and a mel filterbank, wrote layers with hand-derived gradients, implemented CTC, trained a network of 496,508 weights on a laptop, decoded its output three ways, and today connected it to a live stream. You can say "seven three stop" and watch the words appear. The recognizer is ours; only the capture is borrowed.
 
-And we have just listed, with examples, everything it cannot do: 35 words, pauses required, "hello world" heard as "no on". None of that is for lack of an idea. It is for lack of data and compute: fifteen hours of single words, where the serious systems had hundreds of thousands of hours of sentences. So in the next chapter we finally allow ourselves someone else's weights. We are going to open OpenAI's Whisper model file, find out what is inside, and start building the engine that runs it. `[dependencies]` stays empty.
+And we have just listed, with examples, everything it cannot do: 35 words, pauses required, "hello world" heard as "no on". Most of that is for lack of data and compute: fifteen hours of single words, where the serious systems had hundreds of thousands of hours of sentences. The rest is a small number of ideas we have not met yet, and they come with the model we are about to open. So in the next chapter we finally allow ourselves someone else's weights. We are going to open OpenAI's Whisper model file, find out what is inside, and start building the engine that runs it. `[dependencies]` stays empty.
 
 ### References
 

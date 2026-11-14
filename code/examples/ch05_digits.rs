@@ -147,7 +147,7 @@ fn variants() -> Vec<Variant> {
     let with = |name, recipe| Variant { name, recipe, band: None };
     vec![
         with("settled: 13 MFCCs, c0 dropped, trimmed", settled.clone()),
-        with("  keep c0 (loudness)", MfccRecipe { keep_c0: true, ..settled.clone() }),
+        with("  keep c0 (overall level)", MfccRecipe { keep_c0: true, ..settled.clone() }),
         with("  add deltas", MfccRecipe { deltas: true, ..settled.clone() }),
         with("  subtract the clip's mean", MfccRecipe { normalization: Normalization::Mean, ..settled.clone() }),
         with("  normalize mean and variance", MfccRecipe { normalization: Normalization::MeanVariance, ..settled.clone() }),
@@ -335,11 +335,18 @@ struct UnseenSpeakerResult {
 
 /// Experiment 4: leave one speaker out. Templates come from five speakers;
 /// all 500 clips of the sixth are the test.
+///
+/// The `takes 0-4` column scores the same 1-nearest answers on the held-out
+/// speaker's 50 official test clips only. Those are the clips experiment 3
+/// was tested on, and no clip among them took part in choosing the features
+/// (experiment 0 used takes 5 to 49), so it is the like-for-like comparison
+/// with experiment 3: same clips, with and without the speaker's own
+/// templates in the bank.
 fn unseen_speaker(corpus: &Corpus) -> UnseenSpeakerResult {
     println!("4. A speaker never heard before (leave one speaker out: 2,500 templates from five speakers, 500 test clips)\n");
-    println!("   {:<10} {:>10} {:>10} {:>10}", "held out", "1-nearest", "5-nearest", "time");
+    println!("   {:<10} {:>10} {:>10} {:>10} {:>10}", "held out", "1-nearest", "5-nearest", "takes 0-4", "time");
     let mut confusion = Mat::zeros(N_DIGITS, N_DIGITS);
-    let (mut nearest_1, mut nearest_5) = (Vec::new(), Vec::new());
+    let (mut nearest_1, mut nearest_5, mut test_takes) = (Vec::new(), Vec::new(), Vec::new());
     for (speaker, split) in fsdd::leave_one_speaker_out(&corpus.clips) {
         let start = Instant::now();
         let predicted = corpus.recognize(&split, 1);
@@ -349,9 +356,19 @@ fn unseen_speaker(corpus: &Corpus) -> UnseenSpeakerResult {
         }
         nearest_1.push(corpus.percent_correct(&split.test, &predicted));
         nearest_5.push(corpus.percent_correct(&split.test, &predicted_5));
-        println!("   {speaker:<10} {:>9.1}% {:>9.1}% {:>10}", nearest_1[nearest_1.len() - 1], nearest_5[nearest_5.len() - 1], seconds_since(start));
+        // The official test takes among the 500, with the answers they got.
+        let (official, official_predicted): (Vec<usize>, Vec<usize>) =
+            split.test.iter().zip(&predicted).filter(|&(&p, _)| corpus.clips[p].is_official_test()).map(|(&p, &digit)| (p, digit)).unzip();
+        test_takes.push(corpus.percent_correct(&official, &official_predicted));
+        println!(
+            "   {speaker:<10} {:>9.1}% {:>9.1}% {:>9.1}% {:>10}",
+            nearest_1[nearest_1.len() - 1],
+            nearest_5[nearest_5.len() - 1],
+            test_takes[test_takes.len() - 1],
+            seconds_since(start)
+        );
     }
-    println!("   {:<10} {:>9.1}% {:>9.1}%\n", "mean", mean(&nearest_1), mean(&nearest_5));
+    println!("   {:<10} {:>9.1}% {:>9.1}% {:>9.1}%\n", "mean", mean(&nearest_1), mean(&nearest_5), mean(&test_takes));
 
     println!("   Confusions, 1-nearest, all six rounds together (row: digit said; column: digit heard):\n");
     println!("        {}", (0..N_DIGITS).map(|d| format!("{d:>5}")).collect::<String>());

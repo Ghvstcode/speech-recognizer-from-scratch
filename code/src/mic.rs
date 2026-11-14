@@ -39,6 +39,7 @@ use crate::wav::Wav;
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 /// The sample rate of everything in this module.
@@ -217,6 +218,47 @@ pub fn ffmpeg_arguments(input_args: &[String]) -> Vec<String> {
     args
 }
 
+/// How much of a child's standard error we remember for an error message.
+const STDERR_TAIL_BYTES: usize = 4096;
+
+/// How long we wait for the last of a child's standard error after the
+/// child itself has exited.
+const STDERR_PATIENCE: Duration = Duration::from_secs(2);
+
+/// Read `stderr` to its end on a thread of its own, keeping only the last
+/// [`STDERR_TAIL_BYTES`]. The receiver gets that tail, as text, once the
+/// stream has closed.
+///
+/// A pipe holds a limited number of bytes (64 KB is typical). A child that
+/// writes more than that to a pipe nobody reads is put to sleep in the
+/// middle of its write and never gets to produce audio or to exit. So
+/// somebody has to keep reading stderr for as long as the child lives, and
+/// the thread that reads the audio cannot do it: it is busy waiting on the
+/// other pipe.
+fn drain_stderr(mut stderr: impl Read + Send + 'static) -> Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut tail = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            match stderr.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    tail.extend_from_slice(&buffer[..n]);
+                    if tail.len() > STDERR_TAIL_BYTES {
+                        tail.drain(..tail.len() - STDERR_TAIL_BYTES);
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        // Nobody is listening any more if the `Microphone` was dropped.
+        let _ = sender.send(String::from_utf8_lossy(&tail).into_owned());
+    });
+    receiver
+}
+
 /// A running `ffmpeg` whose output we read as audio.
 ///
 /// Dropping it stops the recording: the child is killed and waited for, so
@@ -225,6 +267,8 @@ pub fn ffmpeg_arguments(input_args: &[String]) -> Vec<String> {
 pub struct Microphone {
     child: Child,
     stream: PcmStream<ChildStdout>,
+    /// Delivers the end of the child's stderr once that stream has closed.
+    complaint: Receiver<String>,
 }
 
 impl Microphone {
@@ -243,9 +287,9 @@ impl Microphone {
 
     /// Start any command that writes s16le audio to its standard output.
     pub fn spawn(command: &mut Command, chunk_samples: usize) -> io::Result<Microphone> {
-        // stdout is the audio; stderr is kept so we can show ffmpeg's own
-        // error message if it gives up; stdin is closed so the child never
-        // waits for (or steals) our keyboard input.
+        // stdout is the audio; stderr is a second pipe, so we can show
+        // ffmpeg's own error message if it gives up; stdin is closed so the
+        // child never waits for (or steals) our keyboard input.
         let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| {
             let program = command.get_program().to_string_lossy().into_owned();
             if e.kind() == io::ErrorKind::NotFound {
@@ -255,21 +299,24 @@ impl Microphone {
             }
         })?;
         let stdout = child.stdout.take().expect("stdout was requested as a pipe");
-        Ok(Microphone { child, stream: PcmStream::new(stdout, chunk_samples) })
+        let stderr = child.stderr.take().expect("stderr was requested as a pipe");
+        // Two pipes need two readers: we read stdout, a thread reads stderr.
+        Ok(Microphone { child, stream: PcmStream::new(stdout, chunk_samples), complaint: drain_stderr(stderr) })
     }
 
     /// Called when the pipe has closed: find out whether the child ended
     /// normally (a file source reached its end) or failed (no device, no
-    /// permission), and in the second case turn its stderr into our error.
+    /// permission), and in the second case turn the end of its stderr into
+    /// our error.
     fn explain_end(&mut self) -> io::Result<usize> {
         let status = self.child.wait()?;
-        let mut complaint = String::new();
-        if let Some(mut stderr) = self.child.stderr.take() {
-            let _ = stderr.read_to_string(&mut complaint);
-        }
         if status.success() {
             return Ok(0);
         }
+        // The child is gone, so its stderr closes and the tail arrives at
+        // once. The time limit is for the odd case of a grandchild that
+        // inherited the pipe and still holds it open.
+        let complaint = self.complaint.recv_timeout(STDERR_PATIENCE).unwrap_or_default();
         Err(io::Error::other(format!("the recording process stopped ({status}): {}\n{MICROPHONE_HELP}", complaint.trim())))
     }
 }
@@ -285,7 +332,9 @@ impl AudioSource for Microphone {
 
 impl Drop for Microphone {
     fn drop(&mut self) {
-        // Both calls fail harmlessly if the child has already exited.
+        // Both calls fail harmlessly if the child has already exited. The
+        // stderr thread is not joined: it ends by itself when the dead
+        // child's pipe closes.
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -730,5 +779,76 @@ mod tests {
         let started = Instant::now();
         drop(endless);
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Run `scenario` on a thread and fail, instead of hanging the whole
+    /// test run, if it has not finished after ten seconds.
+    #[cfg(unix)]
+    fn within_ten_seconds<T: Send + 'static>(scenario: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || sender.send(scenario()));
+        receiver.recv_timeout(Duration::from_secs(10)).expect("the child process handling hung (or panicked)")
+    }
+
+    /// A megabyte of `x` on stderr: sixteen times what a pipe holds.
+    #[cfg(unix)]
+    const FLOOD: &str = "head -c 1048576 /dev/zero | tr '\\0' x >&2";
+
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_floods_stderr_cannot_block_the_audio() {
+        // The flood comes first, then one sample (258 = 02 01), then a last
+        // line and a failing exit. Unless somebody reads stderr while we
+        // wait for audio, the child sleeps in the flood forever.
+        let (out, error) = within_ten_seconds(|| {
+            let script = format!("{FLOOD}; printf '\\002\\001'; echo 'the last words' >&2; exit 3");
+            let mut microphone = Microphone::spawn(Command::new("sh").args(["-c", &script]), 256).unwrap();
+            let mut out = Vec::new();
+            assert_eq!(microphone.read(&mut out).unwrap(), 1);
+            (out, microphone.read(&mut Vec::new()).unwrap_err().to_string())
+        });
+        assert_eq!(out, vec![258.0 / 32768.0]);
+        // The error carries the end of the complaint, not the megabyte.
+        assert!(error.contains("exit status: 3"), "{}", &error[..error.len().min(200)]);
+        assert!(error.contains("xxxxthe last words\n"), "the tail is missing");
+        assert!(error.len() < STDERR_TAIL_BYTES + 1000, "{} bytes of error message", error.len());
+
+        // A child that is merely talkative and then succeeds is a normal end.
+        let samples = within_ten_seconds(|| {
+            let script = format!("printf '\\002\\001'; {FLOOD}; printf '\\002\\001'");
+            let mut microphone = Microphone::spawn(Command::new("sh").args(["-c", &script]), 256).unwrap();
+            let mut out = Vec::new();
+            while microphone.read(&mut out).unwrap() > 0 {}
+            out
+        });
+        assert_eq!(samples, vec![258.0 / 32768.0; 2]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_a_child_that_floods_stderr_ends_the_child_and_the_thread() {
+        // `yes` writes to stderr without end and never produces audio.
+        let tail = within_ten_seconds(|| {
+            let mut endless = Microphone::spawn(Command::new("sh").args(["-c", "exec yes >&2"]), 256).unwrap();
+            // Keep the thread's result so we can see it finish after the drop.
+            let complaint = std::mem::replace(&mut endless.complaint, mpsc::channel().1);
+            std::thread::sleep(Duration::from_millis(100));
+            drop(endless);
+            complaint.recv_timeout(Duration::from_secs(5)).expect("the stderr thread must end once the child is dead")
+        });
+        // However long `yes` ran, only the tail was kept.
+        assert_eq!(tail.len(), STDERR_TAIL_BYTES);
+        assert!(tail.contains("y\ny\n"));
+    }
+
+    #[test]
+    fn drain_stderr_keeps_only_the_tail() {
+        let short = drain_stderr(io::Cursor::new(b"no such device\n".to_vec()));
+        assert_eq!(short.recv().unwrap(), "no such device\n");
+        let mut long = vec![b'a'; 3 * STDERR_TAIL_BYTES];
+        long.extend_from_slice(b"the end");
+        let tail = drain_stderr(io::Cursor::new(long)).recv().unwrap();
+        assert_eq!(tail.len(), STDERR_TAIL_BYTES);
+        assert!(tail.starts_with("aaa") && tail.ends_with("aaathe end"));
     }
 }

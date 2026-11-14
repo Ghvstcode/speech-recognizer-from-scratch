@@ -2,11 +2,11 @@
 
 In the last chapter we wired our recognizer to a microphone. We can say "seven three stop" at a laptop and watch it spell the words out, with a model we trained ourselves, on features we compute ourselves, decoded by a beam search we wrote ourselves. I still find that a little hard to believe.
 
-We also ended that chapter with the list of what the model cannot do, and with the reason: data and compute, not ideas. Here is the size of that gap. Our model learned from Google Speech Commands, about 105,000 one-second clips, which is roughly 30 hours of people saying single words, and we trained it on a laptop CPU. OpenAI's Whisper was trained on, in the words of [its paper](https://arxiv.org/abs/2212.04356),
+We also ended that chapter with the list of what the model cannot do, and pointed at data and compute. Here is the size of that gap. Our model learned from Google Speech Commands, about 105,000 one-second clips of people saying single words. Chapter 9 counted what the training speakers contribute once the silence around each word is trimmed away: fifteen hours. We trained on that with a laptop CPU. OpenAI's Whisper was trained on, in the words of [its paper](https://arxiv.org/abs/2212.04356),
 
 > 680,000 hours of multilingual and multitask supervision
 
-That is 77 years of audio, about twenty thousand times what we had. No amount of cleverness in forty lines of Rust closes that gap.
+That is 77 years of audio, about 45,000 times what we had. (The model we are about to run is the English-only one. The model card counts 438,000 hours of English in that collection, still about 29,000 times what we had.) No amount of cleverness in forty lines of Rust closes that gap.
 
 But here is the thing. This book made a promise at the start: no pretrained model until we have built a tiny working recognizer of our own. We have kept it, and the next two chapters are the reward. A trained model is a file full of numbers, and the program that turns those numbers into a transcript is made of parts we now know how to write: a spectrogram, matrix products, a convolution, a softmax and a loop. So we are going to download Whisper's weights and run them with code we write ourselves. `[dependencies]` stays empty.
 
@@ -16,7 +16,7 @@ It takes two chapters. This one is about everything that happens before the firs
 
 Whisper comes in several sizes. We will use the smallest, `tiny.en`, the English-only version: 37.8 million parameters in a 151 MB file. (Our own recognizer would fit in the rounding error.) OpenAI released the code and the weights under the MIT license, and the [model card](https://github.com/openai/whisper/blob/main/model-card.md) describes what it was trained for and where it struggles. Keep the second part in mind; we will meet some of it in person in the next chapter.
 
-The code lives in `code/src/whisper/` and it is the largest module in the book, just under 3,000 lines with its tests. I can't show every line, so here is the deal. The parts that teach something new are shown in full. The rest (configuration structs, error plumbing, loading each layer by name) is summarized, and you should have these files open alongside:
+The code lives in `code/src/whisper/` and it is the largest module in the book, about 3,300 lines with its tests. I can't show every line, so here is the deal. The parts that teach something new are shown in full. The rest (configuration structs, error plumbing, loading each layer by name) is summarized, and you should have these files open alongside:
 
 | File | What it does | Where |
 |---|---|---|
@@ -24,8 +24,8 @@ The code lives in `code/src/whisper/` and it is the largest module in the book, 
 | `safetensors.rs` | reads the weights: a JSON header and raw `f32`s | this chapter, shown |
 | `config.rs` | model sizes and decoding rules from two JSON files | this chapter, summarized |
 | `tokenizer.rs` | token ids back to text | this chapter, decoding shown |
-| `audio.rs` | any WAV file to 16 kHz mono samples | this chapter, one paragraph |
-| `mel.rs` | Whisper's exact log-mel spectrogram | this chapter, shown |
+| `audio.rs` | a WAV file (any layout chapter 1 reads) to 16 kHz mono samples | this chapter, one paragraph |
+| `mel.rs` | Whisper's recipe for a log-mel spectrogram | this chapter, shown |
 | `parallel.rs` | one helper for using all CPU cores | this chapter, shown |
 | `layers.rs` | linear, convolution, GELU, layer norm, attention | chapter 13 |
 | `encoder.rs` | spectrogram to audio features | chapter 13 |
@@ -41,8 +41,8 @@ The weights are published on Hugging Face in the repository [`openai/whisper-tin
 | File | Size | What is in it |
 |---|---|---|
 | `model.safetensors` | 151 MB | the weights |
-| `vocab.json` | 798 KB | the text of each of the 50,257 ordinary tokens |
-| `added_tokens.json` | 35 KB | the names of the 1,607 control tokens |
+| `vocab.json` | 798 KB | the text of 50,256 ordinary tokens, and `<\|endoftext\|>` |
+| `added_tokens.json` | 35 KB | the names of the other 1,607 control tokens |
 | `config.json` | 2 KB | the architecture's sizes |
 | `generation_config.json` | 2 KB | the decoding rules |
 
@@ -51,11 +51,15 @@ From the `code/` directory:
 ```
 mkdir -p ../data/whisper-tiny.en
 cd ../data/whisper-tiny.en
+rev=87c7102498dcde7456f24cfd30239ca606ed9063
 for f in model.safetensors vocab.json added_tokens.json config.json generation_config.json; do
-  curl -L -O https://huggingface.co/openai/whisper-tiny.en/resolve/main/$f
+  curl -L -O https://huggingface.co/openai/whisper-tiny.en/resolve/$rev/$f
 done
+shasum -a 256 model.safetensors
 cd ../../code
 ```
+
+`rev` names one fixed revision of the repository, the one every tensor count and token id in these two chapters was read from. (Put `main` in its place and you get whatever is newest, which may one day differ.) The last line should print `db59695928ded6043adaef491a53ef4e12da9611184d77c53baa691a60b958ad`.
 
 Our programs look for the model in `../data/whisper-tiny.en`. If you keep your datasets somewhere else, set `SPEECH_DATA` to the directory that contains `whisper-tiny.en/`, the same variable the earlier chapters used.
 
@@ -116,11 +120,11 @@ impl Parser<'_> {
             None => Err(self.error("unexpected end of input")),
         }
     }
-    // ... peek, next, skip_whitespace, expect, error, literal, number: a few lines each
+    // ... peek, next, skip_whitespace, expect, error, literal, digits: a few lines each; number: thirty
 }
 ```
 
-JSON was designed so that this works: the first character of a value tells you its kind, so the parser never has to guess and back up. `MAX_DEPTH` is 128. Each level of nesting is a level of Rust recursion, and without the limit a hostile file made of a million `[` would overflow our stack. `number` gathers every character that can appear in a number and hands the slice to `str::parse::<f64>`, which is the one place we lean on the standard library.
+JSON was designed so that this works: the first character of a value tells you its kind, so the parser never has to guess and back up. `MAX_DEPTH` is 128. Each level of nesting is a level of Rust recursion, and without the limit a hostile file made of a million `[` would overflow our stack. `number` walks through JSON's grammar for numbers (an optional minus sign, an integer part with no leading zero, an optional fraction, an optional exponent) and then hands the slice it accepted to `str::parse::<f64>`, which is the one place we lean on the standard library. The walk has to come first. Rust's parser is more generous than JSON and would also take `1.`, `01` and `inf`. A number with the right shape that does not fit in an `f64`, such as `1e999`, is refused as well, because the conversion would quietly turn it into infinity.
 
 An array is values separated by commas. Note the call back into `value`: that is the recursion.
 
@@ -192,7 +196,9 @@ How do we know it works? The tests feed it documents and compare what comes out,
     }
 ```
 
-The accessors (`get`, `as_usize`, `as_str`, `as_array`, `as_object`) are one `match` each and return an `Option`, so reading a field we expect reads as `json.get("shape").and_then(Json::as_array)`. About 300 lines without the tests, and we have a JSON parser. Not bad for a detour.
+A second test, `numbers_follow_the_json_grammar`, does the same for numbers: `0.5` and `1e-2` must parse, and `01`, `1.`, `.5`, `+1` and `1e999` must not.
+
+The accessors (`get`, `as_usize`, `as_str`, `as_array`, `as_object`) are one `match` each and return an `Option`, so reading a field we expect reads as `json.get("shape").and_then(Json::as_array)`. `as_usize` answers only for whole numbers from 0 to 2^53, the range an `f64` holds exactly. About 350 lines without the tests, and we have a JSON parser. Not bad for a detour.
 
 ### Safetensors: A Header And A Pile Of Floats
 
@@ -229,7 +235,7 @@ The first eight bytes are `a0 4a 00 ...`, which read little-endian (as in chapte
 A *tensor* is the general word for an array with any number of axes: a vector has one, our `Mat` has two, a convolution's weights have three. Tensors are stored row-major (the last index moves fastest), which is exactly the layout of `Mat`. So loading a model is: read 8 bytes, parse some JSON, and reinterpret byte ranges as `f32`s.
 
 **Aside** <br>
-Why "safe"? The format PyTorch used for years is built on Python's `pickle`, which can execute arbitrary code while loading. Downloading a model meant running a stranger's program. A safetensors file contains no code, only a description and data, so the worst a malicious one can do is lie about its offsets. We check those.
+Why "safe"? The format PyTorch used for years is built on Python's `pickle`, which can execute arbitrary code while loading. Downloading a model meant running a stranger's program. A safetensors file contains no code, only a description and data, so that door is closed. What is left is the ordinary risk of reading any file from a stranger: the header makes claims about the data (lengths, shapes, byte ranges), and a reader that believes them unchecked can be made to crash, to hand out the wrong bytes, or to ask for absurd amounts of memory. The format answers with a short list of rules that a reader is expected to enforce. We enforce them below, and the Loose Ends say what that does and does not buy.
 
 We keep one `TensorInfo` record per header entry (`name`, `dtype`, `shape`, and the byte range as `start` and `end`). Reading the header alone lets us list what is in a file without loading 150 MB:
 
@@ -241,6 +247,7 @@ const MAX_HEADER_BYTES: u64 = 100 * 1024 * 1024;
 
 pub fn read_header(path: &Path) -> io::Result<Vec<TensorInfo>> {
     let mut file = std::fs::File::open(path)?;
+    let file_bytes = file.metadata()?.len();
     let mut length_bytes = [0u8; 8];
     file.read_exact(&mut length_bytes)?;
     let length = u64::from_le_bytes(length_bytes);
@@ -249,26 +256,95 @@ pub fn read_header(path: &Path) -> io::Result<Vec<TensorInfo>> {
     }
     let mut header = vec![0u8; length as usize];
     file.read_exact(&mut header)?;
-    parse_header_json(&header)
+    // Both reads succeeded, so the file holds at least `8 + length` bytes.
+    let data_bytes = file_bytes.saturating_sub(8 + length);
+    parse_header_json(&header, data_bytes)
 }
 
-/// Turn the header's JSON into a list of `TensorInfo`, in file order.
-fn parse_header_json(header: &[u8]) -> io::Result<Vec<TensorInfo>> {
+/// Turn the header's JSON into a list of `TensorInfo`, in file order, and
+/// check it against a data section of `data_bytes` bytes.
+fn parse_header_json(header: &[u8], data_bytes: u64) -> io::Result<Vec<TensorInfo>> {
+    if header.first() != Some(&b'{') {
+        return Err(bad("header does not start with `{`".into()));
+    }
     let text = std::str::from_utf8(header).map_err(|_| bad("header is not UTF-8".into()))?;
     let json = Json::parse(text)?;
     let entries = json.as_object().ok_or_else(|| bad("header is not a JSON object".into()))?;
     let mut infos = Vec::new();
+    let mut seen = BTreeSet::new();
     for (name, entry) in entries {
+        // Our `Json` keeps repeated keys; the format forbids them.
+        if !seen.insert(name.as_str()) {
+            return Err(bad(format!("the name `{name}` appears twice")));
+        }
         if name == "__metadata__" {
-            continue; // free-form notes about the file, not a tensor
+            // Free-form notes about the file, not a tensor. The format
+            // allows text here and nothing else.
+            let notes = entry.as_object().ok_or_else(|| bad("`__metadata__` is not an object".into()))?;
+            if notes.iter().any(|(_, value)| value.as_str().is_none()) {
+                return Err(bad("`__metadata__` holds something other than strings".into()));
+            }
+            continue;
         }
         infos.push(parse_entry(name, entry)?);
     }
+    check_layout(&infos, data_bytes)?;
     Ok(infos)
 }
 ```
 
-`parse_entry` pulls the three fields out of one entry with the accessors from the last section (`entry.get("dtype").and_then(Json::as_str)` and so on) and turns a missing or malformed one into an error that names the tensor. The length check is the same reflex as `MAX_DEPTH`: the first eight bytes of an untrusted file are about to become an allocation size, so we look at them first.
+The length check is the same reflex as `MAX_DEPTH`: the first eight bytes of an untrusted file are about to become an allocation size, so we look at them first. `parse_entry` pulls the three fields out of one entry with the accessors from the last section (`entry.get("dtype").and_then(Json::as_str)` and so on) and turns a missing or malformed one into an error that names the tensor. It refuses an element type the format does not define, and it refuses a byte range that is not exactly as long as the shape and the type call for. That comparison needs the tensor's size in bytes, and computing it is where a careless reader gets hurt:
+
+```rust
+// src/whisper/safetensors.rs
+
+/// How many bytes a tensor of this type and shape occupies. `None` if the
+/// type is unknown or the answer does not fit in a `usize`.
+///
+/// The shape comes from the file, so the product is computed with
+/// `checked_mul`. Plain `*` on two sizes of 2^32 wraps around to 0 in a
+/// release build (and panics in a debug build), and a wrapped product would
+/// let a shape of 2^64 elements pass for an empty tensor.
+fn byte_count(dtype: &str, shape: &[usize]) -> Option<usize> {
+    let size = bytes_per_element(dtype)?;
+    // Multiply the non-zero sizes even when a zero makes the tensor empty,
+    // so that `[0, 2^40, 2^40]` is refused like `[2^40, 2^40]`.
+    let bytes = shape.iter().filter(|&&n| n != 0).try_fold(size, |bytes, &n| bytes.checked_mul(n))?;
+    Some(if shape.contains(&0) { 0 } else { bytes })
+}
+```
+
+The shape is whatever the file says it is. Suppose it says `[4294967296, 4294967296]`, two sizes of 2^32, with a byte range of `[0, 0]`. The product is 2^64, one more than a 64-bit `usize` can hold. With plain `*`, a release build wraps around to 0, the shape "matches" its empty byte range, and we have accepted a tensor that claims 18 quintillion elements; a debug build panics instead. `checked_mul` returns `None` on overflow, and `parse_entry` turns that into an error like any other.
+
+The last rule is about the entries together:
+
+```rust
+// src/whisper/safetensors.rs
+
+/// Check that the tensors' byte ranges tile the data section: sorted by
+/// where they start, each begins where the one before ended, the first at
+/// byte 0 and the last ending at `data_bytes`.
+fn check_layout(infos: &[TensorInfo], data_bytes: u64) -> io::Result<()> {
+    let mut by_offset: Vec<&TensorInfo> = infos.iter().collect();
+    by_offset.sort_by_key(|info| (info.start, info.end));
+    let mut covered = 0;
+    for info in by_offset {
+        if info.start < covered {
+            return Err(bad(format!("tensor {}: byte range {}..{} overlaps another tensor", info.name, info.start, info.end)));
+        }
+        if info.start > covered {
+            return Err(bad(format!("bytes {covered}..{} of the data belong to no tensor", info.start)));
+        }
+        covered = info.end;
+    }
+    if covered as u64 != data_bytes {
+        return Err(bad(format!("the tensors cover {covered} bytes of data but the file holds {data_bytes}")));
+    }
+    Ok(())
+}
+```
+
+Sorted by where they start, the byte ranges must tile the data section: each begins where the previous one ended, the first at byte 0, the last at the final byte. That one loop refuses a byte range past the end of the file, two tensors that overlap, a gap between tensors, and bytes left over at the end. Overlap matters because without the rule a small file could describe far more tensor data than it holds, each entry pointing at the same bytes. Gaps matter because they are a place to hide something that is not a tensor. Both rules are the format's own, as is the ban on naming a tensor twice. `read_header` knows the size of the data section from the size of the file, so even a listing is only printed for a file whose header is consistent with its length.
 
 Loading the numbers is a loop over the entries. Each tensor's bytes are a slice of the data section, and turning four bytes into an `f32` is `f32::from_le_bytes`:
 
@@ -289,16 +365,9 @@ impl SafeTensors {
         let (infos, data) = parse_header(file)?;
         let mut tensors = BTreeMap::new();
         for info in &infos {
-            // Never trust offsets from a file: check them before slicing.
-            if info.start > info.end || info.end > data.len() {
-                return Err(bad(format!("tensor {}: byte range {}..{} is outside the file", info.name, info.start, info.end)));
-            }
-            let bytes = &data[info.start..info.end];
-            if let Some(size) = bytes_per_element(&info.dtype) {
-                if bytes.len() != info.element_count() * size {
-                    return Err(bad(format!("tensor {}: shape {:?} does not match {} bytes", info.name, info.shape, bytes.len())));
-                }
-            }
+            // `parse_header` has checked every byte range against `data`,
+            // but slicing with `get` costs nothing and cannot panic.
+            let bytes = data.get(info.start..info.end).ok_or_else(|| bad(format!("tensor {}: byte range is outside the file", info.name)))?;
             if let Some(values) = decode_floats(&info.dtype, bytes) {
                 tensors.insert(info.name.clone(), Tensor { shape: info.shape.clone(), data: values });
             }
@@ -308,11 +377,11 @@ impl SafeTensors {
 }
 ```
 
-`parse_header` is `read_header` for a file already in memory: split off 8 bytes, then the header, and return the rest as `data`. `f16_to_f32` decodes half-precision floats (1 sign bit, 5 exponent, 10 fraction), which some checkpoints use to halve their size. `tiny.en` does not, but a loader that only handles the file in front of it breaks on the next one.
+`parse_header` is `read_header` for a file already in memory: split off 8 bytes, then the header, run the same checks, and return the rest as `data`. By the time the loop slices `data`, every byte range is known to lie inside it. `f16_to_f32` decodes half-precision floats (1 sign bit, 5 exponent, 10 fraction), which some checkpoints use to halve their size. `tiny.en` does not, but a loader that only handles the file in front of it breaks on the next one.
 
 The rest of the `SafeTensors` API is `take(name)`, which *moves* a tensor out of the map, with `take_mat` and `take_vec` for the two-axis and one-axis cases. The model takes ownership of each tensor this way, so once loading is done the 150 MB exist in memory once. It also gives us a lovely test for free, as we will see in a moment.
 
-The unit tests build small files in memory and read them back: a 2 × 3 tensor must come out with element (1, 0) equal to the fourth number (row-major), a tensor can only be taken once, and a truncated file, a shape that disagrees with the byte count, and a header length that points past the end must each be refused.
+The unit tests build small files in memory and read them back: a 2 × 3 tensor must come out with element (1, 0) equal to the fourth number (row-major), a tensor can only be taken once, and a truncated file, a shape that disagrees with the byte count, and a header length that points past the end must each be refused. Each rule above has its own test with a header written out by hand: the 2^32 × 2^32 shape, overlapping ranges, a gap, leftover bytes, a repeated name, an unknown type. A last one, `never_panics_on_damaged_files`, takes a good file, cuts it short at every length and overwrites every byte in turn with ten different values, and requires each of those few thousand damaged files to come back as a clean `Ok` or `Err`.
 
 ### Reading The Architecture Off The Names
 
@@ -354,7 +423,7 @@ Read the names slowly, because they spell out the whole model. We have not met m
 
 There is an `encoder` and a `decoder`. The encoder starts with `conv1`, whose weight is `[384, 80, 3]`: 384 output channels, 80 input channels, kernel 3. That is chapter 7's convolution over time, and 80 is the number of mel bands it expects. The number 384 is everywhere: it is the width of every row that flows through the model. Then `embed_positions` with 1500 rows, then `layers.0` to `layers.3`, each with a `self_attn` made of four 384 × 384 projections named `q`, `k`, `v` and `out`, two layer norms, and two fully connected layers `fc1` and `fc2` that widen to 1536 and narrow back.
 
-The decoder has the same four layers with one extra part each, `encoder_attn`: the place where the decoder looks at the encoder. It has `embed_tokens` with 51,864 rows, one per token the model can write, and 448 positions, so a transcript of one window can be at most 448 tokens long.
+The decoder has the same four layers with one extra part each, `encoder_attn`: the place where the decoder looks at the encoder. It has `embed_tokens` with 51,864 rows, one per token the model can write, and 448 positions: the decoder can hold at most 448 tokens for one window, and the two prompt tokens we will meet in the next chapter count among them.
 
 Two details are easy to miss. First, `k_proj` has a weight and no bias, while `q_proj` and `v_proj` have both. Hold that thought until the next chapter. Second, there is no output layer. The model must produce a score for each of 51,864 tokens, yet nothing in the listing has 51,864 outputs, apart from `embed_tokens` itself. That one matrix is used twice, once to turn tokens into rows on the way in and once to turn rows into token scores on the way out. It holds 19.9 of the 37.8 million parameters: more than half of this speech recognizer is a table of word pieces.
 
@@ -395,7 +464,7 @@ $ grep -o '"Ġthe": [0-9]*' ../data/whisper-tiny.en/vocab.json
 
 Splitting text *into* tokens takes some machinery (you have to replay those merges). We only need the other direction, which is a table lookup: every token stands for a fixed string of bytes, so we look up each id, glue the bytes together, and read the result as UTF-8. But what is that `Ġ`? A token is a string of arbitrary bytes, possibly half of a multi-byte character, but `vocab.json` is a text file and cannot hold arbitrary bytes. GPT-2's authors gave each of the 256 byte values a printable stand-in character, and `byte_to_char_table` rebuilds their table. Printable bytes stand for themselves. The 68 others are handed, in order, the characters U+0100, U+0101 and so on. The space is byte 32, the 33rd unprintable byte, so it becomes U+0120, which is `Ġ`. So `"Ġthe": 262` means " the", with the space in front. Words carry their own leading space, so gluing tokens together needs no rule about where spaces go.
 
-`Tokenizer::from_json` inverts that table, converts every entry of `vocab.json` to bytes, and stores them in a `Vec` indexed by id. The control tokens from `added_tokens.json`, such as `<|endoftext|>` (id 50256), are stored too, for printing. Decoding is then:
+`Tokenizer::from_json` inverts that table, converts every entry of `vocab.json` to bytes, and stores them in a `Vec` indexed by id. One entry of `vocab.json` is not text: `<|endoftext|>`, id 50256, the highest id in that file and the first of the control tokens. The other 1,607, such as `<|startoftranscript|>` (id 50257), are named in `added_tokens.json` and are stored too, for printing. That is 50,256 pieces of text and 1,608 control tokens, 51,864 in all: one per row of `embed_tokens`. Decoding is then:
 
 ```rust
 // src/whisper/tokenizer.rs
@@ -416,7 +485,7 @@ Splitting text *into* tokens takes some machinery (you have to replay those merg
     }
 ```
 
-`is_special` is `id >= 50256`: all the control tokens sit above the ordinary ones. The doc comment's case has a test with a seven-token toy vocabulary, in which "é" is split into its two bytes (the file shows them as `Ã` and `©`):
+`is_special` is `id >= 50256`: `<|endoftext|>` and everything above it is a control token. The doc comment's case has a test with a seven-token toy vocabulary, in which "é" is split into its two bytes (the file shows them as `Ã` and `©`):
 
 ```rust
 // src/whisper/tokenizer.rs (tests)
@@ -433,7 +502,7 @@ Splitting text *into* tokens takes some machinery (you have to replay those merg
 
 ### The Front End, Again, With Someone Else's Constants
 
-We can read the weights and we can read the answer. What is left is the question: the model's input is a log-mel spectrogram, and we built one of those in chapters 2 to 4. Can we feed it ours? No, and the reason is the most practical lesson of this chapter: **a pretrained model is married to the exact front end it was trained with.** The network has only ever seen pictures produced by one recipe. A spectrogram that is "better" by any measure, but different, is a worse input. So we follow OpenAI's recipe to the letter. Side by side:
+We can read the weights and we can read the answer. What is left is the question: the model's input is a log-mel spectrogram, and we built one of those in chapters 2 to 4. Can we feed it ours? No, and the reason is the most practical lesson of this chapter: **a pretrained model is married to the exact front end it was trained with.** The network has only ever seen pictures produced by one recipe. A spectrogram that is "better" by any measure, but different, is a worse input. So we follow the recipe of OpenAI's reference implementation, the function `log_mel_spectrogram` in its `audio.py`, constant for constant. Side by side:
 
 | | Our front end (chapter 4) | Whisper's |
 |---|---|---|
@@ -453,7 +522,7 @@ We can read the weights and we can read the answer. What is left is the question
 
 Same ideas, a dozen different constants. The doc comment at the top of `mel.rs` writes the right-hand column as a recipe in six steps: (1) pad or cut to 30 s, (2) mirror the ends, frame and window, (3) power spectrum, (4) mel filterbank, (5) `log10`, (6) clamp and rescale. The comments in the code below refer to those numbers.
 
-Step 1 starts with a file. `audio.rs` is a thin wrapper around two things we already own: chapter 1's `Wav::read` decodes the file and mixes it down to mono, and chapter 4's `resample` brings it to 16 kHz if it has another rate. Any WAV file works, including the 8 kHz digit clips of chapter 5, although resampling cannot give them back what was never recorded above 4 kHz.
+Step 1 starts with a file. `audio.rs` is a thin wrapper around two things we already own: chapter 1's `Wav::read` decodes the file and mixes it down to mono, and chapter 4's `resample` brings it to 16 kHz if it has another rate. Any WAV file that chapter 1's reader understands will do (uncompressed integer or float samples, at any rate, with any number of channels), including the 8 kHz digit clips of chapter 5, although resampling cannot give them back what was never recorded above 4 kHz.
 
 The window is the one row of the table that says "the same", and it almost is. `mel.rs` has its own `periodic_hann`: the same curve as chapter 2's `hann`, but with the cosine worked out in `f64` and rounded once at the end, where chapter 2's stays in `f32` throughout. A test asserts that the two tables agree to within `5e-7`. That is close, but it is not bit for bit, so Whisper keeps its own.
 
@@ -495,7 +564,7 @@ pub fn mel_filterbank(n_mels: usize, n_fft: usize, sample_rate: u32) -> Mat {
 }
 ```
 
-The factor `2.0 / (high - low)` is *area normalization*: a triangle of height `2 / width` has area 1, so the wide bands at the top do not collect more energy than the narrow ones at the bottom just for being wide. The reference implementation does not compute this matrix; it loads one that the Python library `librosa` produced. We are reimplementing a library call, and the way to trust the result is a test with numbers worked out on paper: `filterbank_matches_values_derived_by_hand` does that for the first two triangles, where the scale is linear and the arithmetic is easy.
+The factor `2.0 / (high - low)` is *area normalization*: a triangle of height `2 / width` has area 1, so the wide bands at the top do not collect more energy than the narrow ones at the bottom just for being wide. The reference implementation does not compute this matrix; it loads one that the Python library `librosa` produced. We are reimplementing a library call, and the way to trust the result is a test with numbers worked out on paper: `filterbank_matches_values_derived_by_hand` does that for the first two triangles, where the scale is linear and the arithmetic is easy. A second test computes all 80 × 201 weights again by a different route, the way `librosa`'s source arranges the calculation, and requires the two to agree.
 
 Now the transform. If you have been paying attention, you'll notice a problem in the table: the transform length is 400, and the FFT we wrote in chapter 3 only handles powers of two. Padding to 512 as we did before would give 257 bins at different frequencies, which is a different picture. The proper answers are a mixed-radix FFT or Bluestein's algorithm. We are going to do something much simpler: go back to chapter 3's "slow" DFT, the one that correlates the frame against every sinusoid directly, and let it earn its keep.
 
@@ -610,10 +679,10 @@ Nothing in this chapter multiplies a weight by anything, so there is no transcri
 ```
 $ cargo test --release whisper::json
 ...
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 296 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 314 filtered out; finished in 0.00s
 ```
 
-Do the same with `whisper::safetensors` (4 tests), `whisper::config` (3), `whisper::tokenizer` (4), `whisper::audio` (4), `whisper::mel` (7) and `whisper::parallel` (1). Then the front end on real audio. The next chapter's example program prints statistics of every stage with `--verbose`, and its first lines are already ours to read. Here it is on one of the 8 kHz digit clips from `samples/`:
+Do the same with `whisper::safetensors` (9 tests), `whisper::config` (3), `whisper::tokenizer` (5), `whisper::audio` (4), `whisper::mel` (8) and `whisper::parallel` (1). Then the front end on real audio. The next chapter's example program prints statistics of every stage with `--verbose`, and its first lines are already ours to read. Here it is on one of the 8 kHz digit clips from `samples/`:
 
 ```
 $ cargo run --release --example ch12_whisper -- --verbose ../samples/seven_jackson.wav
@@ -640,13 +709,15 @@ The program does not stop there, of course. It goes on to push that picture thro
 
 ### Loose Ends
 
-- **A reader, not a library.** Our JSON parser keeps every number as an `f64`, so an integer above 2^53 would lose digits, and it cannot write JSON at all.
+- **A reader, not a library.** Our JSON parser keeps every number as an `f64`, so an integer above 2^53 would lose digits (`as_usize` refuses those), and it cannot write JSON at all. It also keeps a key that appears twice in an object and looks up the first, where a stricter parser would refuse the document. The safetensors reader checks for repeated names itself.
+- **What the safetensors checks do not cover.** They are about structure. The numbers themselves can be anything, NaN and infinity included, and a well-formed file of nonsense weights loads without complaint. Memory use is bounded by the size of the file, not by us: a 10 GB checkpoint needs more than 10 GB. And the reader has been tested on files we built by hand, on damaged copies of one of them, and on one real checkpoint. It has not been fuzzed, and it has not been run side by side with the reference parser.
 - **The weights are copied while loading.** `SafeTensors::read` reads the whole file into memory and then decodes it into `Vec<f32>`s, so for a moment both copies exist. Real loaders map the file into memory and use the bytes where they lie. Only `F32` and `F16` tensors are loaded; other types are listed and skipped.
 - **The slow Fourier transform.** We used the direct DFT because 400 is not a power of two. It costs 14 ms here; a mixed-radix FFT or Bluestein's algorithm is the right tool and we built neither.
-- **The filterbank is checked against arithmetic, not against the reference file.** Two triangles are verified by hand and the rest by their properties. We did not compare all 80 × 201 weights with the matrix OpenAI ships.
+- **The filterbank is checked against arithmetic, not against the reference file.** Two triangles are verified by hand, and all 80 × 201 weights agree with a second calculation of our own. We did not compare them with the matrix OpenAI ships, or any spectrogram with one computed by the reference.
+- **One window at a time.** `log_mel` pads or cuts the samples to 30 s and then computes and normalizes that one window, which is how the reference's README handles a short clip. The reference's `transcribe` function works in another order: one spectrogram for the whole recording, 3000-frame windows cut out of it, and a short last window padded with zeros in the spectrogram, where ours holds the clamp's floor. So the two differ in the padded part of a short clip, and for recordings longer than 30 s also in the frames next to each cut and in the maximum the clamp is measured from. We have not measured what either does to a transcript.
 - **We only decode tokens.** Learning the byte-pair merges and splitting text into tokens are not in `tokenizer.rs`. The next chapter says what that costs us.
 
-What's next on our agenda? Let's take stock. We have a JSON parser, a safetensors reader that refuses files that lie, a model's worth of named tensors in memory with a test that none of them goes unused, a tokenizer that turns ids back into text, and a front end that produces exactly the picture Whisper was trained on, on all cores. What we do not have is a single layer: 167 tensors are loaded and nothing uses them. In the next chapter we write the arithmetic. There is one new idea in it, attention, and the rest is assembled from matrix products and softmaxes we already own. At the end of it, the file we opened today transcribes English.
+What's next on our agenda? Let's take stock. We have a JSON parser, a safetensors reader that checks every claim in the header before it touches the data, a model's worth of named tensors in memory with a test that none of them goes unused, a tokenizer that turns ids back into text, and a front end that follows the reference recipe for a 30-second window, on all cores. What we do not have is a single layer: 167 tensors are loaded and nothing uses them. In the next chapter we write the arithmetic. There is one new idea in it, attention, and the rest is assembled from matrix products and softmaxes we already own. At the end of it, the file we opened today transcribes English.
 
 ### References
 

@@ -10,6 +10,7 @@
 //! ```
 
 use speech::dsp::features::{dct2, deltas, log_mel, mfcc, normalize, FeatureConfig, FeatureExtractor};
+use speech::dsp::frame::short_time_energy;
 use speech::dsp::mel::{hz_to_mel, mel_filterbank, mel_points, mel_to_hz};
 use speech::dsp::spectrogram::{power_to_db, time_extent};
 use speech::plot::{heatmap_ascii, Color, Figure, Heatmap, LinePlot, Orientation, Series};
@@ -102,13 +103,26 @@ fn run(clip: &str, figures_dir: Option<&str>) -> io::Result<()> {
     let (lo, hi) = mel.data.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| (lo.min(v), hi.max(v)));
     println!("  log-mel values run from {lo:.1} to {hi:.1} (silence would be ln(1e-6) = {:.1})", 1e-6f32.ln());
 
-    let frame_energy = |r: usize| mel.row(r).iter().sum::<f32>();
-    let loudest = (0..mel.rows).max_by(|&a, &b| frame_energy(a).total_cmp(&frame_energy(b))).unwrap();
+    // The loudest frame, measured as in chapters 2 and 3: the largest mean
+    // square of the samples. Features row `r` is made from frame `r`.
+    let energies = short_time_energy(&wav.samples, cfg.frame_len(), cfg.hop_len());
+    let loudest = (0..mel.rows).max_by(|&a, &b| energies[a].total_cmp(&energies[b])).unwrap();
     let fmt = |values: &[f32]| values.iter().map(|v| format!("{v:6.1}")).collect::<Vec<_>>().join(" ");
     println!("\n  loudest frame (#{loudest}):");
     println!("    log-mel, first 10 bands:  {}", fmt(&mel.row(loudest)[..10.min(mel.cols)]));
     println!("    its {N_MFCC} MFCCs:             {}", fmt(cepstra.row(loudest)));
     println!("    DCT of the log-mel row:   {}   (the same, computed directly)", fmt(&dct2(mel.row(loudest), N_MFCC)));
+    // c0 is not the frame's energy: it is the average of the log-mel row
+    // (times sqrt(n_mels)), and it can peak in a different frame.
+    let row_mean = |r: usize| mel.row(r).iter().sum::<f32>() / mel.cols as f32;
+    let highest_c0 = (0..mel.rows).max_by(|&a, &b| cepstra[(a, 0)].total_cmp(&cepstra[(b, 0)])).unwrap();
+    println!(
+        "    c0 = sqrt({}) x the row's average ({:.3}) = {:.2}; the largest c0 of the clip is {:.2}, in frame #{highest_c0}",
+        mel.cols,
+        row_mean(loudest),
+        cepstra[(loudest, 0)],
+        cepstra[(highest_c0, 0)]
+    );
 
     // What a model typically gets: MFCCs plus their deltas, normalized.
     let mut stacked = cepstra.clone();

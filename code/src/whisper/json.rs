@@ -70,10 +70,13 @@ impl Json {
         }
     }
 
-    /// The number as a `usize`, if this is a non-negative whole number.
+    /// The number as a `usize`, if this is a non-negative whole number that
+    /// an `f64` holds exactly. Above 2^53 neighboring integers share one
+    /// `f64`, so a size or an offset up there cannot be trusted and is refused.
     pub fn as_usize(&self) -> Option<usize> {
+        const MAX_EXACT: f64 = 9_007_199_254_740_992.0; // 2^53
         match self {
-            Json::Number(n) if *n >= 0.0 && n.fract() == 0.0 => Some(*n as usize),
+            Json::Number(n) if *n >= 0.0 && *n <= MAX_EXACT && n.fract() == 0.0 => usize::try_from(*n as u64).ok(),
             _ => None,
         }
     }
@@ -176,23 +179,58 @@ impl Parser<'_> {
         }
     }
 
-    /// Numbers: gather every character that can appear in one and let the
-    /// standard library do the conversion. (This accepts a few spellings that
-    /// strict JSON forbids, such as `1.`; being lenient costs us nothing.)
+    /// Numbers. JSON's grammar for them is strict: an optional minus sign; an
+    /// integer part that is either a lone `0` or starts with `1` to `9`; then
+    /// optionally a `.` with at least one digit after it; then optionally an
+    /// exponent, `e` or `E`, a sign if wanted, and at least one digit.
+    ///
+    /// We check that shape ourselves and only then let the standard library
+    /// convert the text. `str::parse::<f64>` alone would not do as the check:
+    /// it also accepts `1.`, `01`, `inf` and other spellings that are not JSON.
     fn number(&mut self) -> io::Result<Json> {
         let start = self.pos;
-        while matches!(self.peek(), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) {
+        if self.peek() == Some(b'-') {
             self.pos += 1;
+        }
+        match self.peek() {
+            // A leading zero stands alone: `0` and `0.5` are numbers, `01` is not.
+            Some(b'0') => self.pos += 1,
+            Some(b'1'..=b'9') => self.digits()?,
+            _ => return Err(self.error("expected a digit")),
+        }
+        if self.peek() == Some(b'.') {
+            self.pos += 1;
+            self.digits()?;
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.pos += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.pos += 1;
+            }
+            self.digits()?;
         }
         // Only ASCII was consumed, so this slice is valid UTF-8.
         let text = std::str::from_utf8(&self.bytes[start..self.pos]).unwrap_or("");
         match text.parse::<f64>() {
-            Ok(n) => Ok(Json::Number(n)),
-            Err(_) => {
+            // `1e999` has the right shape but does not fit in an `f64`; the
+            // conversion returns infinity, which no JSON document can mean.
+            Ok(n) if n.is_finite() => Ok(Json::Number(n)),
+            _ => {
                 self.pos = start;
-                Err(self.error("malformed number"))
+                Err(self.error("number out of range"))
             }
         }
+    }
+
+    /// One or more decimal digits.
+    fn digits(&mut self) -> io::Result<()> {
+        if !matches!(self.peek(), Some(b'0'..=b'9')) {
+            return Err(self.error("expected a digit"));
+        }
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
+            self.pos += 1;
+        }
+        Ok(())
     }
 
     /// `[ value, value, ... ]`
@@ -368,6 +406,45 @@ mod tests {
         assert_eq!(Json::Number(3.0).as_usize(), Some(3));
         assert_eq!(Json::Number(3.5).as_usize(), None);
         assert_eq!(Json::Number(-3.0).as_usize(), None);
+        // 2^53 is the last integer before `f64` starts skipping; beyond it we refuse.
+        assert_eq!(Json::Number(9_007_199_254_740_992.0).as_usize(), Some(1 << 53));
+        assert_eq!(Json::Number(1e16).as_usize(), None);
+        assert_eq!(Json::Number(1e30).as_usize(), None);
+    }
+
+    #[test]
+    fn numbers_follow_the_json_grammar() {
+        for (text, value) in [
+            ("0", 0.0),
+            ("-0", 0.0),
+            ("7", 7.0),
+            ("120", 120.0),
+            ("-12", -12.0),
+            ("0.5", 0.5),
+            ("-0.25", -0.25),
+            ("1e3", 1000.0),
+            ("1E3", 1000.0),
+            ("1e+3", 1000.0),
+            ("25e-2", 0.25),
+            ("0e0", 0.0),
+            ("1.5e-05", 0.000015),
+        ] {
+            assert_eq!(Json::parse(text).unwrap(), Json::Number(value), "{text}");
+        }
+        // Spellings Rust's own float parser accepts but JSON does not, and a
+        // few that neither accepts.
+        for bad in ["01", "-01", "00", "1.", "1.e3", ".5", "-.5", "+1", "1e", "1e+", "1e1.5", "--1", "- 1", "1.5.2", "0x10", "inf", "NaN"] {
+            assert!(Json::parse(bad).is_err(), "should reject {bad:?}");
+        }
+        assert!(Json::parse("[01]").is_err());
+        assert!(Json::parse("{\"a\": 1.}").is_err());
+        // The right shape, but too large for an `f64`.
+        for bad in ["1e999", "-1e999", "2e308"] {
+            assert!(Json::parse(bad).is_err(), "should reject {bad:?}");
+        }
+        // The largest finite `f64` and a number too small to tell from zero are fine.
+        assert_eq!(Json::parse("1.7976931348623157e308").unwrap(), Json::Number(f64::MAX));
+        assert_eq!(Json::parse("1e-999").unwrap(), Json::Number(0.0));
     }
 
     #[test]

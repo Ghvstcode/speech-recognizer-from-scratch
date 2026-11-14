@@ -154,7 +154,7 @@ pub fn short_time_energy(samples: &[f32], frame_len: usize, hop_len: usize) -> V
 }
 ```
 
-The `+ 1e-10` is a numerical seatbelt. A frame of exact zeros has energy 0, `log10(0)` is minus infinity, and one infinity in a vector of features poisons every sum and average downstream. Adding a tiny constant puts a floor at `10 * log10(1e-10) = -100 dB`, far below anything a 16-bit recording can contain.
+The `+ 1e-10` is a numerical seatbelt. A frame of exact zeros has energy 0, `log10(0)` is minus infinity, and one infinity in a vector of features poisons every sum and average downstream. Adding a tiny constant puts a floor at `10 * log10(1e-10) = -100 dB`. That is a practical floor for our purposes, not a limit of the format: a frame in which every sample is one 16-bit step has energy (1/32768)², about -90 dB, but a 400-sample frame of zeros with a single such step in it has a 400th of that, -116 dB, and reads as -99.9. The constant also nudges the quietest real frames up a little (the -90 dB frame reads as -89.9). Nothing we build looks that far down.
 
 The test pins down the numbers we just worked out by hand:
 
@@ -290,7 +290,7 @@ Now to the thought we put on hold. When we cut a frame out of a recording, the c
 
 Why is that a problem? In the next chapter we hand each frame to the Fourier transform to find out which frequencies are in it, and the Fourier transform treats a frame as if it were one cycle of something that repeats forever (chapter 3 shows why). Lay copies of frame 45 end to end and at every seam the signal jumps from where the frame ended to where it began. That jump was never in the sound. Our scissors made it. A sudden jump is the fastest change a signal can make, so it shows up as a sprinkling of energy at all frequencies that the speaker never produced. The name for this is **spectral leakage**, and we will see it with our own eyes in chapter 3.
 
-The fix: before analyzing a frame, fade it in and fade it out. Multiply every sample by a weight that is 1 in the middle of the frame and falls smoothly to 0 at both ends. Then every frame starts and ends at zero, the seams always match, and there is no jump. The list of weights is called a **window function**, or just a **window**.
+The fix: before analyzing a frame, fade it in and fade it out. Multiply every sample by a weight that is 1 in the middle of the frame and falls smoothly toward 0 at both ends. Then every frame starts and ends at (very nearly) zero, the seams always match, and there is no jump. The list of weights is called a **window function**, or just a **window**.
 
 The most common window is one cycle of a cosine, flipped upside down and lifted so it runs from 0 up to 1 and back. It is called the **Hann window**, after the Austrian meteorologist Julius von Hann:
 
@@ -298,7 +298,7 @@ The most common window is one cycle of a cosine, flipped upside down and lifted 
 w[i] = 0.5 - 0.5 * cos(2π * i / n)        for i = 0, 1, ..., n-1
 ```
 
-where `n` is the frame length. At `i = 0` the cosine is 1 and the weight is 0; in the middle the cosine is -1 and the weight is 1.
+where `n` is the frame length. At `i = 0` the cosine is 1 and the weight is 0; in the middle the cosine is -1 and the weight is 1. The last weight, at `i = n - 1`, stops one step short of the cosine's return to 1, so it is small but not zero: 0.00006 for `n = 400`. That is on purpose, and the aside below says why.
 
 Its close relative is the **Hamming window** (after Richard Hamming), the same curve squashed so that the ends sit at 0.08 instead of 0: `0.54 - 0.46 * cos(2π * i / n)`. Not going all the way to zero looks like a mistake, but it cancels the largest remaining bit of leakage, at the price of the rest fading more slowly. Classic speech toolkits use Hamming; we use Hann; the difference is small in practice. For comparison there is also the **rectangular window**, all ones, a polite name for "no window at all".
 
@@ -315,7 +315,7 @@ use std::f32::consts::PI;
 /// The periodic Hann window: `0.5 - 0.5 cos(2 pi i / n)`.
 ///
 /// One full period of a raised cosine. It starts at exactly 0, peaks at 1 in
-/// the middle, and is our default for everything.
+/// the middle, ends one step short of 0, and is our default for everything.
 pub fn hann(n: usize) -> Vec<f32> {
     raised_cosine(n, n, 0.5)
 }
@@ -398,8 +398,8 @@ fn coherent_gains_are_the_textbook_ones() {
 
 Here is what the Hann window does to frame 45, the loudest frame of "seven":
 
-![Frame 45 of the word seven, 25 milliseconds of a vowel. The raw frame in gray is cut off mid-swing at both ends. The same frame multiplied by a Hann window, in green, shrinks smoothly to zero at both ends and matches the raw frame in the middle.](../figures/ch02-frame-windowed.svg)
-*The raw frame starts and ends mid-wave; the windowed frame starts and ends at zero.*
+![Frame 45 of the word seven, 25 milliseconds of a vowel. The raw frame in gray is cut off mid-swing at both ends. The same frame multiplied by a Hann window, in green, shrinks smoothly to almost nothing at both ends and matches the raw frame in the middle.](../figures/ch02-frame-windowed.svg)
+*The raw frame starts and ends mid-wave; the windowed frame fades to nothing at both ends (exactly zero at the first sample, 0.000003 at the last).*
 
 And now the overlap pays off. You might worry that we are throwing sound away: whatever happened in the first and last few milliseconds of a frame has been multiplied by almost zero. It has, in *that* frame. But frames start every 160 samples, so every sample of the recording (apart from a few milliseconds at the two ends of the clip) lies within 80 samples of the center of some frame, and 80 samples from the center the Hann weight is still 0.65. What one frame fades out, its neighbors see at nearly full strength.
 

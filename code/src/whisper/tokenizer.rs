@@ -31,6 +31,20 @@ fn bad(message: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, format!("tokenizer: {message}"))
 }
 
+/// No real vocabulary comes near this many tokens. The table of pieces is
+/// indexed by id, so an id from the file is about to become an allocation
+/// size, and we look at it first.
+const MAX_TOKENS: usize = 1 << 24;
+
+/// A token's id as written in a vocabulary file.
+fn token_id(text: &str, id: &Json) -> io::Result<usize> {
+    match id.as_usize() {
+        Some(id) if id < MAX_TOKENS => Ok(id),
+        Some(id) => Err(bad(format!("token {text:?} has the absurd id {id}"))),
+        None => Err(bad(format!("token {text:?} has no integer id"))),
+    }
+}
+
 /// Does this byte stand for itself in the vocabulary file?
 fn is_printable(byte: u8) -> bool {
     matches!(byte, b'!'..=b'~' | 0xA1..=0xAC | 0xAE..=0xFF)
@@ -79,13 +93,13 @@ impl Tokenizer {
 
         let entries = vocab.as_object().ok_or_else(|| bad("vocab.json is not an object".into()))?;
         for (text, id) in entries {
-            let id = id.as_usize().ok_or_else(|| bad(format!("token {text:?} has no integer id")))?;
+            let id = token_id(text, id)?;
             let bytes: Option<Vec<u8>> = text.chars().map(|ch| char_to_byte.get(&ch).copied()).collect();
             store(id, bytes.ok_or_else(|| bad(format!("token {text:?} contains a character outside the byte alphabet")))?);
         }
         // Control tokens are written literally, e.g. "<|notimestamps|>".
         for (text, id) in added_tokens.and_then(Json::as_object).unwrap_or(&[]) {
-            let id = id.as_usize().ok_or_else(|| bad(format!("token {text:?} has no integer id")))?;
+            let id = token_id(text, id)?;
             store(id, text.as_bytes().to_vec());
         }
         Ok(Tokenizer { pieces, first_special })
@@ -195,5 +209,17 @@ mod tests {
     fn rejects_characters_outside_the_byte_alphabet() {
         let vocab = Json::parse(r#"{"世": 0}"#).unwrap();
         assert!(Tokenizer::from_json(&vocab, None, 1).is_err());
+    }
+
+    #[test]
+    fn rejects_ids_that_are_not_small_whole_numbers() {
+        // The table is indexed by id: an id of a trillion must be an error,
+        // not an attempt to allocate a trillion entries.
+        for id in ["1000000000000", "16777216", "1e30", "-1", "1.5", "\"7\""] {
+            let vocab = Json::parse(&format!("{{\"a\": {id}}}")).unwrap();
+            assert!(Tokenizer::from_json(&vocab, None, 1).is_err(), "accepted id {id}");
+            let good = Json::parse(r#"{"a": 0}"#).unwrap();
+            assert!(Tokenizer::from_json(&good, Some(&vocab), 1).is_err(), "accepted added id {id}");
+        }
     }
 }

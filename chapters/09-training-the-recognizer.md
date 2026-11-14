@@ -12,7 +12,7 @@ What we do have is Speech Commands from chapter 7: about 105,000 one-second clip
 
 Let's be plain about the trade.
 
-- **What it buys.** A real sequence recognizer: variable-length audio in, a variable number of letters out, trained with CTC, by us, in about 40 minutes on a laptop CPU. An endless supply of training data too, since there are far more ways to combine 83,000 clips than we will ever use.
+- **What it buys.** A real sequence recognizer: variable-length audio in, a variable number of letters out, trained with CTC, by us, in about 40 minutes on a laptop CPU. An endless supply of training utterances too, since there are far more ways to combine 83,000 clips than we will ever use.
 - **What it costs.** The vocabulary is 35 words. The model spells with letters, but it has only ever heard those 35 words, and it will not spell yours. And the rhythm is wrong: in fluent speech words run into each other ("go left" has no silence in the middle, and the "o" is already bending toward the "l"). Glued clips never do that. Our model learns to recognize words spoken one... after... another, which is how people talk to a machine when they want to be understood. Fluent speech is a harder problem than the one we are solving.
 
 Here is the whole recipe in one picture, made from real clips by the code we are about to write:
@@ -261,7 +261,7 @@ impl Corpus {
 ```
 
 - **Speakers.** Each part gets its own word bank, built from chapter 7's official split, which assigns every *speaker* to exactly one of train, validation and test. A test utterance is made only of voices the model has never heard. `Corpus::speakers_are_disjoint` collects the speaker ids of the three banks into `HashSet`s and checks that no two sets overlap; the training program asserts it at startup.
-- **Noise.** There are only six background recordings and no official split for them, so we split each one by time: the first 80% for training, the next 10% for validation, the last 10% for test.
+- **Noise.** There are only six background recordings and no official split for them, so we split each one by time: the first 80% for training, the next 10% for validation, the last 10% for test. No test utterance contains a stretch of noise the model trained on. It is still the same six recordings, the same tap and the same bike, so this split says nothing about a kind of noise that is not among them.
 - **The sets themselves.** The validation and test sets are 2,000 utterances each, generated from fixed seeds (1001 and 2002) with the default recipe. Thanks to `utterance_at`, every program and every run measures on exactly the same audio.
 
 ### One Front End For Everyone
@@ -348,8 +348,8 @@ With the defaults (`conv` 96, `hidden` 128, `layers` 2), `model.summary()` print
 
 Compare this with chapter 7's classifier and one thing is missing: the mean pooling. That is the whole architectural change. The classifier squashed all frames into one row; this network keeps every row and gives 28 logits for each.
 
-- The **convolution** looks at 5 frames (50 ms) at a time and steps 2 frames forward per output. So the GRUs run at 50 frames per second instead of 100, for half the work, and one output frame covers 20 ms. A letter of slow, careful speech still gets several frames.
-- Each **BiGru** reads the utterance in both directions, so the decision about a frame can use what comes after it as well as what came before. That matters for spelling: whether a sound is the `t` of "two" or of "tree" depends on what follows.
+- The **convolution** looks at 5 feature frames at a time and steps 2 frames forward per output. Each frame is 25 ms of audio and frames start 10 ms apart, so those 5 frames cover 25 + 4 × 10 = 65 ms of waveform, and neighboring outputs are 20 ms apart. So the GRUs run at 50 frames per second instead of 100, for half the work. A letter of slow, careful speech still gets several frames.
+- Each **BiGru** reads the utterance in both directions, so the decision about a frame can use what comes after it as well as what came before. That matters for spelling: whether a sound is the `t` of "two" or of "tree" depends on what follows. After these layers an output frame can depend on the whole utterance; the 20 ms is how far apart the outputs are, not how much audio each one has heard.
 - The **linear layer** turns each frame's 256 numbers into 28 logits.
 
 Half a million weights, two megabytes on disk. For scale, the Whisper model we load in chapter 12 has 37.8 million.
@@ -387,7 +387,7 @@ for step in 0..=options.steps {
 }
 ```
 
-`parallel_map` is the helper from chapter 7's dataset loader: it runs the closure on every item of a slice, on several threads, and returns the results in order. Step `s` uses utterances `32 * s` to `32 * s + 31` of the stream, so the model never sees the same utterance twice. There are no epochs. There is no training *set* either, only a recipe and a counter, so the model cannot memorize its examples: each one is gone after a single step.
+`parallel_map` is the helper from chapter 7's dataset loader: it runs the closure on every item of a slice, on several threads, and returns the results in order. Step `s` uses utterances `32 * s` to `32 * s + 31` of the stream, so no utterance number is used twice and there are no epochs. That is not the same as endless data. Every utterance is a new combination of the same 83,018 recordings. The full run builds 1.28 million utterances of three words on average, so each recording is used about 46 times, each time with new neighbors, a new speed, a new level and new noise. That makes whole utterances much harder to memorize, but the network can still learn the quirks of these recordings and of these 2,096 voices. Which is why we measure on speakers it has never trained on.
 
 `CLIP` is 5.0, and `schedule` is chapter 7's `LrSchedule`: a warm-up over the first 500 steps to a peak learning rate of 0.002, then a cosine decay to a twentieth of that.
 
@@ -419,6 +419,8 @@ The trained model ships with the repository as `models/recognizer.bin`, so you c
 $ cargo run --release --example ch09_train               # the full run: 40,000 steps
 $ cargo run --release --example ch09_train -- --quick    # 4,000 steps
 ```
+
+Your run does not touch the shipped model. It writes to `models/my-recognizer.bin` (and its snapshots to `models/my-recognizer-posteriors.txt`), starting with a checkpoint of the untrained network at step 0, so a second run replaces the first one's file. Everything in this book that loads a recognizer loads the shipped `recognizer.bin` unless told otherwise, which keeps the numbers in the next two chapters reproducible. To use your own model, pass `--model ../models/my-recognizer.bin` to `speech` or to chapter 10's `ch10_decode`. `--out` and `--snapshots` choose other file names.
 
 Everything below is from the full run that produced the shipped model; the complete output is in `models/recognizer-training.log`. It starts by telling us what it has to work with:
 
@@ -453,7 +455,9 @@ step    100   loss 193.218   lr 0.00040   grad norm 237.00     484 utt/s
       frames: _________________________________________________________________________________________________
 ```
 
-A hundred steps in, it has learned exactly one thing: say blank, everywhere, always. This is the first rung of every CTC training run, and chapter 8 tells us why. Most positions of the extended target are blanks, and most frames of any valid alignment are blank too. Whatever the audio, "blank" is the safest bet, and betting on it brings the loss down from 370 to about 40 in two hundred steps without knowing anything about speech. The model says nothing, and is rewarded for it.
+A hundred steps in, the most probable class in every frame is the blank. Chapter 8's toy went through the same stage, and it is a common sight early in CTC training, though nothing guarantees it. Here is why it happens. The loss sums over every valid alignment, and the network does not yet know where any letter belongs. Blank is the one class that fits almost anywhere, in every utterance: each letter needs only a single frame, and any frame around it may be blank. A particular letter belongs in a few places that differ from one utterance to the next. So the cheapest way to raise the summed probability, whatever the audio, is to raise blank everywhere. That brings the loss down from 370 to about 40 in two hundred steps without knowing anything about speech.
+
+Two things this does not mean. Blank does not have to win: `aaaa` is a perfectly valid four-frame alignment of the target `a`, with no blank in it. And the loss is not rewarding silence. An alignment made of blanks alone spells nothing, so it adds zero to the probability of a target that has letters. The `frames` line shows only the *largest* probability in each frame. Underneath, every letter still holds a little probability in every frame, and those small amounts are what the sum over alignments is made of. The loss can keep falling while the per-frame winner stays blank, and greedy decoding, which only looks at winners, prints nothing.
 
 ```text
 --- step 300: validation CER 51.3%  WER 95.3%  (500 utterances, greedy, 0.4 min elapsed)
@@ -533,7 +537,7 @@ trained on 1280000 utterances in 42.4 minutes
 | single-word test clips, as recorded   |      11005 | 11.0% | 17.7% |       82.4% |
 ```
 
-On the test set, speakers and noise the model has never heard, about one character in twelve and one word in six is wrong, and 63.2% of the utterances come out exactly right. Not bad for 40 minutes, and not good either. Let's go through what these numbers do and do not say.
+On the test set, with speakers the model has never heard and stretches of the six noise recordings it never trained on, about one character in twelve and one word in six is wrong, and 63.2% of the utterances come out exactly right. Not bad for 40 minutes, and not good either. Let's go through what these numbers do and do not say.
 
 **The timing is machine-dependent.** 42.4 minutes is on my machine (an Apple M4 Max, 10 threads), and that machine was busy with other jobs throughout, so the throughput in the log wanders between 370 and 575 utterances per second. Yours will differ. The `--quick` run took 5.4 minutes under the same conditions and reached a WER of 19.8% on validation and 22.4% on test: most of the result for an eighth of the time.
 
@@ -541,7 +545,7 @@ On the test set, speakers and noise the model has never heard, about one charact
 
 **It is worse at single words than chapter 7's classifier.** The last row feeds it the plain one-second test clips. It spells 82.4% of them exactly right. The classifier got 93.5% on the same clips. That is the price of the harder job: the classifier picks one of 35 answers, while this model must get every letter right with nothing to stop it from writing "bir" or "lein". About one in eight of the words it spells are not words at all. Hold that thought; it is the next chapter's opening.
 
-**The gradient is clipped on every single step.** Look at the `grad norm` column of the log: after the first few hundred steps it sits between 17 and 21 for the entire run, and we clip at 5. So `clip_global_norm` is not an emergency brake that fires now and then, it shortens every step to about a quarter. In effect Adam is being fed only the direction of the gradient. Training works fine this way, but be aware that the learning rate and the clip threshold are tangled together here: change one and you have changed the other.
+**The gradient is clipped on every single step.** Look at the `grad norm` column of the log: after the first few hundred steps it sits between 17 and 21 for the entire run, and we clip at 5. So `clip_global_norm` is not an emergency brake that fires now and then: every gradient Adam receives has been cut to about a quarter of its length, to a norm of exactly 5. That does not make the steps a quarter as long. With plain SGD it would, because there the step is the learning rate times the gradient. Adam divides a running mean of the gradients by the root of a running mean of their squares, and a factor applied to every gradient cancels in that ratio (up to the tiny `eps`). In effect Adam is being fed only the direction of each gradient, and the learning rate alone sets the size of the step. What the clipping still does is limit how far one extreme batch can drag Adam's two running averages. Training works fine this way, but be aware that the threshold is not a second learning rate: as long as every step is clipped, moving it should change very little.
 
 **The loss is heavy-tailed.** The average loss at the end is about 3.3 per utterance, but an average hides the shape. The training program does not print the shape, so this is a measurement we made on the side during development: on the validation set partway through training (around step 24,000), the mean was 4.16 while the median was 0.81; one utterance in ten had a loss above 12 and one in a hundred above 36. The worst 10% of utterances carried 55% of the total loss. The worst cases look like bad clips: a "backward" that the model hears as "teo", or as nothing. So the model is quite sure about most utterances and hopelessly wrong about a few, and a good part of every gradient step is spent on recordings that may not be learnable.
 
@@ -556,7 +560,7 @@ On the test set, speakers and noise the model has never heard, about one charact
 | trim margin 120 ms instead of 20 ms | 497k | 19.8% | 22.0% |
 | drop the 10% highest-loss utterances of each batch | 497k | 19.8% | 22.3% |
 
-The second row is the one chapter 7 has been waiting for. There the GRU bought nothing: on single words a stack of convolutions did just as well, and we kept the recurrent layer on a promise. Here is the payment. Take one of the two BiGrus away and the error nearly doubles, from 19.8% to 37.9%. Spelling several words in a row needs context that reaches further than a convolution's window, and the recurrent layers are what carry it. (We did not train a recognizer with no GRU at all, so that is as far as the evidence goes.) A narrower network is almost as good and trains in half the time. The last two rows were attempts to deal with the bad clips, and neither made a difference, so neither is in the code. More training helps only a little: continuing the finished model for another 12,000 steps at a lower learning rate brought test WER from 16.4% to 15.5%. Whatever is holding this model back, it is not twelve more minutes.
+The second row is the one chapter 7 has been waiting for. There the GRU bought nothing: on single words a stack of convolutions did just as well, and we kept the recurrent layer on a promise. Here the recurrent layers visibly matter: take one of the two BiGrus away and the error nearly doubles, from 19.8% to 37.9%. The table cannot tell us why. The second BiGru adds depth and more than doubles the weights, and the one that remains already reads the whole utterance in both directions, so this is not a test of how far the context reaches. The third row hints that depth counts for more than size, since two narrower BiGrus with 279k weights get most of the way. (Each row is a single run, and we did not train a recognizer with no GRU at all, so that is as far as the evidence goes.) That narrower network trains in half the time. The last two rows were attempts to deal with the bad clips, and neither made a difference, so neither is in the code. More training helps only a little: continuing the finished model for another 12,000 steps at a lower learning rate brought test WER from 16.4% to 15.5%. Whatever is holding this model back, it is not twelve more minutes.
 
 Here is one test utterance going through the finished model:
 
@@ -582,7 +586,7 @@ All four right, several hundred times faster than real time on my machine. In fa
 
 ### Try It Yourself
 
-1. **Watch the three stages.** Run `cargo run --release --example ch09_train -- --quick --out /tmp/r.bin --snapshots /tmp/p.txt` (so the shipped model is not overwritten). You should see all-blank output at step 100, stray letters by step 300 and mostly words by step 2,000.
+1. **Watch the three stages.** Run `cargo run --release --example ch09_train -- --quick`. You should see all-blank output at step 100, stray letters by step 300 and mostly words by step 2,000.
 2. **Remove a layer.** Add `--layers 1` to the quick run. The error should come out much worse (we measured about 38% WER against 20%), and the samples will show which words suffer.
 3. **Train without noise.** In `ch09_train.rs`, change the recipe to `SynthConfig { max_words: options.max_words, noise_prob: 0.0, ..SynthConfig::default() }` and do a quick run. The validation set still has noise in 80% of its utterances; compare the training loss and the validation error with the normal quick run and see which one moved.
 4. **Longer utterances.** Run the quick training with `--max-words 2`. The model never sees more than two words in a row; look at how it does on the four-word sample line compared to the two-word one.
@@ -594,7 +598,7 @@ All four right, several hundred times faster than real time on my machine. In fa
 - **Glued words are not fluent speech.** There is no coarticulation between our words, and no sentence melody. Chapter 11 puts a microphone on this model and we will see what that costs.
 - **The trimming is loose.** `find_speech` keeps quiet tails, so many "trimmed" words still end in a stretch of near-silence. Tightening the trim did not change the error rate in our experiment, so we left it alone.
 - **Bad clips stay in.** Some recordings in Speech Commands are mislabeled, cut off or drowned in noise, and they carry a large share of the loss. We found no cheap fix.
-- **Clipping does more than it should.** With the gradient norm always above the threshold, we are effectively training on normalized gradients. A higher threshold with a lower learning rate might do as well or better; we did not explore it.
+- **Clipping does more than it should.** With the gradient norm always above the threshold, we are effectively training on normalized gradients: Adam never learns whether a batch's gradient was large or small. A threshold above 21, which would catch only the outliers, might do as well or better; we did not explore it.
 - **Reproducibility has a footnote.** The run is repeatable bit for bit, but only for a given `--threads`, because `batch_gradients` adds the threads' gradients in thread order. Reproducing the shipped model exactly needs `--threads 10`.
 - **Normalization needs the whole utterance.** `FrontEnd::features` cannot produce a frame until it has seen the last one. Fine for files; for a live microphone it means waiting for the speaker to finish.
 

@@ -273,9 +273,13 @@ impl Whisper {
     /// in the middle of a word, and each window starts without knowing what
     /// was said before. A word straddling a cut may come out wrong, twice,
     /// or not at all. The reference implementation avoids this by asking the
-    /// model for timestamps and starting the next window where the last
-    /// complete sentence ended, and by feeding the previous text in as a
-    /// prompt. We do neither.
+    /// model for timestamps and starting the next window at the last
+    /// timestamp it wrote, the end of the last completed segment (which
+    /// need not be the end of a sentence), and by feeding the previous text
+    /// in as a prompt. We do neither. It also computes one spectrogram for
+    /// the whole recording and cuts windows out of that, where we compute
+    /// and normalize each window's spectrogram separately; see the notes at
+    /// the top of [`super::mel`].
     pub fn transcribe(&self, samples: &[f32], options: &DecodeOptions) -> Transcript {
         let mut windows = Vec::new();
         let mut timings = Timings::default();

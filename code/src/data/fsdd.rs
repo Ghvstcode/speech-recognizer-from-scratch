@@ -257,8 +257,9 @@ pub struct MfccRecipe {
     pub n_mels: usize,
     /// Number of cepstral coefficients computed, counting coefficient 0.
     pub n_coeffs: usize,
-    /// Keep coefficient 0, the overall loudness of the frame? Loudness says
-    /// more about the distance to the microphone than about the word.
+    /// Keep coefficient 0, the overall level of the frame's log-mel row? It
+    /// follows the recording level, which says more about the distance to
+    /// the microphone than about the word.
     pub keep_c0: bool,
     /// Append the delta of every coefficient (how fast it is changing),
     /// doubling the number of columns.

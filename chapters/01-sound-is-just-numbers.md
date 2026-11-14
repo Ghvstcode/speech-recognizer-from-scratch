@@ -302,6 +302,9 @@ const WAVE_FORMAT_PCM: u16 = 1;
 const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
 /// Format tag that means "the real tag is further down, in the extension".
 const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
+/// The last 14 bytes of an extensible "sub-format" id that stands for an
+/// ordinary format tag. The tag itself is the two bytes in front of them.
+const SUBFORMAT_TAIL: [u8; 14] = [0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71];
 
 /// How the samples were stored in the file, before we converted them.
 /// `Wav` itself is always mono `f32`; this is only for the curious
@@ -365,15 +368,21 @@ impl Wav {
         let mut format: Option<WavFormat> = None;
         let mut pos = 12;
         // Walk the chunk list. Each iteration looks at one 8-byte chunk header.
-        while pos + 8 <= bytes.len() {
+        // `pos` never passes the end of `bytes`, so the subtraction is safe,
+        // and no sum below can exceed `bytes.len() + 1`.
+        while bytes.len() - pos >= 8 {
             let id = &bytes[pos..pos + 4];
-            let declared_size = read_u32(bytes, pos + 4) as usize;
+            let declared_size = read_u32(bytes, pos + 4);
             let body_start = pos + 8;
             // A chunk can claim more bytes than the file has (a recording that
             // was cut short, or a streamed file with a placeholder size).
-            // Take what is really there.
-            let body_end = body_start.saturating_add(declared_size).min(bytes.len());
-            let body = &bytes[body_start..body_end];
+            // Take what is really there. The size from the file is only ever
+            // compared, never added to anything, so a hostile value has
+            // nothing to overflow. (The comparison is done in `u64`, which
+            // holds both numbers whatever the width of `usize`.)
+            let available = bytes.len() - body_start;
+            let body_len = (declared_size as u64).min(available as u64) as usize;
+            let body = &bytes[body_start..body_start + body_len];
 
             match id {
                 b"fmt " => format = Some(parse_format(body)?),
@@ -387,9 +396,10 @@ impl Wav {
 
             // Chunks are aligned to even offsets: an odd-sized chunk is
             // followed by one padding byte that its size does not count.
-            // A corrupt size near `usize::MAX` must not overflow the sum: the
-            // saturating adds park `pos` past the end, which ends the loop.
-            pos = body_start.saturating_add(declared_size).saturating_add(declared_size & 1);
+            // The padding byte may be missing at the very end of a file,
+            // hence the `min`.
+            let padding = (declared_size & 1) as usize;
+            pos = (body_start + body_len + padding).min(bytes.len());
         }
 
         Err(bad(if format.is_some() {
@@ -401,7 +411,7 @@ impl Wav {
 }
 ```
 
-Most of our list of problems is solved right here. Unknown chunks fall into the `_ => {}` arm and are stepped over. Lying sizes are handled by two decisions: we never read the size at offset 4 at all, and we clamp every payload to the bytes that really exist (`.min(bytes.len())`). Both sums that involve a size from the file use `saturating_add`, which stops at the largest `usize` where a plain `+` would overflow. A size of four gigabytes is one such overflow waiting to happen on a 32-bit machine; with the saturating version `pos` lands past the end of the file and the loop ends. The padding rule is the `declared_size & 1`, which is 1 for odd sizes and 0 for even ones. You can see padding in ffmpeg's dump above, one level down: the text `Lavf63.1.102` plus its terminating zero is 13 bytes (`0d 00 00 00`), so one more zero byte follows before `data` begins.
+Most of our list of problems is solved right here. Unknown chunks fall into the `_ => {}` arm and are stepped over. Lying sizes are handled by two decisions: we never read the size at offset 4 at all, and we clamp every payload to the bytes that really exist (the `.min(available as u64)`). The clamp is written with some care. The obvious `body_start + declared_size` is an overflow waiting to happen: on a 32-bit machine (and WebAssembly in a browser is one) `usize` tops out just under four gigabytes, which is exactly the size ffmpeg's placeholder claims. So the size from the file is never added to a position. We work out how many bytes are left (`available`), take the smaller of that and the declared size, and from then on every number in the loop is a length we have checked against the real file. `pos` can never pass the end of `bytes`, which is why the loop condition is the subtraction `bytes.len() - pos >= 8` and not `pos + 8 <= bytes.len()`. The padding rule is the `declared_size & 1`, which is 1 for odd sizes and 0 for even ones. You can see padding in ffmpeg's dump above, one level down: the text `Lavf63.1.102` plus its terminating zero is 13 bytes (`0d 00 00 00`), so one more zero byte follows before `data` begins.
 
 The `fmt ` payload is the 16 bytes we annotated by hand earlier, so parsing it is a matter of reading four fields at the offsets from our table (minus 20, because offsets now count from the start of the payload). Most of this function is saying no politely.
 
@@ -420,11 +430,18 @@ fn parse_format(body: &[u8]) -> io::Result<WavFormat> {
     let bits_per_sample = read_u16(body, 14);
 
     // WAVE_FORMAT_EXTENSIBLE is used for more than two channels or more than
-    // 16 bits. The fields above keep their meaning; the real format tag moves
-    // into the first two bytes of a 16-byte "sub-format" id at offset 24.
+    // 16 bits. The fields above keep their meaning, and 24 more bytes follow:
+    // the size of the extension (at least 22), the number of bits that carry
+    // signal, a speaker layout, and a 16-byte "sub-format" id that says how
+    // the samples are really encoded. For the encodings that have an ordinary
+    // format tag, that id is the tag followed by 14 fixed bytes. Any other
+    // id is some vendor's own format, and we cannot read it.
     if tag == WAVE_FORMAT_EXTENSIBLE {
-        if body.len() < 26 {
+        if body.len() < 40 || read_u16(body, 16) < 22 {
             return Err(bad("WAVE_FORMAT_EXTENSIBLE header is cut short"));
+        }
+        if body[26..40] != SUBFORMAT_TAIL {
+            return Err(bad("unsupported WAVE_FORMAT_EXTENSIBLE sub-format (we read PCM and float)"));
         }
         tag = read_u16(body, 24);
     }
@@ -450,6 +467,8 @@ fn parse_format(body: &[u8]) -> io::Result<WavFormat> {
     Ok(WavFormat { encoding, channels, sample_rate, bits_per_sample })
 }
 ```
+
+The `WAVE_FORMAT_EXTENSIBLE` branch draws a line between two kinds of extra information. The speaker layout and the count of valid bits describe the same samples in more detail, and we skip them. The sub-format id decides what the bytes *are*, so we check all 16 bytes of it: an id we do not know is a format we cannot decode, even if its first two bytes happen to say 1.
 
 The zero checks matter: in a moment we divide by the channel count, and later chapters divide by the sample rate. A corrupt header should produce an error message here, not a `NaN` three modules away. The final `match` is also a promise to the next function: once a `WavFormat` exists, its bit depth is one we can decode.
 
@@ -659,7 +678,7 @@ And the file that lies: we overwrite the `data` size with `0xFFFFFFFF`, as ffmpe
     }
 ```
 
-The repository has more in the same style: 8-bit (unsigned, silence at 128), 24 and 32-bit sign handling, float samples (ordinary ones, and a file full of `NaN`, infinities and out-of-range values that must come back as 0 and ±1), a chunk that claims `0xFFFFFFFF` bytes and must produce an error and no overflow, a hand-written `WAVE_FORMAT_EXTENSIBLE` header, and a test that every error message names the actual problem (an MP3 renamed to `.wav` should hear about `RIFF`, not about an index out of bounds).
+The repository has more in the same style: 8-bit (unsigned, silence at 128), 24 and 32-bit sign handling, float samples (ordinary ones, and a file full of `NaN`, infinities and out-of-range values that must come back as 0 and ±1), a chunk that claims `0xFFFFFFFF` bytes and must produce an error and no overflow, a file whose size fields are overwritten with hostile values and that is then cut off at every possible length (the reader may refuse it, but it may never panic), hand-written `WAVE_FORMAT_EXTENSIBLE` headers (good ones, truncated ones and one with a vendor's sub-format id), and a test that every error message names the actual problem (an MP3 renamed to `.wav` should hear about `RIFF`, not about an index out of bounds).
 
 ```
 $ cargo test wav::
@@ -790,7 +809,8 @@ impl Wav {
     ///
     /// Samples outside `[-1, 1]` are clipped. Each sample is rounded to one of
     /// 65,536 levels, so reading the file back gives values within half a
-    /// level (1/65536) of what was written.
+    /// level (1/65536) of what was written. The exception is the very top:
+    /// the highest level is 32767/32768, so +1.0 comes back a whole level low.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data_size = (self.samples.len() * 2) as u32;
         let mut out = Vec::with_capacity(44 + self.samples.len() * 2);
@@ -828,7 +848,7 @@ impl Wav {
 
 The one interesting line is the conversion back to an integer, and it is where the lopsided range from earlier returns. Multiplying +1.0 by 32,768 gives 32,768, which does not fit in an `i16`. The `clamp` pulls it back to 32,767, and the same clamp deals with any sample a careless caller left outside `[-1, 1]`. Limiting samples this way is called *clipping*. It sounds harsh, but an integer that wraps around (a loud positive peak becoming a loud negative one) sounds far worse.
 
-This is also quantization happening in front of us, in software. `round()` moves each sample to the nearest of 65,536 levels, so it moves it by at most half a level. A round trip through a file should therefore return every sample to within 0.5/32768 of where it started. That is a claim we can test:
+This is also quantization happening in front of us, in software. `round()` moves each sample to the nearest of 65,536 levels, so it moves it by at most half a level. A round trip through a file should therefore return a sample to within 0.5/32768 of where it started, as long as the level it rounds to exists. The one that does not is +32,768: samples from 32767.5/32768 up to +1.0 are clamped to 32,767, and +1.0 itself comes back a whole level low. (Samples outside `[-1, 1]` come back clipped, as far off as they were out of range.) That is a claim we can test, with a sine wave that stays inside ±0.9:
 
 ```rust
     #[test]
@@ -881,7 +901,7 @@ wrote beep.wav: 1.0 s of 440 Hz at 16000 Hz, 16000 samples
 read it back: 16000 samples, largest difference 0.000015 (one 16-bit step is 0.000031)
 ```
 
-The largest difference is half a step, which is the best that rounding can do. And the file itself:
+The largest difference is half a step, which is the best that rounding can do. (The beep peaks at 0.5, nowhere near the clamp.) And the file itself:
 
 ```
 $ xxd -l 64 beep.wav

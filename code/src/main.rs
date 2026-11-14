@@ -131,7 +131,7 @@ fn load_engine(arguments: &Arguments) -> Result<Engine, String> {
         };
     }
     let path = arguments.model.clone().map_or_else(Recognizer::default_path, Into::into);
-    let recognizer = Recognizer::load(&path).map_err(|e| format!("{e}\n(train one with `cargo run --release --example ch09_train`, or pass --model)"))?;
+    let recognizer = Recognizer::load(&path).map_err(|e| format!("{e}\n(pass --model PATH; `cargo run --release --example ch09_train` trains one and saves it as ../models/my-recognizer.bin)"))?;
     Ok(Engine::Ours(Box::new(recognizer), decoder))
 }
 

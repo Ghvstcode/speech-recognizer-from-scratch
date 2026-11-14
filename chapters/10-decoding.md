@@ -528,21 +528,21 @@ Now the real model. `ch10_decode` loads chapter 9's recognizer, runs the network
 ```text
 $ cargo run --release --example ch10_decode
 model: ../models/recognizer.bin (496508 weights)
-2000 validation and 2000 test utterances (95 min of test audio) scored in 5.2 s
+2000 validation and 2000 test utterances (95 min of test audio) scored in 3.2 s
 
-features + network: 5.3 ms per utterance on one thread (mean length 2.87 s, so 537x faster than real time)
+features + network: 4.9 ms per utterance on one thread (mean length 2.87 s, so 587x faster than real time)
 ...
 | decoder (test set, 2000 utterances) |    CER |    WER | exact match | decode time |
 |------------------------------------|-------:|-------:|------------:|------------:|
-| greedy                             |  8.24% | 16.37% |       63.2% |     0.01 ms |
-| beam search, width 4               |  7.96% | 15.56% |       64.9% |     3.12 ms |
-| beam search, width 16              |  7.98% | 15.57% |       64.9% |    14.28 ms |
-| beam search, width 64              |  7.98% | 15.56% |       64.9% |    63.28 ms |
+| greedy                             |  8.24% | 16.37% |       63.2% |     0.00 ms |
+| beam search, width 4               |  7.96% | 15.56% |       64.9% |     2.05 ms |
+| beam search, width 16              |  7.98% | 15.57% |       64.9% |     9.06 ms |
+| beam search, width 64              |  7.98% | 15.56% |       64.9% |    41.33 ms |
 ```
 
-(Timings are from my machine; yours will differ.)
+The error rates are computed over all 2,000 utterances. The two kinds of timing are taken the same way so that they can be compared: the first 200 test utterances, one after the other on a single thread, once through the features and the network and once through each decoder. (They are from my machine; yours will differ. Greedy's 0.00 means less than 0.005 ms.)
 
-After all that care: 16.4% becomes 15.6%. Beam search repairs 44 utterances that greedy got wrong and breaks 9 that greedy got right. Widening the beam from 4 to 64 changes nothing except the bill, and at width 16 the decoder already costs more than twice what the network does.
+After all that care: 16.4% becomes 15.6%. Beam search repairs 44 utterances that greedy got wrong and breaks 9 that greedy got right. Widening the beam from 4 to 64 changes nothing except the bill, and at width 16 the decoder already costs nearly twice what the network does, 9.06 ms against 4.9 ms.
 
 That is disappointing, and here is my reading of why (we measured the effect, not the cause). Beam search finds a better answer to the question "which labeling does *the network* think is most probable?". On our toy table the network was torn, and the question had a surprising answer. A trained CTC network is rarely torn in that way: it puts sharp spikes of high probability on single frames with confident blanks in between, and when one alignment holds most of the probability, the best alignment and the best labeling are the same thing. Where they differ, the improved answer is still the network's opinion. If the network believes it heard "bir", the most careful search in the world returns "bir".
 
@@ -671,9 +671,11 @@ Decoder::Lexicon { width, word_bonus } => {
 And on the real model? The word bonus has to be chosen somehow, and choosing it on the test set would be cheating, so `ch10_decode` tunes it on the validation set first. From −4 to +4 the validation WER only moves between 8.02% and 8.15%; it picks −2.0 and the knob barely matters. (Validation and test are different utterances from different speakers, so do not compare 8.02% with the numbers below.) The rest of the table:
 
 ```text
-| lexicon beam, width 4              |  7.95% | 10.54% |       75.0% |     0.45 ms |
-| lexicon beam, width 16             |  7.09% |  9.74% |       75.3% |     1.77 ms |
-| lexicon beam, width 64             |  7.06% |  9.69% |       75.4% |     7.24 ms |
+| lexicon beam, width 4              |  7.95% | 10.54% |       75.0% |     0.35 ms |
+| lexicon beam, width 16             |  7.09% |  9.74% |       75.3% |     1.28 ms |
+| lexicon beam, width 64             |  7.06% |  9.69% |       75.4% |     5.35 ms |
+
+(decode time: mean over the first 200 test utterances, one after the other on one thread, like the network's time above)
 
 (the lexicon decoder returned nothing for 2 of 2000 utterances: no sequence of whole words survived in its beam)
 ```
@@ -682,7 +684,7 @@ And on the real model? The word bonus has to be chosen somehow, and choosing it 
 
 *Careful search bought 0.8 points. Knowing the vocabulary bought 6.6.*
 
-From 16.4% to 9.7%: four word errors in ten are gone, with the same network and the same weights. The lexicon repairs 245 utterances that greedy got wrong and breaks one. It is also about eight times *faster* than the plain beam at the same width, because most of the 27 possible extensions of each prefix are refused before they cost anything. Here is what the repairs look like:
+From 16.4% to 9.7%: four word errors in ten are gone, with the same network and the same weights. The lexicon repairs 245 utterances that greedy got wrong and breaks one. It is also several times *faster* than the plain beam at the same width (1.28 ms against 9.06 ms at width 16), because most of the 27 possible extensions of each prefix are refused before they cost anything. Here is what the repairs look like:
 
 ```text
 greedy:
@@ -708,7 +710,7 @@ It would be easy to stop at that bar chart. Three caveats first.
 
 A five-word command is fully right 61.7% of the time. Noise matters too: the lexicon WER is 8.0% on utterances with no background recording mixed in and 13.9% at signal-to-noise ratios of 5 to 10 dB.
 
-**The lexicon turns visible errors into invisible ones.** When the network's spelling is far from the truth, the constraint cannot recover the right word. It finds the *nearest allowed* word:
+**The lexicon turns visible errors into invisible ones.** When the network's spelling is far from the truth, the constraint cannot recover the right word. What comes out is the *best-scoring allowed* one:
 
 ```text
 greedy:
@@ -721,9 +723,9 @@ HYP: three sheila left marvin three
                   S
 ```
 
-"lern" at least looks like a mistake. "left" looks like an answer. The list of most frequent errors shows the same shift: under greedy the top ones include `two -> to`, `bed -> be` and `four -> for`, which the lexicon cures. But `forward -> four` goes from 9 to 18 and `learn -> left` from 7 to 12, as misspellings get rounded to the wrong word. And `three -> tree` stays at 23 either way: those two words differ by one soft sound, both are in the vocabulary, and no word list can tell them apart.
+"lern" at least looks like a mistake. "left" looks like an answer. Notice that the decoder did not take greedy's "lern" and look up the most similar word in the list, the way a spelling checker would. It never sees greedy's string. It scores the allowed spellings against the frame probabilities themselves, and "left" is the one that came out on top in the beam. The list of most frequent errors shows the same shift: under greedy the top ones include `two -> to`, `bed -> be` and `four -> for`, which the lexicon cures. But `forward -> four` goes from 9 to 18 and `learn -> left` from 7 to 12, as frames that used to come out as a misspelling now come out as a wrong word. And `three -> tree` stays at 23 either way: those two words differ by one soft sound, both are in the vocabulary, and no word list can tell them apart.
 
-**Speech outside the vocabulary is forced into it.** There is no "I did not understand" in this decoder. Try the three decoders on a clip from chapter 5's digit dataset. It was recorded at 8 kHz, so even after upsampling it has nothing above 4 kHz, unlike anything our model was trained on:
+**Whatever goes in, vocabulary words come out.** There is no "I did not understand" in this decoder. Try the three decoders on a clip from chapter 5's digit dataset. The word is "seven", which the model knows, but the recording is unlike its training data in several ways at once: another dataset, another speaker and microphone, and a sample rate of 8 kHz, so even after upsampling it has nothing above 4 kHz:
 
 ```text
 $ cargo run --release --example ch10_decode -- files ../samples/seven_jackson.wav
@@ -733,7 +735,7 @@ $ cargo run --release --example ch10_decode -- files ../samples/seven_jackson.wa
   lexicon  marvin
 ```
 
-Greedy's "mn" is plainly garbage. The lexicon's "marvin" is confident, well-formed and wrong. I also fed the recognizer some synthetic speech from the macOS `say` command (that audio is not in the repository, so take this as an anecdote and not a benchmark). In-vocabulary phrases mostly worked, better with pauses between the words (15 of 16 exactly right) than spoken fluently (9 of 16), as you would expect from a model trained on clips glued together. But "hello world" came out as "follow wow" and "open the door please" as "up one tree". A real system needs a way to reject, a confidence threshold at the least, and ours has none.
+Greedy's "mn" is plainly garbage. The lexicon's "marvin" is confident, well-formed and wrong. I also fed the recognizer some synthetic speech from the macOS `say` command, in two of its voices, Samantha and Daniel (that audio is not in the repository, and the voices change between macOS versions, so take this as an anecdote and not a benchmark). In-vocabulary phrases mostly worked, better with pauses between the words (15 of 16 exactly right) than spoken fluently (9 of 16), as you would expect from a model trained on clips glued together. But Daniel's "hello, world" came out as "follow wow" and Samantha's "open the door please" as "up one tree". (Chapter 11 shows Samantha's "hello world", which comes out differently again.) A real system needs a way to reject, a confidence threshold at the least, and ours has none.
 
 So the honest summary: our lexicon is a blunt, effective language model for a closed world of 35 words. It does not make the recognizer hear better. It stops it from saying things that cannot be right, and it has no power over things that can be right but are not.
 
@@ -749,7 +751,7 @@ So the honest summary: our lexicon is a blunt, effective language model for a cl
 
 - **No real language model.** Every sequence of our 35 words is as likely as any other. A real decoder would score "turn left" above "turn loft" using word statistics; `unigram_weight` is the hook for the simplest version, and we never use it on the real model. Chapter 14 points at what a proper one looks like.
 - **No rejection.** As shown above, out-of-vocabulary speech becomes vocabulary words. We return no confidence at all.
-- **The beam is wasteful.** `advance` clones a `Vec` of labels for every candidate and keys a `BTreeMap` on it. Production decoders store prefixes in a tree and skip classes whose probability is negligible. At 1.8 ms per utterance for the lexicon decoder, against 5.3 ms for the network, we left it readable.
+- **The beam is wasteful.** `advance` clones a `Vec` of labels for every candidate and keys a `BTreeMap` on it. Production decoders store prefixes in a tree and skip classes whose probability is negligible. At 1.3 ms per utterance for the lexicon decoder, against 4.9 ms for the network, we left it readable.
 
 What's next on our agenda? Let's take stock. We have three decoders: greedy, which is free and returns what the network literally spells; prefix beam search, which answers the right question and on our model improves little; and the lexicon-constrained search, which takes the word error rate from 16.4% to 9.7% by refusing to spell non-words. We also have the tools to measure all of this: edit distance, WER, CER, and aligned printouts that show where the errors are.
 

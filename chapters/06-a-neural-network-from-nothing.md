@@ -107,7 +107,7 @@ We also need random numbers, for starting weights and for shuffling, and `rand` 
     }
 ```
 
-On top of it sit `uniform()`, `normal()` (Box-Muller) and `shuffle()` (Fisher-Yates). It is not for cryptography. What we want is *reproducibility*: `Rng::new(1)` gives the same sequence on every machine, so when this chapter says "seed 1 reaches 99.7%", your run will too.
+On top of it sit `uniform()`, `normal()` (Box-Muller) and `shuffle()` (Fisher-Yates). It is not for cryptography. What we want is *repeatability*: `Rng::new(1)` gives the same sequence of 64-bit integers on every machine, so a run with the same seed shuffles the clips the same way and starts from weights drawn the same way. On one machine, with one compiler, that makes a training run repeat exactly. Between machines the last digits can differ, because `normal()` and the network itself call `ln`, `cos`, `exp` and `tanh`, and Rust does not promise that those round the same way on every platform. So when this chapter says "seed 1 reaches 99.7%", expect your run to land on that number or very close to it.
 
 ### Every Output Is A Weighted Sum Of The Inputs
 
@@ -141,7 +141,7 @@ pub struct Linear {
 
 (`kernels::matmul` gives the same result as `Mat::matmul`, taking four rows of `W` per pass; `src/nn/kernels.rs` holds a handful of such inner loops, and chapter 7 is where speed starts to matter. `add_row_to_each` adds the bias to every row.)
 
-The starting weights are small random numbers from our `Rng`. They cannot all be zero, or every output would compute the same thing and receive the same nudge forever. How small matters too; `src/nn/init.rs` has the two standard recipes, Xavier and He, which scale the randomness so a signal keeps roughly its size as it passes through a layer.
+The starting weights are small random numbers from our `Rng`. They cannot all be zero. Once we stack layers, units in a hidden layer that start out with identical weights compute the same thing, receive the same nudge and stay copies of each other forever. All zeros is worse still: every hidden output is zero and so is every weight above it, so the gradient of every weight is zero and only the last layer's bias ever moves. How small matters too; `src/nn/init.rs` has the two standard recipes, Xavier and He, which scale the randomness so a signal keeps roughly its size as it passes through a layer.
 
 ### Why Stacking Needs A Bend
 
@@ -436,7 +436,7 @@ Bug 2 scores 0.92 and not 1 only because its bias gradient was left correct. Now
 
 The checker has limits, and we ran into both.
 
-**Our floats are small.** Textbooks suggest `eps = 1e-5`, assuming 64-bit floats. An `f32` carries about 7 significant digits. With a loss near 1, the two losses we subtract are each known to about `1e-7`; divide that by `2e-5` and the "gradient" has noise of 0.005 in it. A larger `eps` shrinks the noise but lets in the other error, the curvature of the loss between the two probes. For `f32` the sweet spot is near `eps = 1e-2`, where a correct backward pass scores between `1e-5` and `1e-3` (the 2.31e-4 above) and a real bug scores 0.1 or more. The default tolerance of `1e-2` sits between the two.
+**Our floats are small.** Textbooks suggest `eps = 1e-5`, assuming 64-bit floats. An `f32` carries about 7 significant digits. With a loss near 1, the two losses we subtract are each known to about `1e-7`; divide that by `2e-5` and the "gradient" has noise of 0.005 in it. A larger `eps` shrinks the noise but lets in the other error, the curvature of the loss between the two probes. For `f32` the sweet spot is near `eps = 1e-2`, where a correct backward pass scores between `1e-5` and `1e-3` (the 2.31e-4 above) and our two planted bugs scored 0.92 and 0.20. The default tolerance of `1e-2` sits between the two. It is a threshold we picked, and a mistake can hide under it: a gradient that is 2% too large everywhere scores 0.02 / 2.02 = 0.0099 and passes.
 
 **ReLU has a kink.** The estimate assumes the loss is smooth between `w - eps` and `w + eps`. ReLU is not smooth at zero. Picture a weight of 0.004 feeding a ReLU through an input of 1:
 
@@ -472,7 +472,7 @@ Backprop is right and the checker is wrong. The fourth case of `ch06_gradcheck` 
 
 Look at the `b` row under `eps = 0.01`: the checker measured 0.205 where the truth is 0.296, about 0.7 of it, as in the figure. A relative error of 0.23 is as bad as bug 3, from code that is correct. Shrink the nudge to 0.001, so that both probes stay on the sloped side, and the two columns agree to six digits. (`cargo run --release --example ch06_gradcheck -- kink` prints this case alone.)
 
-Here every weight feeds the one unit that sits next to its kink, so the damage is as large as it gets. In a real network a few units out of hundreds are that close to zero, and the false alarm is milder: typically a few percent, in one or two tensors, while the rest pass. Either way it has a signature that a bug does not. It shrinks or disappears with a smaller `eps`, it moves when the seed changes (the units sit somewhere else), and it vanishes when every ReLU is swapped for tanh. A bug stays at 0.1 or more whatever you do. That is why our XOR demo below uses tanh, and why `ch06_digits` checks its ReLU network with `eps = 1e-3` and, if that still complains, repeats the check on a tanh copy before it refuses to train. The linear layers and the loss, where real bugs hide, are the same code in both.
+Here every weight feeds the one unit that sits next to its kink, so the damage is as large as it gets. In a real network a few units out of hundreds are that close to zero, and the false alarm is milder: typically a few percent, in one or two tensors, while the rest pass. Either way it behaves differently from the bugs we planted. It shrinks or disappears with a smaller `eps`, it moves when the seed changes (the units sit somewhere else), and it vanishes when every ReLU is swapped for tanh. A wrong sign or a missing factor does none of that: it shows up at every `eps` and every seed. So when the checker complains, repeat it with a few values of `eps` and a few seeds before deciding which of the two you are looking at. That is why our XOR demo below uses tanh, and why `ch06_digits` checks its ReLU network with `eps = 1e-3` and, if that still complains, repeats the check on a tanh copy before it refuses to train. The linear layers and the loss are the same code in both, so the tanh copy still tests them. It says nothing about ReLU's own backward pass, which the swap removed; that one line has a hand-computed test in `src/nn/activation.rs`.
 
 ### Gradient Descent
 
@@ -704,7 +704,7 @@ That is a lot of table. Let's read it slowly.
 
 **Unseen speakers.** Leave one speaker out entirely, train on the other five, test on the stranger: 81.0% averaged over the six speakers (80.7 to 81.5 across seeds), against DTW's 80.2%. That is a tie, not a win. Three seeds and six speakers cannot tell 0.7 points from luck, and the per-speaker rows swing by more than ten points in both directions.
 
-And the comparison flatters the network a little. Tables 1 and 2 chose the input and the noise level by looking at the unseen-speaker column, the same folds the final number is reported on. DTW had no knobs tuned that way. Without the noise, the network is at 78.9%, *behind* DTW. The last row of table 2 shows one more knob buying one more point, and that is where we stop turning knobs: each one tuned against the same six speakers makes the number less of a measurement and more of a wish.
+And the comparison is looser than its decimals suggest. Tables 1 and 2 chose the input and the noise level by looking at the unseen-speaker column, the same folds the final number is reported on. Chapter 5 picked DTW's feature recipe partly the same way, so both numbers are a little optimistic. Without the noise, the network is at 78.9%, *behind* DTW. The last row of table 2 shows one more knob buying one more point, and that is where we stop turning knobs: each one tuned against the same six speakers makes the number less of a measurement and more of a wish.
 
 ![A bar chart with pairs of bars, DTW in gray and the MLP in green. Known speakers: 100.0 and 99.7. Unseen george: 54.8 and 66.6. Jackson: 91.8 and 84.8. Lucas: 91.4 and 85.0. Nicolas: 64.2 and 68.7. Theo: 92.0 and 91.1. Yweweler: 87.2 and 89.5. Mean: 80.2 and 81.0.](../figures/ch06-dtw-vs-mlp.svg)
 
@@ -722,13 +722,13 @@ Look at the bar chart again. A template matcher and a neural network, with nothi
 
 *Gray and green: clips from speakers in the training set. Amber: a speaker left out. The amber loss stops improving after five epochs.*
 
-The training accuracy is 100% and the unseen-speaker accuracy is 81%. That gap has a name, *overfitting*: the network has learned things that are true of its training data and not true of the world. Here we can say what things. It has learned how *these five people* say "seven". With five voices to learn from, it has no way to tell which properties of a "seven" belong to the word and which to jackson's vocal tract, and neither had DTW. George and nicolas, it seems, sound least like the rest.
+The training accuracy is 100% and the unseen-speaker accuracy is 81%. That gap has a name, *overfitting*: the network has learned things that are true of its training data and not true of the world. Here we can say what things. It has learned how *these five people* say "seven". With five voices to learn from, it has very little to tell it which properties of a "seven" belong to the word and which to jackson's vocal tract, and DTW had no more. George and nicolas, it seems, sound least like the rest. (That is our reading of the numbers. We did not run an experiment that separates the voices from, say, the rooms and microphones they were recorded with.)
 
-The input noise is the simplest medicine there is, a *regularizer*: every time a clip is used for training, we add random numbers (standard deviation 0.6, on standardized inputs) to all 96 values. The network never sees the same input twice, cannot memorize exact clips, and has to rely on features that survive a shake. It bought two points. But noise cannot invent a sixth voice. The cure for too few speakers is more speakers, and chapter 7 moves to a dataset with thousands.
+The input noise is the simplest medicine there is, a *regularizer*: every time a clip is used for training, we add random numbers (standard deviation 0.6, on standardized inputs) to all 96 values. The network never sees the same input twice, so memorizing exact clips gets harder and features that survive a shake get more useful. It bought two points. But noise cannot invent a sixth voice. The cure for too few speakers is more speakers, and chapter 7 moves to a dataset with thousands.
 
 ### Ask It Yourself
 
-The run saved its network to `models/digits-mlp.bin`, which ships with the repository, so this works without the dataset. (`Model::save` and `load` live in `src/nn/io.rs`; the format is a short header followed by every weight as a little-endian `f32`, and the top of that file spells it out. The standardizing is folded into the first layer's weights before saving, so the file takes raw slice averages.)
+The run saved its network to `models/digits-mlp.bin`, which ships with the repository, so this works without the dataset. (If you ran the training yourself, your network has replaced the shipped one. `git checkout ../models/digits-mlp.bin` brings the original back.) (`Model::save` and `load` live in `src/nn/io.rs`; the format is a short header followed by every weight as a little-endian `f32`, and the top of that file spells it out. The standardizing is folded into the first layer's weights before saving, so the file takes raw slice averages.)
 
 ```text
 $ cargo run --release --example ch06_digits -- classify ../samples/seven_jackson.wav
@@ -757,7 +757,7 @@ The softmax output tells us more than the winner. Here is the same clip, next to
 
 *A confident right answer, and the network's one mistake on the official test set: a "three" from george heard as "six", with 39% still on "three".*
 
-It was wrong, but it was not sure, and it said so. That will matter later: from chapter 8 on we stop asking for one answer per clip and start working with the probabilities themselves.
+It was wrong, but it was not sure, and it said so. Do not lean on that too hard. A softmax output is the share of belief the model assigns, and nothing makes a model that says 61% right 61% of the time, least of all on a voice or a word it never trained on. At the end of chapter 7 we will watch a network confidently pick a label for a word it was never taught. Still, the probabilities carry more than the winner does, and that will matter later: from chapter 8 on we stop asking for one answer per clip and start working with the probabilities themselves.
 
 ### Try It Yourself
 
@@ -770,7 +770,7 @@ It was wrong, but it was not sure, and it said so. That will matter later: from 
 ### Loose Ends
 
 * **The fixed-size input discards timing.** Eight uniform slices cannot follow a drawn-out vowel. This is the first thing chapter 7 fixes.
-* **Five training speakers.** No model can learn what is speaker-independent from five voices. This is the second.
+* **Five training speakers.** Five voices are too few for a model to learn reliably what is speaker-independent: ours carried 81% over to a sixth, not 99.7%. This is the second.
 * **The unseen-speaker number is slightly optimistic.** We tuned the input and the noise on the folds we report. A cleaner experiment would hold a seventh speaker back for the final number; the dataset has six.
 * **Plain SGD, one learning rate, dropped by ten for the last third of the epochs.** `Sgd` has momentum, which we did not use, and chapter 7 brings Adam.
 * **The gradient checker samples.** It checks up to 40 entries per tensor, in `f32`, and can be fooled by kinks. Passing it is strong evidence, not proof.

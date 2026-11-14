@@ -7,9 +7,9 @@ work right after `git clone`.
 | File | What it is | Made by |
 |---|---|---|
 | `words.bin` | Chapter 7's 35-word classifier (conv + BiGRU + mean pooling) | `cargo run --release --example ch07_words -- train` |
-| `recognizer.bin` | Chapters 8-10's character-level CTC recognizer | `cargo run --release --example ch09_train` |
+| `recognizer.bin` | Chapters 8-10's character-level CTC recognizer | `cargo run --release --example ch09_train -- --out ../models/recognizer.bin --snapshots ../models/recognizer-posteriors.txt` (without the two flags, the program writes `my-recognizer.bin` and `my-recognizer-posteriors.txt` and leaves these files alone) |
 | `recognizer-training.log` | Everything `ch09_train` printed during the run that produced `recognizer.bin` | the same run (`... > ../models/recognizer-training.log`) |
-| `recognizer-evaluation.log` | Everything `ch10_decode` printed for `recognizer.bin`: the decoder comparison on the fixed test set and all breakdowns | `cargo run --release --example ch10_decode` |
+| `recognizer-evaluation.log` | Everything `ch10_decode` printed for `recognizer.bin`: the decoder comparison on the fixed test set and all breakdowns | `cargo run --release --example ch10_decode -- --no-figures` |
 | `recognizer-posteriors.txt` | The per-frame probabilities of one validation utterance at several training steps (for the figure `ch09-posteriors-over-training.svg`) | the same run |
 | `words-training.log` | Everything `ch07_words train` printed during the run that produced `words.bin` | `ch07_words train` |
 

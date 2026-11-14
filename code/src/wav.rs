@@ -26,6 +26,9 @@ const WAVE_FORMAT_PCM: u16 = 1;
 const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
 /// Format tag that means "the real tag is further down, in the extension".
 const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
+/// The last 14 bytes of an extensible "sub-format" id that stands for an
+/// ordinary format tag. The tag itself is the two bytes in front of them.
+const SUBFORMAT_TAIL: [u8; 14] = [0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71];
 
 /// A mono recording: a sample rate and the samples themselves.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,15 +101,21 @@ impl Wav {
         let mut format: Option<WavFormat> = None;
         let mut pos = 12;
         // Walk the chunk list. Each iteration looks at one 8-byte chunk header.
-        while pos + 8 <= bytes.len() {
+        // `pos` never passes the end of `bytes`, so the subtraction is safe,
+        // and no sum below can exceed `bytes.len() + 1`.
+        while bytes.len() - pos >= 8 {
             let id = &bytes[pos..pos + 4];
-            let declared_size = read_u32(bytes, pos + 4) as usize;
+            let declared_size = read_u32(bytes, pos + 4);
             let body_start = pos + 8;
             // A chunk can claim more bytes than the file has (a recording that
             // was cut short, or a streamed file with a placeholder size).
-            // Take what is really there.
-            let body_end = body_start.saturating_add(declared_size).min(bytes.len());
-            let body = &bytes[body_start..body_end];
+            // Take what is really there. The size from the file is only ever
+            // compared, never added to anything, so a hostile value has
+            // nothing to overflow. (The comparison is done in `u64`, which
+            // holds both numbers whatever the width of `usize`.)
+            let available = bytes.len() - body_start;
+            let body_len = (declared_size as u64).min(available as u64) as usize;
+            let body = &bytes[body_start..body_start + body_len];
 
             match id {
                 b"fmt " => format = Some(parse_format(body)?),
@@ -120,9 +129,10 @@ impl Wav {
 
             // Chunks are aligned to even offsets: an odd-sized chunk is
             // followed by one padding byte that its size does not count.
-            // A corrupt size near `usize::MAX` must not overflow the sum: the
-            // saturating adds park `pos` past the end, which ends the loop.
-            pos = body_start.saturating_add(declared_size).saturating_add(declared_size & 1);
+            // The padding byte may be missing at the very end of a file,
+            // hence the `min`.
+            let padding = (declared_size & 1) as usize;
+            pos = (body_start + body_len + padding).min(bytes.len());
         }
 
         Err(bad(if format.is_some() {
@@ -136,7 +146,8 @@ impl Wav {
     ///
     /// Samples outside `[-1, 1]` are clipped. Each sample is rounded to one of
     /// 65,536 levels, so reading the file back gives values within half a
-    /// level (1/65536) of what was written.
+    /// level (1/65536) of what was written. The exception is the very top:
+    /// the highest level is 32767/32768, so +1.0 comes back a whole level low.
     pub fn to_bytes(&self) -> Vec<u8> {
         let data_size = (self.samples.len() * 2) as u32;
         let mut out = Vec::with_capacity(44 + self.samples.len() * 2);
@@ -189,11 +200,18 @@ fn parse_format(body: &[u8]) -> io::Result<WavFormat> {
     let bits_per_sample = read_u16(body, 14);
 
     // WAVE_FORMAT_EXTENSIBLE is used for more than two channels or more than
-    // 16 bits. The fields above keep their meaning; the real format tag moves
-    // into the first two bytes of a 16-byte "sub-format" id at offset 24.
+    // 16 bits. The fields above keep their meaning, and 24 more bytes follow:
+    // the size of the extension (at least 22), the number of bits that carry
+    // signal, a speaker layout, and a 16-byte "sub-format" id that says how
+    // the samples are really encoded. For the encodings that have an ordinary
+    // format tag, that id is the tag followed by 14 fixed bytes. Any other
+    // id is some vendor's own format, and we cannot read it.
     if tag == WAVE_FORMAT_EXTENSIBLE {
-        if body.len() < 26 {
+        if body.len() < 40 || read_u16(body, 16) < 22 {
             return Err(bad("WAVE_FORMAT_EXTENSIBLE header is cut short"));
+        }
+        if body[26..40] != SUBFORMAT_TAIL {
+            return Err(bad("unsupported WAVE_FORMAT_EXTENSIBLE sub-format (we read PCM and float)"));
         }
         tag = read_u16(body, 24);
     }
@@ -390,6 +408,43 @@ mod tests {
     }
 
     #[test]
+    fn no_chunk_size_or_truncation_can_make_the_reader_panic() {
+        // A valid file with an odd-sized LIST chunk, then every size field in
+        // it replaced by hostile values, then cut off at every length. The
+        // reader may return anything; it must not panic. (The interesting
+        // sizes are the ones near u32::MAX, which is `usize::MAX` on a 32-bit
+        // target such as WebAssembly.)
+        let extra: [(&[u8; 4], &[u8]); 1] = [(b"LIST", b"hello")];
+        let base = build(1, 1, 8000, 16, &extra, &[1, 2, 3, 4, 5, 6]);
+        let size_fields = [4, 16, 40, 54]; // RIFF, "fmt ", "LIST", "data"
+        assert_eq!(&base[36..40], b"LIST");
+        assert_eq!(&base[50..54], b"data");
+        let sizes = [0, 1, 2, 7, 8, 9, 0x7FFF_FFFF, 0x8000_0000, u32::MAX - 8, u32::MAX - 7, u32::MAX - 1, u32::MAX];
+        for at in size_fields {
+            for size in sizes {
+                let mut file = base.clone();
+                file[at..at + 4].copy_from_slice(&size.to_le_bytes());
+                for len in 0..=file.len() {
+                    let _ = Wav::from_bytes(&file[..len]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_odd_chunk_at_the_end_may_lack_its_padding_byte() {
+        // "fmt ", then a 5-byte unknown chunk that ends the file with no
+        // padding byte after it: a clean "no data" error.
+        let mut bytes = build(1, 1, 8000, 16, &[], &[]);
+        bytes.truncate(36);
+        bytes.extend_from_slice(b"junk");
+        bytes.extend_from_slice(&5u32.to_le_bytes());
+        bytes.extend_from_slice(b"hello");
+        let err = Wav::from_bytes(&bytes).unwrap_err();
+        assert!(err.to_string().contains("no \"data\" chunk"), "{err}");
+    }
+
+    #[test]
     fn stereo_is_averaged_to_mono() {
         // Two frames: (L=+0.5, R=-0.5) -> 0, (L=+0.5, R=+0.25) -> 0.375.
         let mut data = Vec::new();
@@ -409,28 +464,78 @@ mod tests {
         assert_eq!(wav.samples, vec![0.5]);
     }
 
-    #[test]
-    fn extensible_format_looks_inside_the_subformat() {
-        // Hand-written 40-byte fmt chunk: tag 0xFFFE, real tag (3 = float) in the GUID.
+    /// A WAVE_FORMAT_EXTENSIBLE file: mono, 48 kHz, 32-bit, one sample of
+    /// `data`. `fmt_body_len` cuts the 40-byte `fmt ` body short.
+    fn build_extensible(extension_size: u16, subformat: [u8; 16], fmt_body_len: usize, data: &[u8]) -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&0xFFFEu16.to_le_bytes());
+        body.extend_from_slice(&1u16.to_le_bytes()); // channels
+        body.extend_from_slice(&48000u32.to_le_bytes());
+        body.extend_from_slice(&(48000u32 * 4).to_le_bytes());
+        body.extend_from_slice(&4u16.to_le_bytes()); // block align
+        body.extend_from_slice(&32u16.to_le_bytes()); // bits
+        body.extend_from_slice(&extension_size.to_le_bytes());
+        body.extend_from_slice(&32u16.to_le_bytes()); // valid bits
+        body.extend_from_slice(&4u32.to_le_bytes()); // channel mask
+        body.extend_from_slice(&subformat);
+        body.truncate(fmt_body_len);
+
         let mut f = Vec::new();
         f.extend_from_slice(b"RIFF\0\0\0\0WAVEfmt ");
-        f.extend_from_slice(&40u32.to_le_bytes());
-        f.extend_from_slice(&0xFFFEu16.to_le_bytes());
-        f.extend_from_slice(&1u16.to_le_bytes()); // channels
-        f.extend_from_slice(&48000u32.to_le_bytes());
-        f.extend_from_slice(&(48000u32 * 4).to_le_bytes());
-        f.extend_from_slice(&4u16.to_le_bytes()); // block align
-        f.extend_from_slice(&32u16.to_le_bytes()); // bits
-        f.extend_from_slice(&22u16.to_le_bytes()); // extension size
-        f.extend_from_slice(&32u16.to_le_bytes()); // valid bits
-        f.extend_from_slice(&4u32.to_le_bytes()); // channel mask
-        f.extend_from_slice(&[3, 0, 0, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0xAA, 0, 0x38, 0x9B, 0x71]);
+        f.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        f.extend_from_slice(&body);
         f.extend_from_slice(b"data");
-        f.extend_from_slice(&4u32.to_le_bytes());
-        f.extend_from_slice(&0.5f32.to_le_bytes());
-        let (wav, format) = Wav::from_bytes_with_format(&f).unwrap();
+        f.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        f.extend_from_slice(data);
+        f
+    }
+
+    /// The sub-format id that stands for ordinary format tag `tag`.
+    fn subformat(tag: u16) -> [u8; 16] {
+        let mut id = [0u8; 16];
+        id[..2].copy_from_slice(&tag.to_le_bytes());
+        id[2..].copy_from_slice(&SUBFORMAT_TAIL);
+        id
+    }
+
+    #[test]
+    fn extensible_format_looks_inside_the_subformat() {
+        // The real tag (3 = float) is in the sub-format id.
+        let file = build_extensible(22, subformat(3), 40, &0.5f32.to_le_bytes());
+        let (wav, format) = Wav::from_bytes_with_format(&file).unwrap();
         assert_eq!(format, WavFormat { encoding: Encoding::Float, channels: 1, sample_rate: 48000, bits_per_sample: 32 });
         assert_eq!(wav.samples, vec![0.5]);
+
+        // And 1 = PCM.
+        let file = build_extensible(22, subformat(1), 40, &(1i32 << 30).to_le_bytes());
+        let (wav, format) = Wav::from_bytes_with_format(&file).unwrap();
+        assert_eq!(format.encoding, Encoding::Pcm);
+        assert_eq!(wav.samples, vec![0.5]);
+    }
+
+    #[test]
+    fn extensible_format_checks_the_whole_extension() {
+        let message = |file: &[u8]| Wav::from_bytes(file).unwrap_err().to_string();
+        let sample = 0.5f32.to_le_bytes();
+
+        // Cut off after the first two bytes of the sub-format id, or anywhere
+        // else before its end: not enough to know what the samples are.
+        for fmt_body_len in [18, 24, 26, 39] {
+            assert!(message(&build_extensible(22, subformat(3), fmt_body_len, &sample)).contains("cut short"));
+        }
+        // An extension that says it is too small to hold a sub-format id.
+        assert!(message(&build_extensible(0, subformat(3), 40, &sample)).contains("cut short"));
+
+        // Some vendor's id that happens to begin with 01 00 is not PCM.
+        let mut vendor = subformat(1);
+        vendor[15] ^= 0xFF;
+        assert!(message(&build_extensible(22, vendor, 40, &sample)).contains("sub-format"));
+        let mut vendor = subformat(3);
+        vendor[2] = 1;
+        assert!(message(&build_extensible(22, vendor, 40, &sample)).contains("sub-format"));
+
+        // A standard id for an encoding we do not decode gets the usual message.
+        assert!(message(&build_extensible(22, subformat(7), 40, &sample)).contains("mu-law"));
     }
 
     #[test]
@@ -470,6 +575,19 @@ mod tests {
             assert!((a - b).abs() <= 0.5 / 32768.0 + 1e-6, "{a} vs {b}");
         }
         assert!((original.duration_secs() - 0.0625).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_top_of_the_range_round_trips_a_full_step_low() {
+        // There is no +32768 in an i16. Everything from 32767.5/32768 up to
+        // +1.0 is stored as 32767, so +1.0 itself comes back one whole step
+        // low. -1.0 and the largest sample below the cut-off behave normally.
+        let step = 1.0 / 32768.0;
+        let just_below = 32767.4 / 32768.0;
+        let back = Wav::from_bytes(&Wav::new(8000, vec![1.0, -1.0, just_below]).to_bytes()).unwrap();
+        assert_eq!(back.samples, vec![1.0 - step, -1.0, 1.0 - step]);
+        assert_eq!(1.0 - back.samples[0], step);
+        assert!((just_below - back.samples[2]).abs() <= 0.5 * step);
     }
 
     #[test]

@@ -5,17 +5,23 @@
 //!
 //! ```text
 //! audio ─▶ log-mel (40 x T) ─▶ Conv1d, stride 2 ─▶ ReLU ─▶ BiGru ─▶ BiGru ─▶ Linear(28) ─▶ CTC
-//!                                 (T/2 frames, 20 ms each)                    blank, space, a..z
+//!                                 (T/2 frames, 20 ms apart)                   blank, space, a..z
 //! ```
 //!
 //! There is no dataset of multi-word utterances, so every training example
 //! is built on the spot from single-word clips (see `data/synth.rs`): a
-//! fresh batch each step, never the same utterance twice.
+//! fresh batch each step, a new combination of the same clips every time.
 //!
 //! ```text
 //! cargo run --release --example ch09_train                # the full run: 40,000 steps, about 40 minutes on 10 threads
 //! cargo run --release --example ch09_train -- --quick     # 4,000 steps, about 5 minutes: already spells most words
 //! ```
+//!
+//! A run writes its model to `../models/my-recognizer.bin` (change it with
+//! `--out`), from the first checkpoint at step 0 on. It never writes to the
+//! shipped `../models/recognizer.bin`, which is what every other program
+//! loads by default; pass them `--model ../models/my-recognizer.bin` to use
+//! yours.
 //!
 //! The full run that produced `models/recognizer.bin` reached a word error
 //! rate of 16% on the test set with greedy decoding (10% with the lexicon
@@ -41,8 +47,14 @@ use std::time::Instant;
 
 const USAGE: &str = "usage: ch09_train [--quick] [--steps N] [--batch 32] [--lr 0.002] [--conv 96] [--hidden 128] [--layers 2]
                   [--threads 10] [--seed 9] [--eval-every 1000] [--max-words 5] [--max-per-word N]
-                  [--out ../models/recognizer.bin] [--snapshots ../models/recognizer-posteriors.txt]
+                  [--out ../models/my-recognizer.bin] [--snapshots ../models/my-recognizer-posteriors.txt]
                   [--init model.bin]   (start from saved weights instead of random ones)";
+
+/// Where a run saves its model and its posterior snapshots unless told
+/// otherwise. Deliberately not `recognizer.bin`: that is the shipped model,
+/// which the later chapters' numbers come from.
+const DEFAULT_OUT: &str = "../models/my-recognizer.bin";
+const DEFAULT_SNAPSHOTS: &str = "../models/my-recognizer-posteriors.txt";
 
 struct Options {
     steps: usize,
@@ -76,8 +88,8 @@ fn parse_options() -> Result<Options, String> {
         max_words: 5,
         max_per_word: None,
         init: None,
-        out: "../models/recognizer.bin".to_string(),
-        snapshots: "../models/recognizer-posteriors.txt".to_string(),
+        out: DEFAULT_OUT.to_string(),
+        snapshots: DEFAULT_SNAPSHOTS.to_string(),
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -119,9 +131,10 @@ fn parse_options() -> Result<Options, String> {
 
 /// The recognizer's network.
 ///
-/// * The convolution looks at 5 frames (50 ms) at a time and steps 2 frames
-///   forward per output, so the GRUs run at 50 frames per second instead of
-///   100: half the work, and still several frames per letter.
+/// * The convolution looks at 5 feature frames at a time (65 ms of audio:
+///   25 ms windows starting 10 ms apart) and steps 2 frames forward per
+///   output, so the GRUs run at 50 frames per second instead of 100: half
+///   the work, and still several frames per letter.
 /// * Each BiGru reads the utterance in both directions, so the decision
 ///   about a frame can use what comes after it as well as what came before.
 ///   The second one works on the first one's output.

@@ -382,6 +382,8 @@ Time for real speech. The [Free Spoken Digit Dataset](https://github.com/Jakobov
 $ git clone https://github.com/Jakobovski/free-spoken-digit-dataset data/fsdd
 ```
 
+The dataset can still grow. Every number in this chapter was measured on commit `26eb9aa` of that repository (3,000 clips, six speakers), and `git -C data/fsdd checkout 26eb9aa` gets you the same recordings if yours differ.
+
 Our programs look for datasets in `../data` relative to `code/`, or in `$SPEECH_DATA` if you set it. Without the dataset you can still run the toy, the tests and, in a reduced form we come to at the end, `classify`. The experiments from here on need the download.
 
 The loader in [`src/data/fsdd.rs`](../code/src/data/fsdd.rs) is plumbing, so we describe it without listing it. File names look like `7_jackson_32.wav` (digit, speaker, take), and `load` turns each into a `Clip` with those three fields and the samples from chapter 1's WAV reader. A recognizer must be judged on recordings it has never seen, and the loader offers two honest ways to arrange that:
@@ -412,7 +414,7 @@ $ cargo run --release --example ch05_digits
 ...
    recipe                                    dims   1 own   known  unseen     time
    settled: 13 MFCCs, c0 dropped, trimmed      12   94.0%   99.3%   79.6%   0.65 s
-     keep c0 (loudness)                        13   87.7%   98.8%   62.7%   0.71 s
+     keep c0 (overall level)                   13   87.7%   98.8%   62.7%   0.71 s
      add deltas                                24   93.6%   99.2%   79.1%   0.94 s
      subtract the clip's mean                  12   87.4%   98.3%   67.3%   0.66 s
      normalize mean and variance               12   87.2%   98.0%   76.0%   0.67 s
@@ -429,7 +431,7 @@ $ cargo run --release --example ch05_digits
 
 The accuracies are measurements (the times are from my machine and will differ on yours). The explanations that follow are our best guesses.
 
-**Dropping c0 matters a lot.** Keeping it costs 17 points on unseen speakers. c0 is the loudness of the frame. It says more about how far the speaker sat from the microphone than about the word, and it is the coefficient with the largest swings, so it dominates a Euclidean distance.
+**Dropping c0 matters a lot.** Keeping it costs 17 points on unseen speakers. c0 is the overall level of the frame's log-mel row (chapter 4), and it rises and falls with the recording level. A likely reason it hurts: it says more about how far the speaker sat from the microphone than about the word, and it is the coefficient with the largest swings, so it dominates a Euclidean distance.
 
 **Normalization hurts.** Subtracting each clip's mean costs 12 points on unseen speakers. Chapter 4's argument was that the mean of a column over an utterance is the microphone and the room. That holds when the utterance is a sentence, with enough different sounds for them to average out. Here a clip is one word, about 35 frames. Its mean is largely the word itself, and subtracting it throws away part of what tells a "six" from a "two".
 
@@ -488,26 +490,30 @@ One template averages 91%, five reach 98.8%, and with all six speakers' recordin
 
 ### A Voice It Has Never Heard
 
-We should not stop here, because in every experiment so far the recognizer had already heard the person it was listening to. Experiment 4 takes that away: hold one speaker out, use the other five as templates, test on all 500 of the stranger's clips, and do it six times so that everyone gets a turn.
+We should not stop here, because in every experiment so far the recognizer had already heard the person it was listening to. Experiment 4 takes that away: hold one speaker out, use the other five as templates, test on all 500 of the stranger's clips, and do it six times so that everyone gets a turn. (The `takes 0-4` column we come back to in a moment.)
 
 ```text
 4. A speaker never heard before (leave one speaker out: 2,500 templates from five speakers, 500 test clips)
 
-   held out    1-nearest  5-nearest       time
-   george          54.8%      51.2%     1.09 s
-   jackson         91.8%      92.4%     1.14 s
-   lucas           91.4%      94.2%     1.19 s
-   nicolas         64.2%      62.2%     0.95 s
-   theo            92.0%      92.6%     0.94 s
-   yweweler        87.2%      84.8%     1.02 s
-   mean            80.2%      79.6%
+   held out    1-nearest  5-nearest  takes 0-4       time
+   george          54.8%      51.2%      58.0%     1.05 s
+   jackson         91.8%      92.4%      84.0%     1.16 s
+   lucas           91.4%      94.2%      88.0%     1.13 s
+   nicolas         64.2%      62.2%      70.0%     0.91 s
+   theo            92.0%      92.6%      90.0%     0.90 s
+   yweweler        87.2%      84.8%      86.0%     0.91 s
+   mean            80.2%      79.6%      79.3%
 ```
 
 ![Two bar charts of accuracy for six speakers. With templates from the speaker's own voice every bar is at 100 percent. With templates from the other five speakers only, george falls to 54.8 percent and nicolas to 64.2 percent, and the others sit between 87 and 92](../figures/ch05-speakers.svg)
 
-*The same recognizer and the same clips. The only difference is whether the speaker is among the templates.*
+*The same recognizer both times. Top: 45 templates per digit in the speaker's own voice, scored on that speaker's 50 official test clips. Bottom: 2,500 templates from the other five speakers, scored on all 500 of the speaker's clips.*
 
-From 100% to 80.2% on average, and for george to 54.8%, barely better than a coin flip. Nothing about the algorithm changed. Voting does not rescue it either: the five nearest templates do slightly worse than the single nearest.
+From 100% to 80.2% on average, and for george to 54.8%: wrong on almost half of his recordings. (Guessing among ten digits would be right 10% of the time, so this is far from chance, and just as far from usable.) Nothing about the algorithm changed. Voting does not rescue it either: the five nearest templates do slightly worse than the single nearest.
+
+The two panels of the figure do not score the same clips, so here is the like-for-like version. The `takes 0-4` column scores only the stranger's 50 official test takes, the very clips experiment 3 got 300 out of 300 on. Take the speaker's own recordings out of the bank and 79.3% of those same clips are right. Each entry in that column rests on 50 clips, so one clip is two points; trust the mean more than the rows.
+
+One caution about all of these numbers. We picked the feature recipe with the table in the previous section, partly by its `unseen` column, and that column was measured on these same six speakers, with queries (takes 5 to 19) that are among the 500 test clips here. So 80.2% is somewhat flattering as a prediction for a seventh voice. The `takes 0-4` column avoids the reused clips but not the reused speakers. A cleaner experiment would choose the recipe again inside each round, without the held-out speaker; we did not run it.
 
 Which digits go wrong? The program counts, over all six rounds, what was said against what was heard. A table like this is called a *confusion matrix*.
 
@@ -639,7 +645,7 @@ Let's collect those reasons.
 ### Try It Yourself
 
 1. **Break the toy.** Run `ch05_dtw_toy -- 0,1,4,6,4,1,0 0,5,6,2,1,3,6,5,1,0`: similar numbers, different shape. The cost is 11, not 2, and the path has a long flat run like the "seven" against "zero" figure.
-2. **Put c0 back.** In `classify`, replace `MfccRecipe::standard()` with `MfccRecipe { keep_c0: true, ..MfccRecipe::standard() }` and classify `samples/seven.wav` again. Every distance grows, because loudness is now part of each frame. On this one clip "seven" still won when I tried it (6.70, with "zero" at 7.60), which is a reminder that one clip proves little: the 17 points c0 costs on unseen speakers show up over the thousands of clips in the table.
+2. **Put c0 back.** In `classify`, replace `MfccRecipe::standard()` with `MfccRecipe { keep_c0: true, ..MfccRecipe::standard() }` and classify `samples/seven.wav` again. Every distance grows, because the overall level is now part of each frame. On this one clip "seven" still won when I tried it (6.70, with "zero" at 7.60), which is a reminder that one clip proves little: the 17 points c0 costs on unseen speakers show up over the thousands of clips in the table.
 3. **Count the paths.** The number of warping paths obeys its own recurrence: `P(i, j) = P(i-1, j-1) + P(i-1, j) + P(i, j-1)`, with 1 along the top row and left column. Write it and check that a 7 × 10 grid gives 75,517. You have just swapped a `min` for a sum on the same grid. Hold that thought until chapter 8.
 4. **Be a template.** Record yourself saying each digit once, add your ten clips to the bank in `classify`, and record a second take of one digit. Experiment 2 suggests one template per digit in your own voice is right about nine times in ten.
 
@@ -647,7 +653,7 @@ Let's collect those reasons.
 
 * **Only three step directions, all weighted equally.** Sakoe and Chiba study other step patterns and weights (a diagonal step counted twice, slope limits). We implemented the simplest.
 * **No "none of the above".** The recognizer always answers with a digit, even for a cough. A threshold on the distance would be the start of a fix.
-* **Six speakers is a small world.** The unseen-speaker numbers swing from 54.8% to 92.0%, so the mean of 80.2% is a rough figure.
+* **Six speakers is a small world.** The unseen-speaker numbers swing from 54.8% to 92.0%, so the mean of 80.2% is a rough figure. It is also a little optimistic: the feature recipe was chosen with these same six speakers in view.
 * **Our explanations of the ablation are guesses.** The table is measured; the reasons were not tested one by one.
 
 What's next on our agenda? Let's take stock. We compared recordings of different lengths by finding the cheapest path through a grid, with a recurrence that fills each cell from three neighbors and a backtrace that recovers the path. We wrapped it in a template bank and recognized spoken digits: 95% from ten recordings of one voice, 300 out of 300 with every speaker in the bank, and 80.2% on a voice it had never heard, at a cost that grows with every recording we keep.

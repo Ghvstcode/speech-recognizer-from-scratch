@@ -268,7 +268,9 @@ We have met this before. In chapter 1 we saw that a sampled signal cannot repres
 
 - a constant signal of value `c` gives `X[0] = c * n`;
 - a sine of amplitude `a` that fits exactly `k` cycles gives `|X[k]| = a * n / 2` (the `n / 2` we saw by hand; the other half of its energy is in the mirror bin);
-- to turn a bin back into an amplitude, compute `2 * |X[k]| / n`.
+- to turn a bin back into an amplitude, compute `2 * |X[k]| / n`. The 2 is for the mirror bin, so it applies to the bins strictly between 0 and `n/2`. Bins 0 and `n/2` are their own mirror images and have no partner to share with: there the amplitude is `|X[k]| / n`.
+
+That recipe assumes the tone sits exactly on a bin and the frame went in raw. A tone between two bins spreads over several of them, which is the leakage we look at below. A windowed frame is quieter by the window's coherent gain from chapter 2 (0.5 for Hann), so we divide by that as well. And if zeros were appended to the frame, `n` is the number of real samples, not the padded length.
 
 ### Too Slow
 

@@ -22,9 +22,10 @@ use crate::mat::Mat;
 /// It is not the only "mel scale". The experiments behind it are from the
 /// 1930s and several curves have been fitted to them since. The other common
 /// one is Slaney's (the default in librosa, and what Whisper was trained
-/// with): exactly linear below 1000 Hz and logarithmic above. The two differ
-/// by a few percent. What matters is to use the same one for training and
-/// for recognition.
+/// with): exactly linear below 1000 Hz and logarithmic above. The two put
+/// their bands in different places (40 bands over 20..8000 Hz start with a
+/// peak at 65 Hz here and at 93 Hz on Slaney's scale). What matters is to
+/// use the same one for training and for recognition.
 pub fn hz_to_mel(hz: f32) -> f32 {
     2595.0 * (1.0 + hz / 700.0).log10()
 }

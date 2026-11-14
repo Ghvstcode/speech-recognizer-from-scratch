@@ -140,6 +140,19 @@ impl Layer {
         }
     }
 
+    /// For each weight tensor, in the same order as [`Layer::params`]: is it
+    /// a bias? Weight decay needs to know, because it shrinks weight matrices
+    /// and leaves biases alone. The shape cannot tell the two apart: the
+    /// weight of a `Linear(1 -> n)` has a single row, like a bias.
+    pub fn param_is_bias(&self) -> Vec<bool> {
+        match self {
+            Layer::Linear(_) | Layer::Conv1d(_) => vec![false, true],
+            Layer::Gru(_) => vec![false, false, true, true],
+            Layer::BiGru(_) => vec![false, false, true, true, false, false, true, true],
+            Layer::Relu | Layer::Tanh | Layer::Sigmoid | Layer::MeanPool => Vec::new(),
+        }
+    }
+
     /// How many columns the layer expects, or `None` if it accepts any width.
     pub fn in_features(&self) -> Option<usize> {
         match self {
@@ -413,6 +426,12 @@ impl Model {
         names
     }
 
+    /// For every weight tensor, in the same order as [`Model::params`]: is it
+    /// a bias? See [`Layer::param_is_bias`].
+    pub fn param_is_bias(&self) -> Vec<bool> {
+        self.layers.iter().flat_map(|l| l.param_is_bias()).collect()
+    }
+
     /// Total number of learnable numbers.
     pub fn num_params(&self) -> usize {
         self.params().iter().map(|p| p.data.len()).sum()
@@ -481,6 +500,11 @@ mod tests {
         assert_eq!(model.num_params(), 12864 + 93312 + 5404);
         assert_eq!(model.params().len(), 12);
         assert_eq!(model.param_names()[3], "2.bigru.fwd.w_h");
+        // The bias flags line up with the names: exactly the tensors called
+        // `bias` or `b_...` are biases.
+        let named_bias: Vec<bool> = model.param_names().iter().map(|n| n.ends_with(".bias") || n.contains(".b_")).collect();
+        assert_eq!(model.param_is_bias(), named_bias);
+        assert_eq!(named_bias.iter().filter(|&&b| b).count(), 6);
         assert_eq!(model.out_len(100), 50);
         let out = model.predict(&Mat::zeros(100, 40));
         assert_eq!((out.rows, out.cols), (50, 28));

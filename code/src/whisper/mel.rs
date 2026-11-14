@@ -20,6 +20,19 @@
 //! 6. Clamp everything to at most 8 below the loudest value in the window
 //!    (a dynamic range of 80 dB), then squash with `(x + 4) / 4`.
 //!
+//! ## One window at a time
+//!
+//! [`MelFrontEnd::log_mel`] does all six steps for one 30 s window, the way
+//! the reference is used on a short clip (`pad_or_trim` on the samples, then
+//! `log_mel_spectrogram`). The reference's long-form `transcribe` function
+//! orders things differently: it computes one spectrogram for the whole
+//! recording, so step 6 measures from the loudest value in the *recording*
+//! and frames near a 30 s boundary see the audio on both sides of it, and
+//! it pads a short last window with zeros *in the spectrogram*, where ours
+//! holds the clamp's floor. The two therefore differ in the padded part of
+//! a short clip and, for audio longer than 30 s, near every cut and in the
+//! clamp. We have not measured the effect of either on the transcripts.
+//!
 //! ## Why a plain DFT and not the FFT from chapter 3
 //!
 //! Our radix-2 FFT needs a power-of-two length, and 400 is not one. Padding
@@ -268,6 +281,30 @@ mod tests {
         // side: (40 - 37.2392) / 37.2392 = 0.0741366, times 0.0268534 = 0.0019908.
         assert!((fb[(1, 1)] - 0.0019908).abs() < 1e-6, "got {}", fb[(1, 1)]);
         assert_eq!(fb[(0, 2)], 0.0);
+    }
+
+    #[test]
+    fn filterbank_matches_a_second_derivation() {
+        // The same matrix worked out the way `librosa.filters.mel` writes it:
+        // not one triangle at a time from its three corners, but from the
+        // distances `ramps` between every mel point and every bin and the
+        // gaps `fdiff` between neighboring mel points. All in `f64`, rounded
+        // to `f32` once at the end. Two routes to the same 16,080 numbers.
+        let (n_mels, sample_rate) = (80, SAMPLE_RATE as f64);
+        let fb = mel_filterbank(n_mels, N_FFT, SAMPLE_RATE);
+        let top_mel = hz_to_mel(sample_rate / 2.0);
+        let mel_f: Vec<f64> = (0..n_mels + 2).map(|i| mel_to_hz(top_mel * i as f64 / (n_mels + 1) as f64)).collect();
+        let fdiff: Vec<f64> = mel_f.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        for band in 0..n_mels {
+            let enorm = 2.0 / (mel_f[band + 2] - mel_f[band]);
+            for bin in 0..N_BINS {
+                let fft_freq = bin as f64 * sample_rate / N_FFT as f64;
+                let lower = -(mel_f[band] - fft_freq) / fdiff[band];
+                let upper = (mel_f[band + 2] - fft_freq) / fdiff[band + 1];
+                let expected = (lower.min(upper).max(0.0) * enorm) as f32;
+                assert!((fb[(band, bin)] - expected).abs() <= 1e-9, "band {band}, bin {bin}: {} vs {expected}", fb[(band, bin)]);
+            }
+        }
     }
 
     #[test]

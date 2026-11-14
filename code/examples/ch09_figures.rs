@@ -1,7 +1,7 @@
 //! Chapter 9: the figures, and the sample utterances readers can try.
 //!
-//! Run after `ch09_train` (it reads the model, the training log and the
-//! posterior snapshots that program wrote):
+//! It reads the shipped model, and the training log and posterior
+//! snapshots of the `ch09_train` run that produced it, from `../models/`:
 //!
 //! ```text
 //! cargo run --release --example ch09_figures

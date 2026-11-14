@@ -15,7 +15,7 @@ $ curl -L http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz | tar
 
 There is one directory per word, full of files named like `seven/0a7c2a8d_nohash_1.wav`: the second take of "seven" by the speaker with the anonymous id `0a7c2a8d`. The loader in [`src/data/speech_commands.rs`](../code/src/data/speech_commands.rs) is plumbing again (list the files, read them on several threads with chapter 1's WAV reader, keep the samples as `i16` so everything fits in 3.3 GB of memory), so we will not list it. One decision in it matters for every number in the rest of the book.
 
-Chapter 6 taught us that a model must be judged on voices it has never heard. The dataset's authors arranged that for us. Two text files list the clips set aside for *validation* (what we look at during training, to choose settings and pick the best weights) and for *testing* (what we look at once, at the end, to report a number). They were made by hashing the speaker id, so every speaker lands in exactly one part, and anything in neither list is training data. Using the official split also means our accuracy can be compared with published ones. Here is what the loader reports (timings are from my machine, with ten threads):
+Chapter 6 taught us that a model must be judged on voices it has never heard. The dataset's authors arranged that for us. Two text files list the clips set aside for *validation* (what we look at during training, to choose settings and pick the best weights) and for *testing* (what we look at once, at the end, to report a number). They were made by hashing the speaker id, so every speaker lands in exactly one part, and anything in neither list is training data. Using the official split also means our accuracy is measured on the same test clips as everyone else's. (Before comparing it with a published number, check that the task is the same. We classify all 35 words; many papers report a 12-class task instead, ten keywords plus "unknown" and "silence", and those accuracies are not comparable with ours.) Here is what the loader reports (timings are from my machine, with ten threads):
 
 ```text
 loaded 105829 clips in 5.7 s (3.32 GB of 16-bit audio)
@@ -475,23 +475,24 @@ v = beta2 * v + (1 - beta2) * g * g    the average squared gradient
 w = w - lr * m / (sqrt(v) + eps)
 ```
 
-`m` is a smoothed gradient: noise that flips sign from minibatch to minibatch cancels. Dividing by `sqrt(v)`, the typical size of that weight's gradient, is the equalizer. A weight with consistently tiny gradients has its steps scaled up, one with huge gradients has them scaled down, and every weight ends up moving by about `lr` per step whatever the raw scale. (`eps = 1e-8` only prevents a division by zero.)
+`m` is a smoothed gradient: noise that flips sign from minibatch to minibatch cancels. Dividing by `sqrt(v)`, the typical size of that weight's gradient, is the equalizer. A weight with consistently tiny gradients has its steps scaled up, and one with huge gradients has them scaled down. If a weight's gradient keeps its sign and its size from step to step, `m / sqrt(v)` is close to 1 and the weight moves by about `lr` per step, whatever the raw scale. If the gradient keeps flipping sign, `m` shrinks, `v` does not, and each step is a fraction of `lr`. (`eps = 1e-8` prevents a division by zero. It also holds back a weight whose gradients are themselves no bigger than about `1e-8`.)
 
 There is one wrinkle. Both averages start at zero, so early on they underestimate: after one step with `beta1 = 0.9`, `m` is a tenth of the gradient. Dividing by `1 - beta^t`, where `t` counts steps, undoes exactly that, and fades to a division by 1 as `t` grows.
 
 ```rust
 // src/nn/optim.rs
     pub fn step(&mut self, model: &mut Model, grads: &Grads) {
-        // ... `params = model.params_mut()`; on the first call, create `m` and `v` as zeros
+        // ... `is_bias = model.param_is_bias()` and `params = model.params_mut()`;
+        //     on the first call, create `m` and `v` as zeros
         self.steps += 1;
         // The bias corrections are the same for every weight, so compute them
         // once. (In f64: beta2^t is very close to 1 for small t.)
         let correct_m = 1.0 / (1.0 - (self.beta1 as f64).powi(self.steps as i32)) as f32;
         let correct_v = 1.0 / (1.0 - (self.beta2 as f64).powi(self.steps as i32)) as f32;
 
-        for (((p, g), m), v) in params.iter_mut().zip(&grads.tensors).zip(&mut self.m).zip(&mut self.v) {
-            // A tensor with one row is a bias; those are not decayed.
-            let decay = if p.rows > 1 { self.lr * self.weight_decay } else { 0.0 };
+        for ((((p, g), m), v), &bias) in params.iter_mut().zip(&grads.tensors).zip(&mut self.m).zip(&mut self.v).zip(&is_bias) {
+            // Biases are not decayed.
+            let decay = if bias { 0.0 } else { self.lr * self.weight_decay };
             for (((w, &gw), mw), vw) in p.data.iter_mut().zip(&g.data).zip(&mut m.data).zip(&mut v.data) {
                 *mw = self.beta1 * *mw + (1.0 - self.beta1) * gw;
                 *vw = self.beta2 * *vw + (1.0 - self.beta2) * gw * gw;
@@ -503,7 +504,7 @@ There is one wrinkle. Both averages start at zero, so early on they underestimat
     }
 ```
 
-(`weight_decay` is an optional pull of every weight toward zero, off in this chapter.) The test `adam_first_steps_by_hand` makes the point about scale: with a gradient of 123 and `lr = 0.01`, the first step moves the weight by exactly 0.01. A gradient of 0.00123 would do the same. How much does it matter? I swapped Adam for plain SGD in a small experiment: the conv + GRU network, 300 clips per word, 4 epochs.
+(`weight_decay` is an optional pull of every weight toward zero, off in this chapter.) The test `adam_first_steps_by_hand` makes the point about scale: with a gradient of 123 and `lr = 0.01`, the first step moves the weight by 0.01. A gradient of 0.00123 would do the same. How much does it matter? I swapped Adam for plain SGD in a small experiment: the conv + GRU network, 300 clips per word, 4 epochs.
 
 | optimizer | learning rate | validation accuracy after 4 epochs |
 |---|---:|---:|
@@ -514,7 +515,7 @@ There is one wrinkle. Both averages start at zero, so early on they underestimat
 
 One in 35 is 2.9%, so SGD at Adam's learning rate learned nothing at all. It does get going once the rate is 250 times larger, so "struggles" is fairer than "fails": plain SGD needs you to find that number by trial and error for every new network, and Adam's `0.002` mostly just works. From here on we use Adam.
 
-Two small helpers complete the optimizer. Recurrent networks occasionally produce an enormous gradient, because the same matrix is multiplied in dozens of times and sometimes that compounds. One such step can throw the weights somewhere training never recovers from. **Gradient clipping** treats all gradients together as one long vector and, if it is longer than a limit, scales it down to the limit. The direction is kept and only the step is shortened.
+Two small helpers complete the optimizer. Recurrent networks occasionally produce an enormous gradient, because the same matrix is multiplied in dozens of times and sometimes that compounds. One such step can throw the weights somewhere training never recovers from. **Gradient clipping** treats all gradients together as one long vector and, if it is longer than a limit, scales it down to the limit. The gradient keeps its direction and loses only its length. With plain SGD that shortens the step in proportion. With Adam it does not: Adam divides by the typical size of the gradient, so the same gradient made a hundred times smaller gives nearly the same step. What clipping buys us under Adam is that one extreme minibatch cannot drag the running averages `m` and `v` far. So the clipping limit is not a second learning rate, and we cannot trade one for the other.
 
 ```rust
 // src/nn/optim.rs
@@ -576,7 +577,7 @@ where
         //     and divide by the number of examples used
 ```
 
-`std::thread::scope` is the whole trick, and it is in the standard library. Because thread `k` always takes the same examples and the totals are added in thread order, the same batch gives the same gradient bit for bit every time. A test, `threaded_batch_matches_one_at_a_time`, compares 1, 2, 3 and 16 threads against a plain loop.
+`std::thread::scope` is the whole trick, and it is in the standard library. Because thread `k` always takes the same examples and the totals are added in thread order, the same batch gives the same gradient bit for bit every time, as long as the number of threads is the same. A different number of threads adds the same numbers in a different order, and the last digits can change. A test, `threaded_batch_matches_one_at_a_time`, checks that 1, 2, 3 and 16 threads agree with a plain loop to within `1e-5`.
 
 `ch07_bench` measures what it buys on a network shaped like the recognizer we are heading for:
 
@@ -642,7 +643,7 @@ The training step is chapter 6's five lines with this chapter's decoration:
 
 Minibatches of 64, a peak learning rate of 0.002 after 200 warm-up steps, 20 epochs. One more thing happens before each minibatch. A network that sees the same 84,843 pictures twenty times starts to recognize the *clips* instead of the words, so every time a clip comes up we change it a little: slide it up to 10 frames (100 ms) earlier or later, and blank out one random stretch of up to 12 frames and one random band of up to 6 mel bands. This is called *augmentation*, and the masking part is borrowed from [SpecAugment](https://arxiv.org/abs/1904.08779). After each epoch we measure the validation set and keep a copy of the weights whenever it improves. The test set is touched once, at the end, with the best copy.
 
-Go ahead and run it (this needs the dataset; all three networks take about ten minutes on my machine):
+Go ahead and run it (this needs the dataset; all three networks take about ten minutes on my machine). The run saves its best conv + GRU network over the shipped `models/words.bin`; add `--no-save` to leave that file alone, or bring the original back afterwards with `git checkout ../models/words.bin`:
 
 ```text
 $ cargo run --release --example ch07_words -- train
@@ -738,7 +739,7 @@ Record yourself saying one of the 35 words and give it the file. Then say a word
 
 * **The GRU did not win.** On single words the convolution-only network matches it. We keep the GRU on a promise that chapter 9 has to make good.
 * **One run, one seed.** We did not measure how much these accuracies move from seed to seed, so read nothing into a gap of 0.4 points.
-* **The classifier cannot say "I don't know".** Silence, noise and unknown words all get one of the 35 labels. Chapter 8's blank symbol is the beginning of an answer.
+* **The classifier cannot say "I don't know".** Silence, noise and unknown words all get one of the 35 labels. Chapter 8's blank symbol will let a network write nothing for a stretch of silence. It does not help with unknown words: turning away speech that is outside the vocabulary takes training examples or a decision rule of its own.
 * **No dropout, no batch normalization.** The two most common tools against overfitting and for faster training are missing from our library. We regularize with augmentation of the input only.
 
 What's next on our agenda? Let's take stock. We have a convolution that slides one set of weights along time, a GRU with a hand-derived backward pass that the gradient checker signed off on, Adam with clipping and a learning-rate schedule, minibatches spread over every core, and a model that names one of 35 words with 93% accuracy for people it has never heard.

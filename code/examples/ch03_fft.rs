@@ -167,6 +167,8 @@ fn two_tones(figures_dir: Option<&str>) -> io::Result<()> {
         sine(500.0, 1.0, sample_rate, n).iter().zip(&sine(1500.0, 0.5, sample_rate, n)).map(|(a, b)| a + b).collect();
     let power = power_spectrum(&signal, n);
     // |X[k]| = amplitude * n / 2, so amplitude = 2 |X[k]| / n.
+    // (Bins 0 and n/2 have no mirror bin and would need |X[k]| / n; this
+    // signal has nothing in either.)
     let amplitudes: Vec<f32> = power.iter().map(|p| 2.0 * p.sqrt() / n as f32).collect();
 
     println!("\ntwo tones, 500 Hz (amplitude 1.0) + 1500 Hz (amplitude 0.5), {n} samples at {sample_rate} Hz:");

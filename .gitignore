@@ -5,3 +5,4 @@ target/
 /.worktrees/
 /.claude/
 /_site/
+/models/my-recognizer*
