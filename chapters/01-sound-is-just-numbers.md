@@ -36,7 +36,7 @@ license = "MIT"
 opt-level = 3
 codegen-units = 1
 
-# Numeric tests (FFT, gradient checks) are painfully slow without optimisation.
+# Numeric tests (FFT, gradient checks) are painfully slow without optimization.
 [profile.dev]
 opt-level = 1
 
@@ -44,7 +44,7 @@ opt-level = 1
 opt-level = 2
 ```
 
-Look at `[dependencies]`. There is nothing under it, and there never will be. That empty section is, I will admit, a point of pride: when our program turns sound into text in the last chapters, every instruction between the file and the answer will be one we wrote or one that ships with Rust's standard library. The `[profile]` sections only turn the optimizer on, because from chapter 3 onward we do a lot of arithmetic in loops.
+Look at `[dependencies]`. There is nothing under it, and there never will be: when our program turns sound into text in the last chapters, every instruction between the file and the answer will be one we wrote or one that ships with Rust's standard library. The `[profile]` sections only turn the optimizer on, because from chapter 3 onward we do a lot of arithmetic in loops.
 
 The crate root, `src/lib.rs`, is the table of contents of the book:
 
@@ -63,7 +63,7 @@ pub mod dsp; // framing, windows, FFT, mel, MFCC         (chapters 2-4)
 pub mod plot; // SVG and terminal plots for the book's figures
 
 pub mod dtw; // dynamic time warping                     (chapter 5)
-pub mod nn; // layers, backprop, optimisers              (chapters 6-7)
+pub mod nn; // layers, backprop, optimizers              (chapters 6-7)
 pub mod ctc; // connectionist temporal classification    (chapter 8)
 pub mod decode; // greedy and beam search decoding       (chapter 10)
 pub mod metrics; // edit distance, WER, CER              (chapter 10)
@@ -121,7 +121,7 @@ $ xxd -l 64 ../samples/seven.wav
 00000030: ffff feff feff ffff ffff ffff ffff ffff  ................
 ```
 
-(`hexdump -C -n 64` shows the same thing.) The right-hand column already gives the game away: `RIFF`, `WAVE`, `fmt `, `data`. A WAV file is a **RIFF** container (Resource Interchange File Format, a Microsoft and IBM design from 1991), and a RIFF file has a very simple shape. It starts with a 12-byte header, and after that it is a list of **chunks**. Every chunk looks the same:
+(`hexdump -C -n 64` shows the same thing.) The right-hand column gives the game away: `RIFF`, `WAVE`, `fmt `, `data`. A WAV file is a **RIFF** container (Resource Interchange File Format, a Microsoft and IBM design from 1991), and a RIFF file has a very simple shape. It starts with a 12-byte header, and after that it is a list of **chunks**. Every chunk looks the same:
 
 ```text
 4 bytes   the chunk's name, as ASCII letters        e.g. "fmt "
@@ -162,7 +162,7 @@ Everything checks out against everything else. The `data` chunk holds 32,000 byt
 
 If you have been paying attention, you'll notice that the numbers look backwards. The sample rate 16,000 is `0x3E80` in hexadecimal, but the file says `80 3e 00 00`. That is **little-endian** byte order: the least significant byte comes first. Every integer in a WAV file is stored this way. It is also why the first sample, `ff ff`, is -1 and its neighbor `fe ff` is -2: read low byte first you get `0xFFFF` and `0xFFFE`, and as signed 16-bit integers those are -1 and -2.
 
-The format tag 1 has a grand name, **PCM** (pulse code modulation), which means nothing more than what we described in the physics section: the samples are stored as plain integers, one after another, uncompressed. And those four samples, -1, -1, -1, -2 out of a possible ±32,768? That is the microphone listening to a quiet room before the speaker starts. Sound really is just numbers, and silence is small ones.
+The format tag 1 has a grand name, **PCM** (pulse code modulation), which means nothing more than what the converter did earlier: the samples are stored as plain integers, one after another, uncompressed. And those four samples, -1, -1, -1, -2 out of a possible ±32,768? That is the microphone listening to a quiet room before the speaker starts. Sound really is just numbers, and silence is small ones.
 
 **Aside** <br>
 Why would anyone store numbers backwards? Because that is how the Intel processors of 1991 kept integers in memory, so a PC could copy the bytes straight from disk into a variable. Network protocols went the other way: if you read the TCP book, you will remember converting from big-endian "network order". Rust makes neither choice for us, which is good: `u32::from_le_bytes` says exactly what we mean, and it works the same on every machine.
@@ -268,7 +268,10 @@ So here is the list of things real files do that our first reader ignores:
 - **Other bit depths.** 8, 24 and 32-bit integers are all in use.
 - **Floating point samples.** Format tag 3 means the samples are already `f32` (or `f64`). Audio editors love this.
 - **More than one channel.** A recognizer wants one. We will average the channels into one ("downmix to mono").
-- **Sizes that lie.** A program that writes a WAV to a pipe does not know the length in advance. Here is ffmpeg doing that; look at offset 4 and at the size after `data`:
+- **Sizes that lie.** A program that writes a WAV to a pipe does not know the length in advance, and a recording can be cut off mid-write.
+- **Things that are not WAV files at all**, where we owe the user an error that says so.
+
+The lying sizes are worth seeing. Here is ffmpeg writing a WAV to a pipe; look at offset 4 and at the size after `data`:
 
 ```
 $ ffmpeg -i ../samples/seven.wav -f wav - | xxd -l 80
@@ -279,15 +282,13 @@ $ ffmpeg -i ../samples/seven.wav -f wav - | xxd -l 80
 00000040: 2e31 3032 0000 6461 7461 ffff ffff ffff  .102..data......
 ```
 
-Both sizes say `ff ff ff ff`, four gigabytes, for 32 kilobytes of audio. We will meet exactly this stream again in chapter 11 when we read the microphone, so we had better cope with it, and with recordings that were cut off mid-write.
-
-- **Things that are not WAV files at all**, where we owe the user an error that says so.
+Both sizes say `ff ff ff ff`, four gigabytes, for 32 kilobytes of audio. Audio arrives through pipes all the time (in chapter 11 our microphone will be an ffmpeg process on the other end of one), so a reader that trusts the sizes is not much of a reader.
 
 Let's rewrite the reader to handle all of it.
 
 ### The Real Reader
 
-We keep the `Wav` struct exactly as it is: whatever the file holds, we hand back mono `f32` samples in `[-1.0, 1.0]` and a sample rate, and the rest of the book never has to think about file formats again. First, names for the format tags, and a second small type that remembers how the file stored its samples before we converted them (only today's example program cares, but it is nice to be able to print it):
+We keep the `Wav` struct exactly as it is: whatever the file holds, we hand back mono `f32` samples in `[-1.0, 1.0]` and a sample rate, and the rest of the book never has to think about file formats again. First, names for the format tags, and a small type that remembers how the file stored its samples before we converted them (only today's example program prints it):
 
 ```rust
 // src/wav.rs
@@ -386,7 +387,9 @@ impl Wav {
 
             // Chunks are aligned to even offsets: an odd-sized chunk is
             // followed by one padding byte that its size does not count.
-            pos = body_start + declared_size + (declared_size & 1);
+            // A corrupt size near `usize::MAX` must not overflow the sum: the
+            // saturating adds park `pos` past the end, which ends the loop.
+            pos = body_start.saturating_add(declared_size).saturating_add(declared_size & 1);
         }
 
         Err(bad(if format.is_some() {
@@ -398,7 +401,7 @@ impl Wav {
 }
 ```
 
-Most of our list of problems is solved right here. Unknown chunks fall into the `_ => {}` arm and are stepped over. Lying sizes are handled by two decisions: we never read the size at offset 4 at all, and we clamp every payload to the bytes that really exist (`.min(bytes.len())`, with `saturating_add` so that a size of four gigabytes cannot overflow on a 32-bit machine). The padding rule is the `declared_size & 1`, which is 1 for odd sizes and 0 for even ones. You can see padding in ffmpeg's dump above, one level down: the text `Lavf63.1.102` plus its terminating zero is 13 bytes (`0d 00 00 00`), so one more zero byte follows before `data` begins.
+Most of our list of problems is solved right here. Unknown chunks fall into the `_ => {}` arm and are stepped over. Lying sizes are handled by two decisions: we never read the size at offset 4 at all, and we clamp every payload to the bytes that really exist (`.min(bytes.len())`). Both sums that involve a size from the file use `saturating_add`, which stops at the largest `usize` where a plain `+` would overflow. A size of four gigabytes is one such overflow waiting to happen on a 32-bit machine; with the saturating version `pos` lands past the end of the file and the loop ends. The padding rule is the `declared_size & 1`, which is 1 for odd sizes and 0 for even ones. You can see padding in ffmpeg's dump above, one level down: the text `Lavf63.1.102` plus its terminating zero is 13 bytes (`0d 00 00 00`), so one more zero byte follows before `data` begins.
 
 The `fmt ` payload is the 16 bytes we annotated by hand earlier, so parsing it is a matter of reading four fields at the offsets from our table (minus 20, because offsets now count from the start of the payload). Most of this function is saying no politely.
 
@@ -490,19 +493,40 @@ fn decode_one(b: &[u8], encoding: Encoding) -> f32 {
         // (which gets the sign right) and divide by 2^31 instead of 2^23.
         (Encoding::Pcm, 3) => i32::from_le_bytes([0, b[0], b[1], b[2]]) as f32 / 2_147_483_648.0,
         (Encoding::Pcm, 4) => i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32 / 2_147_483_648.0,
-        (Encoding::Float, 4) => f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
-        (Encoding::Float, 8) => f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32,
+        (Encoding::Float, 4) => sanitize(f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+        (Encoding::Float, 8) => sanitize(f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) as f32),
         _ => unreachable!("parse_format only lets supported sizes through"),
     }
 }
 ```
+
+The two float lines pass through one more function. An integer divided by the size of its range cannot leave `[-1.0, 1.0]`, but a float file can hold anything its writer put there: peaks above full scale, infinities, `NaN`. We promised the rest of the book samples between -1 and 1, so we enforce it at the door:
+
+```rust
+// src/wav.rs
+/// Make a float sample keep the promise the integer formats keep for free.
+///
+/// Integer PCM cannot leave `[-1, 1]`, but a float file can hold anything:
+/// peaks above full scale, infinities, NaN. One NaN would poison every sum
+/// it later takes part in (an energy, an FFT, a whole feature matrix), so it
+/// becomes silence here, and everything else is clamped into range.
+fn sanitize(sample: f32) -> f32 {
+    if sample.is_nan() {
+        0.0
+    } else {
+        sample.clamp(-1.0, 1.0)
+    }
+}
+```
+
+The `NaN` check has to come first: `clamp` hands a `NaN` straight back, because every comparison with `NaN` is false.
 
 **Aside** <br>
 The 24-bit line deserves a second look, because the obvious version is wrong. If we put the three bytes in the *bottom* of an `i32` (`[b[0], b[1], b[2], 0]`), a negative sample such as `ff ff ff` (-1) becomes `0x00FFFFFF`, which is +16,777,215: the sign bit of a 24-bit number is not where an `i32` looks for its sign. Putting the bytes at the top instead multiplies the value by 256 and lands the sign bit in the right place, and we compensate by dividing by 2^31 where we would have divided by 2^23. One line, no branches.
 
 Notice that because 16-bit integers run from -32,768 to +32,767, dividing by 32,768 gives a range of -1.0 to +0.99997: nothing maps to exactly +1.0. That lopsidedness is harmless, and it will come back when we write files.
 
-What is left of `impl Wav` is wrappers: read from a path (adding the file name to any error, so that "not a WAV file" tells you *which* file), and versions that drop the `WavFormat` for callers who do not care, which is every caller after this chapter.
+What is left of `impl Wav` is wrappers: read from a path (adding the file name to any error, so that "not a WAV file" tells you *which* file), and versions that drop the `WavFormat`, for every caller after this chapter.
 
 ```rust
 // src/wav.rs
@@ -540,7 +564,7 @@ impl Wav {
 
 ### How Do We Know It Works?
 
-We claimed to handle stereo, padding and truncated files, but our sample clip exercises none of that. So we test with files we build by hand, byte by byte. The helper below writes a header, any extra chunks we ask for (with their padding), and a `data` chunk. It deliberately does not use our own writer: we would not want it as the judge of our reader.
+We claimed to handle stereo, padding and truncated files, but our sample clip exercises none of that. So we test with files we build by hand, byte by byte. The helper below writes a header, any extra chunks we ask for (with their padding), and a `data` chunk. It does not use the WAV writer we are about to add: a writer of ours should not be the judge of a reader of ours.
 
 ```rust
 // src/wav.rs
@@ -635,86 +659,30 @@ And the file that lies: we overwrite the `data` size with `0xFFFFFFFF`, as ffmpe
     }
 ```
 
-The repository has more in the same style: 8-bit (unsigned, silence at 128), 24 and 32-bit sign handling, float samples, a hand-written `WAVE_FORMAT_EXTENSIBLE` header, and a test that every error message names the actual problem (an MP3 renamed to `.wav` should hear about `RIFF`, not about an index out of bounds).
+The repository has more in the same style: 8-bit (unsigned, silence at 128), 24 and 32-bit sign handling, float samples (ordinary ones, and a file full of `NaN`, infinities and out-of-range values that must come back as 0 and ±1), a chunk that claims `0xFFFFFFFF` bytes and must produce an error and no overflow, a hand-written `WAVE_FORMAT_EXTENSIBLE` header, and a test that every error message names the actual problem (an MP3 renamed to `.wav` should hear about `RIFF`, not about an index out of bounds).
 
 ```
 $ cargo test wav::
-running 11 tests
-test wav::tests::out_of_range_samples_are_clipped_on_write ... ok
-test wav::tests::float32_is_read_as_is ... ok
-test wav::tests::extensible_format_looks_inside_the_subformat ... ok
-test wav::tests::pcm16_values_are_scaled_by_32768 ... ok
-test wav::tests::truncated_data_chunk_yields_the_samples_that_are_there ... ok
-test wav::tests::pcm8_is_unsigned_with_silence_at_128 ... ok
-test wav::tests::stereo_is_averaged_to_mono ... ok
-test wav::tests::unknown_and_odd_sized_chunks_are_skipped ... ok
-test wav::tests::pcm24_and_pcm32_sign_extend_correctly ... ok
-test wav::tests::write_then_read_round_trips_within_one_pcm16_step ... ok
+running 13 tests
+test wav::tests::a_huge_chunk_size_does_not_overflow ... ok
 test wav::tests::errors_say_what_is_wrong ... ok
+test wav::tests::float32_is_read_as_is ... ok
+test wav::tests::float_samples_are_sanitized_on_read ... ok
+...
+test wav::tests::truncated_data_chunk_yields_the_samples_that_are_there ... ok
+test wav::tests::unknown_and_odd_sized_chunks_are_skipped ... ok
+test wav::tests::write_then_read_round_trips_within_one_pcm16_step ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 238 filtered out; finished in 0.00s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 290 filtered out; finished in 0.00s
 ```
 
-(The "238 filtered out" are the tests of the chapters to come. You will have fewer. Two of the eleven test the writer, which we get to shortly.)
+(The "290 filtered out" are the tests of the chapters to come. You will have fewer. Two of the thirteen test the writer, which we get to shortly.)
 
 ### Looking At "Seven"
 
-Time for the chapter's real program. `examples/ch01_wav.rs` reads a clip, prints what the header said, prints some statistics and a handful of actual samples, and draws the waveform in the terminal. Here is the part of it that does the reading and printing:
+Time for the chapter's real program. [`examples/ch01_wav.rs`](../code/examples/ch01_wav.rs) reads a clip with `Wav::read_with_format`, prints what the header said, a few statistics (smallest and largest sample, the mean) and a handful of actual samples, and draws the waveform in the terminal. Most of the file is `println!` and a hand-rolled command line, so we will not walk through it; copy it from the repository. One function in it is worth a look.
 
-```rust
-// examples/ch01_wav.rs
-use speech::plot::{waveform_ascii, LinePlot, Series};
-use speech::wav::{Encoding, Wav};
-use std::f32::consts::PI;
-use std::io;
-use std::process::ExitCode;
-
-// ... main(): parses the command line by hand (an optional file name,
-//     --beep OUT.wav, --figures DIR) and calls run().
-
-fn run(clip: &str, beep_path: Option<&str>, figures_dir: Option<&str>) -> io::Result<()> {
-    let (wav, format) = Wav::read_with_format(clip)?;
-
-    println!("file         {clip}");
-    let encoding = match format.encoding {
-        Encoding::Pcm => "integer PCM",
-        Encoding::Float => "floating point",
-    };
-    println!("stored as    {}-bit {encoding}, {} channel(s)", format.bits_per_sample, format.channels);
-    println!("sample rate  {} Hz", wav.sample_rate);
-    println!("samples      {}", wav.samples.len());
-    println!("duration     {:.3} s", wav.duration_secs());
-    if wav.samples.is_empty() {
-        println!("(the file has a header but no audio)");
-        return Ok(());
-    }
-
-    let min = wav.samples.iter().copied().fold(f32::INFINITY, f32::min);
-    let max = wav.samples.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mean = wav.samples.iter().sum::<f32>() / wav.samples.len() as f32;
-    println!("min / max    {min:+.4} / {max:+.4}");
-    println!("mean         {mean:+.5}   (close to zero: air pressure wobbles around its resting value)");
-
-    // The loudest 20 ms: somewhere in the middle of a vowel.
-    let window = (wav.sample_rate as usize / 50).min(wav.samples.len());
-    let loudest = loudest_stretch(&wav.samples, window);
-    let shown = 10.min(window);
-    println!("\n{shown} samples from the loudest part, starting at sample {loudest}:");
-    let as_text: Vec<String> = wav.samples[loudest..loudest + shown].iter().map(|s| format!("{s:+.4}")).collect();
-    println!("  {}", as_text.join(" "));
-    let as_int: Vec<String> =
-        wav.samples[loudest..loudest + shown].iter().map(|s| format!("{:+7}", (s * 32768.0).round() as i32)).collect();
-    println!("  {}   (as 16-bit integers)", as_int.join(""));
-
-    println!("\nwaveform ({:.2} s across, +1 at the top, -1 at the bottom; scaled to the peak if quiet):\n", wav.duration_secs());
-    print!("{}", waveform_ascii(&wav.samples, 72, 9));
-
-    // ... the --beep part (next section), then the two SVG figures.
-    Ok(())
-}
-```
-
-Printing the *first* ten samples would be dull, as we saw: -1, -1, -1, -2. So we go looking for the loudest 20 milliseconds instead. "Loud" here means the sum of the squared samples is large (chapter 2 has more to say about this quantity). A sliding window finds it in one pass: move one step right, add the square of the sample that entered, subtract the square of the one that left.
+Printing the *first* ten samples would be dull, as we saw: -1, -1, -1, -2. So the program goes looking for the loudest 20 milliseconds instead. "Loud" here means the sum of the squared samples is large (chapter 2 has more to say about this quantity). A sliding window finds it in one pass: move one step right, add the square of the sample that entered, subtract the square of the one that left.
 
 ```rust
 // examples/ch01_wav.rs
@@ -904,29 +872,7 @@ fn sine_beep(frequency: f32, seconds: f32, sample_rate: u32) -> Wav {
 }
 ```
 
-The `--beep` branch of `run` writes the file and then, because we have a reader, immediately reads it back and measures the worst disagreement:
-
-```rust
-// examples/ch01_wav.rs, inside run()
-    if let Some(path) = beep_path {
-        let beep = sine_beep(440.0, 1.0, 16000);
-        beep.write(path)?;
-        println!(
-            "\nwrote {path}: {:.1} s of 440 Hz at {} Hz, {} samples",
-            beep.duration_secs(),
-            beep.sample_rate,
-            beep.samples.len()
-        );
-        // Read our own file back, as a check that reader and writer agree.
-        let back = Wav::read(path)?;
-        let worst = beep.samples.iter().zip(&back.samples).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
-        println!(
-            "read it back: {} samples, largest difference {worst:.6} (one 16-bit step is {:.6})",
-            back.samples.len(),
-            1.0 / 32768.0
-        );
-    }
-```
+With `--beep beep.wav` the example writes one second of this tone to a file and then, because we have a reader, immediately reads the file back and reports the largest difference between a sample it wrote and the sample it got back:
 
 ```
 $ cargo run --release --example ch01_wav -- --beep beep.wav
@@ -970,14 +916,13 @@ That is amazing, if you stop to think about what just happened. We did not recor
 
 - **We only read uncompressed audio.** A-law, mu-law, ADPCM and anything else with a format tag other than 1 or 3 gets an error message, not a decoder. MP3, FLAC and Ogg are different containers altogether. `ffmpeg -i input.mp3 -ar 16000 -ac 1 out.wav` converts nearly anything into the format we like.
 - **We only write one format:** 16-bit PCM mono. It is all the book needs.
-- **We read the whole file into memory.** Fine for clips of a second or a minute; files over 4 GB need the RF64 extension, which we do not parse.
-- **Downmixing by averaging can cancel.** Our own stereo test shows it. For speech recordings it does not matter in practice.
-- **No resampling.** `Wav` reports whatever rate the file has and it is up to the caller to deal with it. Our clips come in two rates (the spoken digits in `samples/` are 8,000 Hz), so we will have to stay aware of this.
+- **We read the whole file into memory.** Fine for clips of a second or a minute. Files over 4 GB need the RF64 extension, which we do not parse.
+- **No resampling.** `Wav` reports whatever rate the file has and it is up to the caller to deal with it. Our clips come in two rates (the spoken digits in `samples/` are 8,000 Hz), so we have to stay aware of this until chapter 4, where we write a resampler.
 - **The Nyquist paragraph was the short version.** The exact statement needs the idea of the frequency content of a signal, which we only build in chapter 3.
 
-What's next on our agenda? Let's take stock. We know what the numbers in a sound file are: air pressure, measured 16,000 times a second, rounded to 16 bits. We can find them inside a RIFF container whatever it throws at us, we have them as `f32` values between -1 and 1, we can draw them, and we can write our own and listen to the result. All of it in one file of Rust with an empty `[dependencies]` section.
+What's next on our agenda? Let's take stock. We know what the numbers in a sound file are: air pressure, measured 16,000 times a second, rounded to 16 bits. We can find them inside a RIFF container whatever it throws at us, we have them as `f32` values between -1 and 1, we can draw them, and we can write our own and listen to the result.
 
-But look again at what we actually have for "seven": 16,000 numbers. Staring at all of them at once told us *where* something happens, and nothing about *what*. No single sample means anything, and the full list is far too long and too wobbly to compare with another recording. The interesting structure showed up only when we zoomed in to 20 milliseconds. In the next chapter, [Slicing Time](02-slicing-time.md), we take that hint seriously: we cut the recording into short overlapping pieces and start describing each piece instead of each sample.
+But look again at what we have for "seven": 16,000 numbers. Staring at all of them at once told us *where* something happens, and nothing about *what*. No single sample means anything, and the interesting structure showed up only when we zoomed in to 20 milliseconds. In the next chapter, [Slicing Time](02-slicing-time.md), we take that hint seriously: we cut the recording into short overlapping pieces and start describing each piece instead of each sample.
 
 ### References
 

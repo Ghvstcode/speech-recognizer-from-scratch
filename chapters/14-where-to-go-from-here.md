@@ -6,7 +6,7 @@ It is short, and it is the chapter where we stop being pleased with ourselves fo
 
 ### What We Built, On One Page
 
-Fourteen chapters, about 17,600 lines of Rust with their tests, and an empty `[dependencies]` section. Here is every recognizer the book produced, with the number we measured for it.
+Fourteen chapters, about 17,800 lines of Rust in the library with its tests (and another 5,400 in the example programs), and an empty `[dependencies]` section. Here is every recognizer the book produced, with the number we measured for it.
 
 | Chapter | Recognizer | Tested on | Result |
 |---|---|---|---|
@@ -26,19 +26,19 @@ Read the table from top to bottom and one pattern repeats. Every time the number
 
 Our own model knows 35 words. On its home ground, utterances glued together from the same kind of clips it was trained on, the lexicon decoder gets three utterances in four exactly right, and 62% of the five-word ones. It confuses "three" with "tree" and "off" with "up". Say a word it does not know and the lexicon decoder turns it into one it does: "hello world" came out as "follow wow". It has no way to say "I did not catch that". Fluent speech without pauses, noise louder than it trained on, and telephone-quality audio all break it. Chapters 9 to 11 measured each of these, and none of it is hidden.
 
-Now the field. The usual yardstick for English is LibriSpeech (Panayotov et al., 2015): about 1,000 hours of people reading audiobooks aloud, with an open vocabulary of tens of thousands of words. The Whisper paper's appendix reports a word error rate of 5.6% on its `test-clean` set for `tiny.en`, the model we ran, and 2.7% for the largest model, `large-v2`, which has about 1.5 billion weights. Systems trained on LibriSpeech itself go lower still: the Conformer paper (Gulati et al., 2020) reports 1.9% with a language model. For single words, the Audio Spectrogram Transformer paper (Gong et al., 2021) reports roughly 98% on the 35-word Speech Commands task where our classifier scores 93.5%.
+Now the field. The usual yardstick for English is LibriSpeech (Panayotov et al., 2015): about 1,000 hours of people reading audiobooks aloud, with no fixed word list. The Whisper paper's appendix reports, for greedy decoding like ours, a word error rate of 5.6% on its `test-clean` set for `tiny.en`, the model we ran, and 2.7% for the largest model, `large-v2`, which has about 1.5 billion weights. Systems trained on LibriSpeech itself go lower still: the Conformer paper (Gulati et al., 2020) reports 2.1% on the same set, and 1.9% with a language model. For single words, the Audio Spectrogram Transformer paper (Gong et al., 2021) reports 98.1% on the 35-word Speech Commands task where our classifier scores 93.5%.
 
 Put side by side:
 
 | | Vocabulary | Training audio | Weights | Word error rate |
 |---|---|---|---|---|
 | Our CTC recognizer | 35 words | about 15 hours | 0.5 million | 9.7% on our own synthesized test, with a lexicon |
-| Whisper tiny.en | open | 680,000 hours (shared across all Whisper models) | 37.8 million | 5.6% on LibriSpeech test-clean (paper) |
+| Whisper tiny.en | open | 680,000 hours | 37.8 million | 5.6% on LibriSpeech test-clean (paper) |
 | Whisper large-v2 | open | same | about 1,550 million | 2.7% on LibriSpeech test-clean (paper) |
 
-Three warnings about this table, because it flatters us. First, the last column does not compare like with like. Picking among 35 known words separated by pauses is a far easier task than transcribing a stranger reading a novel, and we do worse on the easy task than Whisper does on the hard one. Second, the Whisper figures are the paper's, scored after its own text normalization; we have not run LibriSpeech through our engine, and chapter 13 admitted that we never compared our outputs with the reference implementation number by number. Third, "15 hours" is the speech inside the training clips after trimming (906.7 minutes); the whole dataset is 105,829 one-second clips, about 29 hours with the silence.
+Three warnings about this table, because it flatters us. First, the last column does not compare like with like. Picking among 35 known words separated by pauses is a far easier task than transcribing a stranger reading a novel, and we do worse on the easy task than Whisper does on the hard one. Second, the Whisper figures are the paper's, scored after its own text normalization. The 680,000 hours are the whole collection, of which the paper says 117,000 hours are speech in other languages and 125,000 hours are translation data. The two parameter counts come from different places: 37.8 million is what we counted in the `tiny.en` file in chapter 12 (the paper rounds its tiny models to 39 million), and 1,550 million is the paper's figure for the large model. We have not run LibriSpeech through our engine, and chapter 13 admitted that we never compared our outputs with the reference implementation number by number. Third, "15 hours" is the speech inside the training clips after trimming (906.7 minutes); the whole dataset is 105,829 one-second clips, about 29 hours with the silence.
 
-So the distance is roughly a factor of 45,000 in training audio, 76 in weights to the smallest Whisper and 3,000 to the largest. And here is the claim this book has been building up to: the distance is data and compute. It is not ideas. Go through Whisper's pipeline and every stage has a small cousin somewhere in our crate.
+So the distance is roughly a factor of 45,000 in training audio (nearer 29,000 if you leave out the other languages and the translation data), 76 in weights to the smallest Whisper and 3,000 to the largest. And here is the claim this book has been building up to: the distance is data and compute. It is not ideas. Go through Whisper's pipeline and every stage has a small cousin somewhere in our crate.
 
 | Whisper | Our small cousin | Where |
 |---|---|---|
@@ -51,7 +51,7 @@ So the distance is roughly a factor of 45,000 in training audio, 76 in weights t
 | beam search (in the reference implementation) | prefix beam search | `decode.rs`, chapter 10 |
 | Adam-family optimizer, warm-up, gradient clipping | Adam, warm-up, gradient clipping | `nn/optim.rs` |
 
-Chapter 8 left a promise open here. CTC treats frames as independent given the audio, so our network has no built-in sense that `q` is followed by `u`, and we said a fix needs "a language model or a different kind of loss". Chapter 10's lexicon was the first, in miniature. Whisper's decoder is the second: each token is predicted from the audio *and* from every token already written. That is the whole difference between "lein" and "learn", and it is also why Whisper says "you" to an empty room and our recognizer never invents a word.
+Chapter 8 saw this coming. CTC treats frames as independent given the audio, so our network has no built-in sense that `q` is followed by `u`, and we said a fix needs "a language model or a different kind of loss". Chapter 10's lexicon was the first, in miniature. Whisper's decoder is the second: each token is predicted from the audio *and* from every token already written. That is the whole difference between "lein" and "learn", and it is also why Whisper says "you" to an empty room and our recognizer never invents a word.
 
 ### What We Skipped
 
@@ -66,7 +66,7 @@ A book that fits in a weekend's reading has to walk past most of the field. Here
 **In training.**
 
 - **Training attention.** Every transformer layer we wrote is forward only. An attention-based encoder-decoder (the lineage runs from *Listen, Attend and Spell* to Whisper) needs `backward` for attention and layer norm, and our gradient checker to keep us honest.
-- **The transducer.** The RNN-Transducer adds a small network that sees the labels emitted so far, removing CTC's independence assumption while still producing output frame by frame. It is what most on-device streaming recognizers use.
+- **The transducer.** The RNN-Transducer adds a small network that sees the labels emitted so far, removing CTC's independence assumption while still producing output frame by frame. It is a common choice for streaming recognizers that run on the device.
 - **Regularization.** Our `nn` module has no dropout, no batch norm and no trainable layer norm. Chapter 7 masked one random patch of each spectrogram, a first step toward SpecAugment, which masks several bands and stretches of time and warps the time axis; chapter 9's recognizer got noise and speed changes but no masking.
 - **Real datasets.** We never trained on sentences. LibriSpeech and Mozilla's Common Voice are free to download.
 
@@ -135,14 +135,14 @@ Sequences without alignments.
 
 - Graves, Fernández, Gomez and Schmidhuber, [Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks](https://www.cs.toronto.edu/~graves/icml_2006.pdf), ICML 2006. Chapter 8's source.
 - Hannun, [Sequence Modeling With CTC](https://distill.pub/2017/ctc/), Distill, 2017. The illustrated version; read it before the paper.
-- Graves, [Sequence Transduction with Recurrent Neural Networks](https://arxiv.org/abs/1211.3711), 2012. The transducer, project 10.
+- Graves, [Sequence Transduction with Recurrent Neural Networks](https://arxiv.org/abs/1211.3711), ICML 2012 Workshop on Representation Learning. The transducer, project 10.
 - Chan, Jaitly, Le and Vinyals, [Listen, Attend and Spell](https://arxiv.org/abs/1508.01211), 2015. Attention-based recognition before transformers.
 
 Transformers and Whisper.
 
 - Vaswani et al., [Attention Is All You Need](https://arxiv.org/abs/1706.03762), NeurIPS 2017. The transformer; after chapter 13 you can read it as a description of code you own.
-- Radford, Kim, Xu, Brockman, McLeavey and Sutskever, [Robust Speech Recognition via Large-Scale Weak Supervision](https://arxiv.org/abs/2212.04356), 2022. The Whisper paper, and the source of the Whisper error rates above. Its section on long-form transcription is the list of things our loop does not do.
-- Gulati et al., [Conformer: Convolution-augmented Transformer for Speech Recognition](https://arxiv.org/abs/2005.08100), Interspeech 2020. Convolution and attention in one block; source of the 1.9% figure.
+- Radford, Kim, Xu, Brockman, McLeavey and Sutskever, [Robust Speech Recognition via Large-Scale Weak Supervision](https://arxiv.org/abs/2212.04356), 2022. The Whisper paper, and the source of the Whisper error rates above. Its section 4.5, on long-form transcription, is the list of things our loop does not do.
+- Gulati et al., [Conformer: Convolution-augmented Transformer for Speech Recognition](https://arxiv.org/abs/2005.08100), Interspeech 2020. Convolution and attention in one block; source of the 2.1% and 1.9% figures.
 - Gong, Chung and Glass, [AST: Audio Spectrogram Transformer](https://arxiv.org/abs/2104.01778), Interspeech 2021. Source of the 35-word classification figure.
 
 Data.

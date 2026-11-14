@@ -1,12 +1,12 @@
 ## The Alignment Problem: CTC
 
-In the last chapter we trained a network that listens to a one-second clip and says which of 35 words it heard. It works, and it is also a dead end. The network takes its matrix of logits, one row per frame, squashes all the rows into one by pooling over time, and puts a softmax over 35 classes on top. One clip in, one label out. Say two words in a row, or a word it has never seen, and it has no way to answer.
+In the last chapter we trained a network that listens to a one-second clip and says which of 35 words it heard. It works, and it is also a dead end. The network computes one row of numbers per frame, squashes all the rows into one by pooling over time, and puts a linear layer and a softmax over 35 classes on top. One clip in, one label out. Say two words in a row, or a word it has never seen, and it has no way to answer.
 
 A speech recognizer has to produce a *sequence*: some unknown number of letters, at unknown times. In this chapter we build the piece that makes that trainable. It is a loss function called connectionist temporal classification, CTC for short, and it is the conceptual heart of the book. There is no audio in this chapter and no network either. Just a grid, a recurrence, and some careful arithmetic.
 
 ### What We Would Like To Train
 
-The obvious first move is to stop pooling. Before the pooling layer, chapter 7's model already had a matrix of logits with one row per frame. So let's keep every row and put a softmax on each: one probability distribution over letters every 10 or 20 milliseconds. For the word "cat" spoken over 100 frames, we would love the output to read something like `ccccc...aaaaaa...ttt`.
+The obvious first move is to stop pooling. Before the pooling layer, chapter 7's model already had a matrix with one row per frame. So let's keep every row, let the last linear layer turn each one into logits, and put a softmax on each: one probability distribution over letters every 10 or 20 milliseconds. For the word "cat" spoken over 100 frames, we would love the output to read something like `ccccc...aaaaaa...ttt`.
 
 We know how to train a per-frame softmax. Chapter 6's cross-entropy loss needs the correct class for every row. And that is the problem: our training data says "this clip says `cat`". It does not say which frames are the `c`. We know *what* was said and not *when*. This is the **alignment problem**.
 
@@ -18,7 +18,7 @@ There are three ways around it that people have really used, and all three are b
 
 In 2006 Alex Graves and his co-authors published a way out that needs none of this. Their paper describes it as
 
-> a novel method for training RNNs to label unsegmented sequence data directly
+> a novel method for training RNNs to label unsegmented sequences directly
 
 ([Graves, Fernández, Gomez and Schmidhuber, 2006](https://www.cs.toronto.edu/~graves/icml_2006.pdf)). The idea fits in one sentence: **do not pick an alignment; add up the probability of all of them.** If every way of stretching `cat` over the 100 frames counts as a correct answer, then we never have to say which one is right. The network gets to decide where the letters go, and the loss only checks that, one way or another, the letters come out as `cat`.
 
@@ -26,7 +26,7 @@ That sentence hides two questions. What exactly is "a way of stretching `cat` ov
 
 ### The Blank And The Collapse Rule
 
-Let's call a sequence with one class per frame an **alignment** (the paper calls it a path, and we will use both words). The short thing we want out of it, `cat`, is a **labelling**. We need a rule that turns an alignment into a labelling.
+Let's call a sequence with one class per frame an **alignment** (the paper calls it a path, and we will use both words). The short thing we want out of it, `cat`, is a **labeling**. We need a rule that turns an alignment into a labeling.
 
 A letter lasts several frames, so the first part of the rule is: merge runs of the same class. `cccaaaat` becomes `cat`.
 
@@ -56,7 +56,7 @@ use crate::mat::Mat;
 pub const BLANK: usize = 0;
 
 /// Merge repeated classes, then drop blanks: the map from an alignment (one
-/// class per frame) to the labelling it stands for.
+/// class per frame) to the labeling it stands for.
 pub fn collapse(path: &[usize]) -> Vec<usize> {
     let mut labels = Vec::new();
     let mut previous = BLANK;
@@ -84,16 +84,16 @@ fn collapse_merges_repeats_then_drops_blanks() {
 }
 ```
 
-### The Probability Of A Labelling
+### The Probability Of A Labeling
 
 Now the "add them all up" part, as arithmetic. The network gives us a table: for each frame `t` and class `k`, a probability `y[t][k]`, each row summing to 1 because it came out of a softmax.
 
 - The probability of one alignment is the product of the probabilities it picks, one per frame.
-- The probability of a labelling is the sum of that over every alignment that collapses to it.
+- The probability of a labeling is the sum of that over every alignment that collapses to it.
 
 ```text
 p(alignment) = y[0][class at frame 0] * y[1][class at frame 1] * ... * y[T-1][class at frame T-1]
-p(labelling) = sum of p(alignment) over all alignments with collapse(alignment) == labelling
+p(labeling)  = sum of p(alignment) over all alignments with collapse(alignment) == labeling
 ```
 
 Here `T` is the number of frames. The loss we will train with is `-ln p(target)`: chapter 6's cross-entropy, with "the correct class" replaced by "any correct alignment".
@@ -134,14 +134,16 @@ The probability of one alignment is a product, which we compute as a sum of loga
 ```rust
 // src/ctc.rs
 /// The log-probability of one alignment: the sum over frames of the
-/// log-probability of the class it picks in that frame.
+/// log-probability of the class it picks in that frame. (The probability
+/// itself is the product of the per-frame probabilities; take `exp` of the
+/// result to get it.)
 pub fn alignment_log_prob(log_probs: &Mat, path: &[usize]) -> f64 {
     assert_eq!(path.len(), log_probs.rows, "an alignment has one class per frame");
     path.iter().enumerate().map(|(t, &class)| log_probs[(t, class)] as f64).sum()
 }
 
 /// Every alignment that collapses to `target`, with its log-probability, by
-/// brute force. Small inputs only.
+/// brute force (see [`for_each_alignment`]). Small inputs only.
 pub fn alignments_of(log_probs: &Mat, target: &[usize]) -> Vec<(Vec<usize>, f64)> {
     let mut found = Vec::new();
     for_each_alignment(log_probs.rows, log_probs.cols, |path| {
@@ -223,7 +225,8 @@ There is one exception, and it is the double letter again. If the target were `a
 /// the blank between them?
 ///
 /// Only when `s` holds a label (odd positions do) that differs from the label
-/// two positions back.
+/// two positions back. Skipping the blank between two equal labels would glue
+/// them into one when the path is collapsed.
 fn can_skip_into(extended: &[usize], s: usize) -> bool {
     s >= 2 && extended[s] != BLANK && extended[s] != extended[s - 2]
 }
@@ -287,7 +290,6 @@ The forward lattice alpha, as probabilities (rows: frames, columns: positions in
 
 > **Play with it:** [the CTC lattice](../interactive/ctc.html)
 
-
 ### Why We Need Logarithms
 
 The alpha values in the table shrink as we move right, and that is a problem waiting to happen. Every cell is a sum of products of `t` numbers below 1. Suppose an untrained network spreads its probability evenly over 28 classes: a path is then worth 28^-T. In an `f32` that becomes exactly zero at 32 frames. In an `f64` it lasts until 224 frames, a bit over two seconds of audio at 10 ms per frame. After that the lattice is all zeros, the loss is `-ln 0`, and training is over.
@@ -334,7 +336,8 @@ We could now write the recurrence with one `log_add` per term, and the tests of 
 ```rust
 // src/ctc.rs
 /// Leave log space for one row of a lattice: fill `scaled[s]` with
-/// `e^(row[s] - m)`, where `m` is the largest value in the row, and return `m`.
+/// `e^(row[s] - m)`, where `m` is the largest value in the row, and return
+/// `m`.
 fn exp_relative_to_max(row: &[f64], scaled: &mut [f64]) -> f64 {
     let row_max = row.iter().fold(LOG_ZERO, |m, &v| m.max(v));
     for (p, &log_value) in scaled.iter_mut().zip(row) {
@@ -346,20 +349,24 @@ fn exp_relative_to_max(row: &[f64], scaled: &mut [f64]) -> f64 {
 
 Now a cell adds two or three ordinary numbers from `scaled` and goes back to log space with a single `ln`: the answer is `row_max + ln(sum)`.
 
-There is one way this can go wrong. A cell that is 10^300 times less likely than the row's best cell rescales to 10^-300, and one a bit further down rescales to zero, although its true logarithm is a perfectly good finite number. So we keep a careful lane: if the sum of rescaled values is suspiciously small (or zero), forget the shortcut and `log_add` the original logarithms, which cannot underflow.
+There is one way this can go wrong. A cell that is 10^300 times less likely than the row's best cell rescales to 10^-300, and one a bit further down rescales to zero, although its true logarithm is a perfectly good finite number. So we keep a careful lane for sums that are suspiciously small (or zero):
 
 ```rust
 // src/ctc.rs
 /// Below this, a sum of rescaled probabilities is too close to the bottom of
-/// `f64`'s range to trust.
+/// `f64`'s range to trust; see [`log_of_sum`].
 const SAFE_SUM: f64 = 1e-200;
 
-/// Go back to log space after adding up rescaled probabilities.
+/// Go back to log space after adding up rescaled probabilities (see
+/// [`exp_relative_to_max`]): the fast lane of the recursions.
 ///
 /// `sum` is a sum of two or three entries of `scaled`, and `cells` says which
-/// ones. Normally the answer is just `row_max + ln(sum)`. For cells far below
-/// the row's maximum, and for cells nothing can reach (`sum == 0`), we take
-/// the careful lane: `log_add` on the logarithms themselves.
+/// ones. Normally the answer is just `row_max + ln(sum)`: one `ln` instead of
+/// a [`log_add`] per term. That is exact unless the cells involved are so far
+/// below the row's maximum (a factor of 10^200 or more) that their rescaled
+/// values are running out of floating-point range. For those cells, and for
+/// cells nothing can reach (`sum == 0`), we take the careful lane instead:
+/// `log_add` on the logarithms themselves, which cannot underflow.
 fn log_of_sum(sum: f64, row_max: f64, row: &[f64], cells: &[usize]) -> f64 {
     if sum > SAFE_SUM {
         row_max + sum.ln()
@@ -369,18 +376,9 @@ fn log_of_sum(sum: f64, row_max: f64, row: &[f64], cells: &[usize]) -> f64 {
 }
 ```
 
-A cell that nothing can reach takes the careful lane too, and the fold over `-inf`s returns `-inf`, as it should. One more helper works out the skip rule once per target instead of once per cell:
+A cell that nothing can reach takes the careful lane too, and the fold over `-inf`s returns `-inf`, as it should.
 
-```rust
-// src/ctc.rs
-/// For every position of the extended target: may a path skip into it from
-/// two positions back?
-fn skip_table(extended: &[usize]) -> Vec<bool> {
-    (0..extended.len()).map(|s| can_skip_into(extended, s)).collect()
-}
-```
-
-And here is the forward recursion the crate uses. The lattice is a flat `T x S` buffer of `f64`; `split_at_mut` lets us read row `t - 1` while writing row `t`, which the borrow checker would otherwise refuse.
+Here is the forward recursion the crate uses. (`skip_table` calls `can_skip_into` for every position, so the skip rule is worked out once per target and not once per cell.) The lattice is a flat `T x S` buffer of `f64`; `split_at_mut` lets us read row `t - 1` while writing row `t`, which the borrow checker would otherwise refuse.
 
 ```rust
 // src/ctc.rs
@@ -562,31 +560,7 @@ fn backward(lp: &[f64], classes: usize, extended: &[usize]) -> Vec<f64> {
 
 (The end cells are set to `0.0` because `ln 1 = 0`.)
 
-Divide `alpha * beta` by `p(target)` and we have the share we asked for. We will call it the **occupancy** of the cell, `gamma[t][s]`. In log space the product and the division are an addition and a subtraction:
-
-```rust
-// src/ctc.rs
-/// The occupancy (gamma) lattice: where the probability mass flows. Plain
-/// probabilities, not logarithms; all zeros if the target is impossible.
-pub fn occupancy(log_probs: &Mat, target: &[usize]) -> Mat {
-    check_target(target, log_probs.cols);
-    let extended = extend_with_blanks(target);
-    let lp = widen(log_probs);
-    let alpha = forward(&lp, log_probs.cols, &extended);
-    let beta = backward(&lp, log_probs.cols, &extended);
-    let total = total_log_prob(&alpha, log_probs.rows, extended.len());
-    let mut gamma = Mat::zeros(log_probs.rows, extended.len());
-    if total == LOG_ZERO {
-        return gamma;
-    }
-    for (g, (a, b)) in gamma.data.iter_mut().zip(alpha.iter().zip(&beta)) {
-        *g = (a + b - total).exp() as f32;
-    }
-    gamma
-}
-```
-
-`widen` copies an `f32` matrix into an `f64` buffer (and `narrow` does the reverse). `check_target` panics with a readable message if the target contains the blank or a class the network does not have; both are programmer errors, not data errors. The same file has public `forward_log`, `backward_log` and `log_likelihood` functions built from the same pieces, for programs like our toy that want to look at the lattices.
+Divide `alpha * beta` by `p(target)` and we have the share we asked for. We will call it the **occupancy** of the cell, `gamma[t][s]`. In log space the product and the division are an addition and a subtraction, `exp(alpha + beta - total)`, and that one line is the heart of the public function `occupancy(log_probs, target)`, which runs both recursions and returns the lattice as plain probabilities (all zeros if the target is impossible). The same file has public `forward_log`, `backward_log` and `log_likelihood` functions built from the same pieces, for programs like our toy that want to look at the lattices.
 
 For the toy, the program prints:
 
@@ -616,7 +590,7 @@ d loss / d logit[t][k] = y[t][k] - occ[t][k]
 occ[t][k] = sum of gamma[t][s] over the positions s whose symbol is k
 ```
 
-Softmax minus occupancy. If you recall, chapter 6's cross-entropy gradient was softmax minus one-hot: what the network said, minus a vector with a 1 at the correct class. CTC's gradient has the same shape, with the hard one-hot replaced by a soft target that the lattice worked out for itself. The right-hand panels of the figure are exactly these two things: `occ` on top, `y` below. At frame 0 the network gave `a` 0.6 and the lattice wants 0.741, so the gradient for that logit is −0.141: push `a` up.
+Softmax minus occupancy. If you recall, chapter 6's cross-entropy gradient was "probabilities minus the truth": what the network said, minus a *one-hot* vector with a 1 at the correct class and 0 everywhere else. CTC's gradient has the same shape, with the hard one-hot replaced by a soft target that the lattice worked out for itself. The right-hand panels of the figure are exactly these two things: `occ` on top, `y` below. At frame 0 the network gave `a` 0.6 and the lattice wants 0.741, so the gradient for that logit is −0.141: push `a` up.
 
 Now the derivation, in four steps. Write `p` for `p(target)`.
 
@@ -685,7 +659,7 @@ pub fn ctc_loss(logits: &Mat, target: &[usize]) -> (f32, Mat) {
 }
 ```
 
-The "sum over positions whose symbol is `k`" from the formula is the inner `for s` loop: each cell subtracts its occupancy from the column of the class it emits, so the three blank positions of `_ a _ b _` all land in column 0.
+The "sum over positions whose symbol is `k`" from the formula is the inner `for s` loop: each cell subtracts its occupancy from the column of the class it emits, so the three blank positions of `_ a _ b _` all land in column 0. (`check_target`, on the first line, panics with a readable message if the target contains the blank or a class the network does not have; both are programmer errors, not data errors.)
 
 Look at the signature: logits and a target in, `(f32, Mat)` out, the gradient the same shape as the logits. That is the same shape as chapter 6's `cross_entropy`, and it is what chapter 7's `batch_gradients` asks of a loss, any `Fn(&Mat, &T) -> (f32, Mat)`. So the network does not need to know that the loss changed. Swapping cross-entropy for CTC in a training step is passing a different function: `batch_gradients(&model, &batch, threads, ctc_loss)`.
 
@@ -745,7 +719,7 @@ for step in 0..=200 {
 }
 ```
 
-Nothing in this loop says where the `c` goes. To show progress the program prints a heatmap of the probabilities of four classes (time runs left to right, a darker character is a higher probability) and a greedy decode: take the most probable class in every frame, the line marked `best`, and collapse it. Chapter 10 has much more to say about decoding; for today that one line is enough.
+Nothing in this loop says where the `c` goes. To show progress the program prints a heatmap of the probabilities of four classes (time runs left to right, a darker character is a higher probability) and a greedy decode: take the most probable class in every frame, the line marked `argmax`, and collapse it. Chapter 10 has much more to say about decoding; for today that one line is enough.
 
 ```text
 == Part 2: gradient descent on the logits themselves ==
@@ -757,35 +731,35 @@ step   0   loss  43.1314   p(target) 0.0000   greedy decode: "zlobjilsmab jml"
     c |                |
     a |                |
     t |                |
-  best |zlobjillsmab jml|
+argmax |zlobjillsmab jml|
 
 step   5   loss  28.0632   p(target) 0.0000   greedy decode: "ct"
     _ |..            ..|
     c |  ..            |
     a |                |
     t |            ..  |
-  best |__cc________tt__|
+argmax |__cc________tt__|
 
 step  10   loss  15.3221   p(target) 0.0000   greedy decode: "cat"
     _ |+-...-:..:-:..-+|
     c |  ::.           |
     a |       ...      |
     t |           .::  |
-  best |__cc____a___tt__|
-
+argmax |__cc____a___tt__|
+...
 step  40   loss   1.3391   p(target) 0.2621   greedy decode: "cat"
     _ |@@  #@@  %@%  @@|
     c |  %@.           |
     a |       %%       |
     t |            @%  |
-  best |__cc___aa___tt__|
+argmax |__cc___aa___tt__|
 ...
 step 200   loss   0.1730   p(target) 0.8411   greedy decode: "cat"
     _ |@@  @@@  @@@  @@|
     c |  @@            |
     a |       @@       |
     t |            @@  |
-  best |__cc___aa___tt__|
+argmax |__cc___aa___tt__|
 ```
 
 At step 0 the decode is noise and the loss is 43.13. That number can be checked: with everything uniform a single 16-frame path is worth 28^-16, and `cat` has 27,132 alignments in 16 frames, which gives a loss of 43.11. By step 10 the greedy decode already reads `cat`. By step 40 the picture has settled: `c` in frames 2 and 3, `a` in 7 and 8, `t` in 12 and 13, and blank everywhere else.
@@ -796,11 +770,7 @@ Two things about this are worth dwelling on.
 
 **The output is spiky.** The letters are short, confident bursts and most frames are blank. This is the characteristic look of a CTC-trained model: it does not paint a letter over the whole stretch of time the sound lasts, it fires once to say "a `c` happened" and goes back to blank. You can see the first sign of it at step 5, where blank is learned at the edges before any letter is confident. Keep this picture in mind for the next two chapters, because a real model's output looks just like it.
 
-If we want one alignment out of a model, the best single path that spells a given target, there is a function for that too. It is the forward recursion with "sum of the ways to get here" replaced by "best of the ways to get here", plus a note in every cell of which predecessor won, so that we can walk backwards from the end. If that sounds like the DTW backtrace of chapter 5, it is the same thing. Its usual names are the Viterbi path or **forced alignment**: the thing we could not have at the start of the chapter because we had no model to produce it.
-
-In `ctc.rs` it is `best_alignment(log_probs, target)`, which returns an `Alignment`: for each frame the position and the class the best path is at, plus the log-probability of that one path, or `None` if the target does not fit. The loop is `forward`'s with `>` comparisons where the additions were. A maximum needs no `log_add`, since the larger logarithm is the larger probability.
-
-On the part 1 table this function is what printed `most probable single alignment: aa_b_ (p = 0.06300)`, the same winner you can find by eye in the brute-force list.
+If we want one alignment out of a model, the best single path that spells a given target, there is a function for that too: `best_alignment(log_probs, target)` in `ctc.rs`. It is the forward recursion with "sum of the ways to get here" replaced by "best of the ways to get here" (a `>` comparison where the addition was, with no `log_add` needed), plus a note in every cell of which predecessor won, so that we can walk backward from the end. If that sounds like the DTW backtrace of chapter 5, it is the same thing. Its usual names are the Viterbi path or **forced alignment**: the thing we could not have at the start of the chapter because we had no model to produce it. On the part 1 table it is what printed `most probable single alignment: aa_b_ (p = 0.06300)`, the same winner you can find by eye in the brute-force list.
 
 ### What Does It Cost?
 
@@ -811,20 +781,20 @@ $ cargo run --release --example ch08_ctc_toy -- bench
 ctc_loss, T = 100, C = 28, target length 20: 57.9 microseconds per call (best of 10 rounds of 2000; checksum 5500907.5)
 ```
 
-That is on my machine (an Apple M4 Max, one thread); yours will differ. To put 57.9 microseconds in context: chapter 7's benchmark, run on the same machine, measured about 0.96 milliseconds per utterance for the network's forward and backward passes on one thread. So the loss is around 6% of the work of a training step. Over an epoch of 85,000 clips it adds up to about 5 seconds of single-thread time, spread over however many threads `batch_gradients` is using. The lattice that replaced 10^32 alignments is not the bottleneck, and its cost grows only with the number of cells, `T × S`.
+That is on my machine (an Apple M4 Max, one thread); yours will differ. To put 57.9 microseconds in context: chapter 7's benchmark measured 0.70 milliseconds per utterance on one thread (0.24 forward, 0.46 backward) for a network of the shape we are about to train, with plain cross-entropy as the loss. So CTC adds around 8% to the work of a training step. Over an epoch of 85,000 clips it adds up to about 5 seconds of single-thread time, spread over however many threads `batch_gradients` is using. The lattice is not the bottleneck, and its cost grows only with the number of cells, `T × S`.
 
 ### Try It Yourself
 
 1. **Double letters.** In `part_one`, change the target from `[1, 2]` to `[1, 1]` (`aa`). You should see 15 alignments instead of 35, every one of them with a blank between the two runs of `a`, and the lattice total still matching the brute-force total (0.032250).
 2. **A clip that is too short.** In `part_two`, set `frames` to 2. The loss prints as `inf` at every step and the decode never changes, because the gradient is all zeros. Then try 3: there is exactly one alignment, `cat`, with no room for a blank, and the loss falls to about 0.03.
-3. **Force a blank.** Change the text in `part_two` from `"cat"` to `"all"`. The final `best` line should show a blank separating two bursts of `l`, something like `__aa___ll___ll__`. The blank between the `c` and the `a` of `cat` was optional; this one is not.
+3. **Force a blank.** Change the text in `part_two` from `"cat"` to `"all"`. The final `argmax` line should show a blank separating two bursts of `l`, something like `__aa___ll___ll__`. The blank between the `c` and the `a` of `cat` was optional; this one is not.
 4. **Break the symmetry.** Change the initial logits in `part_two` from `0.01 * rng.normal()` to `3.0 * rng.normal()`. The starting loss roughly doubles, the letters still get learned, but they land wherever the random start happened to favor them (I got `cc_aa_tttt______`), not evenly spread.
 5. **More room.** Set `frames` to 40 in `part_two`. The bursts get thinner relative to the blanks around them: after 200 steps my run showed a single frame of `c`, two of `a` and one of `t` in a sea of blanks.
 
 ### Loose Ends
 
 - **One example at a time, with fresh buffers.** `ctc_loss` handles a single utterance and allocates its `alpha` and `beta` on every call. We get our parallelism from `batch_gradients` running one utterance per thread, and we have not bothered to reuse buffers because the network dominates the cost.
-- **CTC assumes frames are independent.** The probability of an alignment is a plain product of per-frame probabilities: given the audio, what the model says at frame 10 does not depend on what it said at frame 9. That is why a CTC model has no built-in sense that `q` is usually followed by `u`. Fixing that takes a language model or a different kind of loss, which we come back to in chapters 10 and 13.
+- **CTC assumes frames are independent.** The probability of an alignment is a plain product of per-frame probabilities: given the audio, what the model says at frame 10 does not depend on what it said at frame 9. That is why a CTC model has no built-in sense that `q` is usually followed by `u`. Fixing that takes a language model or a different kind of loss, which we come back to in chapters 10 and 14.
 - **We did not prove the lattice rules.** We argued that walks through the lattice are exactly the alignments of the target and then let the brute-force test convince us. The paper has the careful version.
 
 What's next on our agenda? Let's take stock. We started with a classifier that could only say one word per clip and a training set that says what was spoken but not when. We now have a loss function, about 300 lines of Rust, that takes a matrix of per-frame logits and a short target and returns a number and a gradient, having summed over every possible alignment along the way. We checked it against brute force and against finite differences, and we watched it invent an alignment for `cat` out of noise.
@@ -833,7 +803,7 @@ However, if you have been paying attention, you'll notice that we have not shown
 
 ### References
 
-- [Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks](https://www.cs.toronto.edu/~graves/icml_2006.pdf), Graves, Fernández, Gomez and Schmidhuber, 2006: the original paper. Our `alpha` and `beta` are theirs, except that their `beta` includes the emission at frame `t` and ours does not.
+- [Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks](https://www.cs.toronto.edu/~graves/icml_2006.pdf), Graves, Fernández, Gomez and Schmidhuber, ICML 2006: the original paper. Our `alpha` and `beta` are theirs, except that their `beta` includes the emission at frame `t` and ours does not.
 - [Sequence Modeling With CTC](https://distill.pub/2017/ctc/), Awni Hannun, Distill, 2017: the best illustrated explanation I know of.
 - [Supervised Sequence Labelling with Recurrent Neural Networks](https://www.cs.toronto.edu/~graves/preprint.pdf), Alex Graves, 2012: chapter 7 is a longer, gentler version of the paper.
 - Our code: [`src/ctc.rs`](../code/src/ctc.rs) and [`examples/ch08_ctc_toy.rs`](../code/examples/ch08_ctc_toy.rs). The loss plugs into [`src/nn/batch.rs`](../code/src/nn/batch.rs).

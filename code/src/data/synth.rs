@@ -106,7 +106,7 @@ impl Default for TrimConfig {
 /// `None` if the clip should not be used.
 ///
 /// This is the endpoint detector of chapter 2 ([`find_speech`]) plus a
-/// margin. In roughly one clip in three hundred the detector finds nothing (the
+/// margin. In fewer than one clip in a hundred the detector finds nothing (the
 /// recording is noise from end to end, or silent). We could keep the whole
 /// second in that case, but a second of noise labeled "seven" would teach
 /// the recognizer the wrong thing, so we drop those clips. Nobody will miss

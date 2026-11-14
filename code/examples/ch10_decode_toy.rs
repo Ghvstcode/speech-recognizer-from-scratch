@@ -66,7 +66,7 @@ fn part_one() {
     println!("That one alignment has probability {path_probability:.3}.");
 
     println!("\nThe truth, by adding up all 27 alignments:");
-    for hypothesis in decode::all_labellings(&log_probs) {
+    for hypothesis in decode::all_labelings(&log_probs) {
         println!("    p({:<7}) = {:.4}", toy_string(&hypothesis.labels), hypothesis.log_prob.exp());
     }
 

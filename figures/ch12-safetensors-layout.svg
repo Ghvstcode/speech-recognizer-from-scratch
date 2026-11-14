@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="340" viewBox="0 0 800 340" role="img">
+<title>The layout of a safetensors file</title>
+<desc>A bar with three parts, not to scale. Bytes 0 to 8 hold N, the length of the header, as a little-endian 64-bit integer; in Whisper tiny.en these bytes are a0 4a 00 00 00 00 00 00, which is 19,104. The next N bytes are the header, one JSON object with an entry per tensor giving its dtype, shape and data offsets. The rest of the file, 151,041,024 bytes, is tensor data. The entry for model.encoder.conv1.bias has data offsets 118207488 to 118209024, which point at a slice of 384 times 4 bytes inside the data section; offsets count from the start of the data section.</desc>
+<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.6" fill="rgba(25,22,21,.10)"/></pattern></defs>
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<rect width="100%" height="100%" fill="url(#dots)"/>
+<text x="48" y="36" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="16" font-weight="500" fill="#191615" text-anchor="start">model.safetensors, in three parts</text>
+<text x="752" y="36" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="rgba(25,22,21,0.6)" text-anchor="end">151,060,136 bytes · not to scale</text>
+<text x="48" y="76" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start">0</text>
+<text x="168" y="76" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start">8</text>
+<text x="400" y="76" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start">8 + N = 19,112</text>
+<text x="752" y="76" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="end">151,060,136</text>
+<rect x="48" y="84" width="120" height="56" fill="#FBFAF7" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="62" y="106" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">HEADER LENGTH</text>
+<text x="62" y="126" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="#191615" text-anchor="start">8 bytes</text>
+<rect x="168" y="84" width="232" height="56" fill="#FBFAF7" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="182" y="106" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">JSON HEADER</text>
+<text x="182" y="126" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="#191615" text-anchor="start">N = 19,104 bytes</text>
+<rect x="400" y="84" width="352" height="56" fill="#FBFAF7" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="414" y="106" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">TENSOR DATA</text>
+<text x="414" y="126" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="#191615" text-anchor="start">151,041,024 bytes of raw f32</text>
+<rect x="673" y="84" width="6" height="56" fill="#047857"/>
+<line x1="108" y1="140" x2="108" y2="180" stroke="rgba(25,22,21,0.3)" stroke-width="1"/>
+<line x1="284" y1="140" x2="284" y2="180" stroke="rgba(25,22,21,0.3)" stroke-width="1"/>
+<line x1="676" y1="180" x2="676" y2="150" stroke="#047857" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M676 143 L671.5 151 L680.5 151 Z" fill="#047857"/>
+<text x="666" y="165" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="#047857" text-anchor="end">384 × 4 = 1,536 bytes</text>
+<rect x="48" y="180" width="200" height="128" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)"/>
+<text x="64" y="202" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">THE FIRST 8 BYTES</text>
+<text x="64" y="228" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" font-weight="500" fill="#191615" text-anchor="start">a0 4a 00 00</text>
+<text x="64" y="246" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12.5" font-weight="500" fill="#191615" text-anchor="start">00 00 00 00</text>
+<text x="64" y="272" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start">a little-endian u64:</text>
+<text x="64" y="290" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="400" fill="#191615" text-anchor="start">0x4aa0 = 19,104</text>
+<rect x="272" y="180" width="480" height="128" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)"/>
+<text x="288" y="202" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">ONE OF THE 167 HEADER ENTRIES</text>
+<text x="288" y="226" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="400" fill="#191615" text-anchor="start">"model.encoder.conv1.bias": {</text>
+<text x="306" y="244" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="400" fill="#191615" text-anchor="start">"dtype": "F32",  "shape": [384],</text>
+<text x="306" y="262" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="start">"data_offsets": [118207488, 118209024]</text>
+<text x="288" y="280" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="400" fill="#191615" text-anchor="start">}</text>
+<text x="288" y="299" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.6)" text-anchor="start">offsets count from the start of the data, not of the file</text>
+</svg>

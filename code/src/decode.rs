@@ -291,7 +291,7 @@ pub fn prefix_beam_search(log_probs: &Mat, beam_width: usize) -> Vec<Hypothesis>
 /// This is what beam search approximates. It is only feasible for toy inputs
 /// (a handful of frames and classes); the tests and the book's examples use
 /// it as the ground truth.
-pub fn all_labellings(log_probs: &Mat) -> Vec<Hypothesis> {
+pub fn all_labelings(log_probs: &Mat) -> Vec<Hypothesis> {
     let mut probability: BTreeMap<Vec<usize>, f64> = BTreeMap::new();
     crate::ctc::for_each_alignment(log_probs.rows, log_probs.cols, |path| {
         let p = crate::ctc::alignment_log_prob(log_probs, path).exp();
@@ -604,7 +604,7 @@ mod tests {
         assert_eq!(best_path(&lp), vec![0, 0, 2]);
         assert_eq!(greedy(&lp), vec![2]);
 
-        let exact = all_labellings(&lp);
+        let exact = all_labelings(&lp);
         assert_eq!(exact[0].labels, vec![1, 2]);
         assert!((exact[0].log_prob.exp() - 0.372).abs() < 1e-6);
         let b = exact.iter().find(|h| h.labels == [2]).unwrap();
@@ -633,7 +633,7 @@ mod tests {
         let mut rng = Rng::new(31);
         for (frames, classes) in [(1, 3), (4, 3), (5, 3), (6, 3), (4, 4), (5, 4)] {
             let lp = random_log_probs(&mut rng, frames, classes);
-            let exact = all_labellings(&lp);
+            let exact = all_labelings(&lp);
             let beam = prefix_beam_search(&lp, 100_000);
             assert_eq!(beam.len(), exact.len(), "T={frames} C={classes}");
             assert_eq!(beam[0].labels, exact[0].labels);
@@ -652,7 +652,7 @@ mod tests {
     fn narrow_beam_never_overestimates() {
         let mut rng = Rng::new(32);
         let lp = random_log_probs(&mut rng, 6, 4);
-        let exact = all_labellings(&lp);
+        let exact = all_labelings(&lp);
         for width in [1, 2, 4, 8] {
             let beam = prefix_beam_search(&lp, width);
             assert!(beam.len() <= width);
@@ -702,12 +702,12 @@ mod tests {
     /// labelings, each with its exact probability, and so its top answer is
     /// the most probable *valid* labeling. Classes: blank, space, a, b.
     #[test]
-    fn lexicon_search_matches_brute_force_over_valid_labellings() {
+    fn lexicon_search_matches_brute_force_over_valid_labelings() {
         let mut rng = Rng::new(33);
         let lexicon = Lexicon::new(&["a", "ab", "ba", "bb"]);
         for frames in [1, 3, 5, 6] {
             let lp = random_log_probs(&mut rng, frames, 4);
-            let valid: Vec<Hypothesis> = all_labellings(&lp).into_iter().filter(|h| is_word_sequence(&lexicon, &h.labels)).collect();
+            let valid: Vec<Hypothesis> = all_labelings(&lp).into_iter().filter(|h| is_word_sequence(&lexicon, &h.labels)).collect();
             let found = lexicon_beam_search(&lp, &lexicon, &LexiconOptions::new(100_000));
             assert_eq!(found.len(), valid.len(), "T={frames}");
             assert_eq!(found[0].labels, valid[0].labels);

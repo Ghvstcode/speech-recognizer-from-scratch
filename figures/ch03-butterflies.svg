@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520" role="img">
 <rect width="100%" height="100%" fill="#F5F3EF"/>
 <title>The butterfly network of an 8-point FFT</title>
-<desc>Eight horizontal rails carry eight numbers from left to right through three stages. The inputs enter in bit-reversed order: x0, x4, x2, x6, x1, x5, x3, x7. Stage one combines neighbours into four transforms of length 2, stage two combines those into two transforms of length 4, stage three combines those into one transform of length 8, whose outputs X0 to X7 are the spectrum. Every combination is a butterfly: the lower value is multiplied by a twiddle factor, then the sum goes to the upper rail and the difference to the lower rail.</desc>
+<desc>Eight horizontal rails carry eight numbers from left to right through three stages. The inputs enter in bit-reversed order: x0, x4, x2, x6, x1, x5, x3, x7. Stage one combines neighbors into four transforms of length 2, stage two combines those into two transforms of length 4, stage three combines those into one transform of length 8, whose outputs X0 to X7 are the spectrum. Every combination is a butterfly: the lower value is multiplied by a twiddle factor, then the sum goes to the upper rail and the difference to the lower rail.</desc>
 <defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.6" fill="rgba(25,22,21,0.1)"/></pattern></defs>
 <rect width="100%" height="100%" fill="url(#dots)"/>
 <text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">An 8-point FFT is twelve butterflies</text>

@@ -274,7 +274,7 @@ impl Segmenter {
 
 Read it in three parts.
 
-**Regrouping.** Chunks arrive in whatever size the source likes; the endpointer wants exactly 160 samples at a time. The `while` loop feeds it every complete block and leaves a partial one in the buffer for the next call. This is `PcmDecoder`'s leftover byte again, one level up.
+**Regrouping.** Chunks arrive in whatever size the source likes; the endpointer wants exactly 160 samples at a time, and its `push` panics on a block of any other length. The `while` loop feeds it every complete block and leaves a partial one in the buffer for the next call. This is `PcmDecoder`'s leftover byte again, one level up.
 
 **Events.** On `SpeechStart` we remember where the utterance began, pre-roll included, but never earlier than the audio we still hold. On `SpeechEnd` we copy the samples out with `cut`, which also clamps the end to what has actually arrived. On the way we compute the block's level in decibels for a level meter.
 
@@ -315,33 +315,13 @@ Notice that everything happens on one thread. While the closure is busy recogniz
 
 ### From A Segment To Text
 
-What does the closure do with a `Segment`? Training, evaluation and the command line must agree on every detail of the chain from samples to text, so it is written down once, as `Recognizer` in `src/data/pipeline.rs`:
+What does the closure do with a `Segment`? The same thing chapter 9 did with a file: it calls `Recognizer::transcribe` from `src/data/pipeline.rs`, the one place where the chain from samples to text is written down, so training, evaluation and the live loop cannot drift apart. Features, network, `log_softmax`, then one of chapter 10's decoders.
 
-```rust
-// src/data/pipeline.rs
-
-impl Recognizer {
-    /// Per-frame log-probabilities for an utterance: output frames x 28.
-    pub fn log_probs(&self, samples: &[f32]) -> Mat {
-        let features = self.front_end.features(samples);
-        if features.rows == 0 || self.model.out_len(features.rows) == 0 {
-            return Mat::zeros(0, Alphabet::SIZE);
-        }
-        log_softmax(&self.model.predict(&features))
-    }
-
-    /// Audio in, text out.
-    pub fn transcribe(&self, samples: &[f32], decoder: &Decoder) -> String {
-        decode(&self.log_probs(samples), decoder, &self.lexicon)
-    }
-}
-```
-
-`front_end.features` is chapter 4's log-mel followed by `normalize`, which shifts and scales each of the 40 bands to mean 0 and variance 1 *over the utterance*. That removes the recording level and the tilt of the microphone. It also needs the whole utterance before it can compute a single mean. Remember that; it decides how our live recognizer feels.
+The first link of that chain is the front end: chapter 4's log-mel followed by `normalize`, which shifts and scales each of the 40 bands to mean 0 and variance 1 *over the utterance*. That removes the recording level and the tilt of the microphone. It also needs the whole utterance before it can produce a single frame, as chapters 4 and 9 both warned. Remember that; it decides how our live recognizer feels.
 
 ### The speech Binary
 
-Until now every program in this book has been an example. The recognizer deserves a proper front door: `src/main.rs`, a binary called `speech` with three commands. `transcribe` writes down what is said in WAV files, `listen` is the live loop, and `words` runs chapter 7's 35-word classifier on a clip. The file parses arguments by hand and prints; the one part worth reading is how `listen` picks its source and what it does with events:
+Until now every program in this book has been an example. The recognizer deserves a proper front door: `src/main.rs`, a binary called `speech` with three commands. `transcribe` writes down what is said in WAV files, `listen` is the live loop, and `words` runs chapter 7's 35-word classifier on a clip. The file parses arguments by hand and prints; the one part worth reading is how `listen` picks its source and what it does with events. (`engine` is a small enum that holds our `Recognizer` together with the chosen decoder.)
 
 ```rust
 // src/main.rs (inside listen_command)
@@ -432,7 +412,7 @@ heard 12.2 s of audio, 4 utterances.
 
 That is amazing. Nobody told the program where the utterances were. Go ahead and run it yourself: the lines appear one at a time, each a moment after its utterance ends. Add `--fast` and the same four lines come out at once (the whole run took half a second here), with identical cut points, because the segmenter counts samples and never looks at a clock.
 
-![Two panels over a shared time axis of 12 seconds. Top: the level in decibels of every 10 ms block, with four shaded regions labelled five cat up, left right stop, no down seven and one eight. Bottom: the detector's in-speech state, a square wave that rises shortly after each shaded region begins and falls about half a second after it ends.](../figures/ch11-endpointing-live.svg)
+![Two panels over a shared time axis of 12 seconds. Top: the level in decibels of every 10 ms block, with four shaded regions labeled five cat up, left right stop, no down seven and one eight. Bottom: the detector's in-speech state, a square wave that rises shortly after each shaded region begins and falls about half a second after it ends.](../figures/ch11-endpointing-live.svg)
 *What the segmenter saw. Drawn by `cargo run --release --example ch11_endpointing`, which runs the same loop on any WAV file you give it.*
 
 Look at the first utterance. "Five", "cat" and "up" are three separate humps with the level falling all the way back to the background between them, and they still arrive as one segment: that is the 600 ms hangover. The green line in the lower panel is the detector's state. It rises at about 0.84 s, yet the segment starts at 0.63 s; the difference is the 30 ms it took to be sure, the 30 ms of padding and the 150 ms of pre-roll, fetched from the buffer.
@@ -536,7 +516,7 @@ Greedy shows what the network really spells: fragments of sound, "o wo" for "hel
 
 What's next on our agenda? Let's take stock, because this is the end of Part III. Starting from an empty `Cargo.toml` we parsed WAV files, built an FFT and a mel filterbank, wrote layers with hand-derived gradients, implemented CTC, trained a network of 496,508 weights on a laptop, decoded its output three ways, and today connected it to a live stream. You can say "seven three stop" and watch the words appear. The recognizer is ours; only the capture is borrowed.
 
-And we have just listed, with examples, everything it cannot do: 35 words, pauses required, "hello world" heard as "no on". None of that is for lack of an idea. It is for lack of data and compute, tens of hours where the serious systems had hundreds of thousands. So in the next chapter we finally allow ourselves someone else's weights. We are going to open OpenAI's Whisper model file, find out what is inside, and start building the engine that runs it. `[dependencies]` stays empty.
+And we have just listed, with examples, everything it cannot do: 35 words, pauses required, "hello world" heard as "no on". None of that is for lack of an idea. It is for lack of data and compute: fifteen hours of single words, where the serious systems had hundreds of thousands of hours of sentences. So in the next chapter we finally allow ourselves someone else's weights. We are going to open OpenAI's Whisper model file, find out what is inside, and start building the engine that runs it. `[dependencies]` stays empty.
 
 ### References
 

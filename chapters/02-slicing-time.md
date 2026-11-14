@@ -1,6 +1,6 @@
 ## Slicing Time
 
-In the previous chapter we opened a WAV file by hand and found out that there is nothing mysterious inside: one second of speech is 16,000 numbers between -1 and 1, sitting in a `Wav { sample_rate, samples: Vec<f32> }`. We loaded `samples/seven.wav`, a one-second recording of somebody saying "seven", printed its samples and drew its waveform. That clip is going to follow us around for the whole book.
+In the previous chapter we opened a WAV file by hand and found nothing mysterious inside: one second of speech is 16,000 numbers between -1 and 1, sitting in a `Wav { sample_rate, samples: Vec<f32> }`. Our running example is still `samples/seven.wav`, one second of somebody saying "seven".
 
 Now we want to *measure* something about those 16,000 numbers, and right away we hit a problem: measure it over what? "Seven" is not one sound. It is a sequence of sounds, roughly "s", "eh", "v", "uh", "n", each lasting somewhere between a few tens of milliseconds and a couple of hundred. Compute one number over the whole second and we blend a hiss, two vowels and a lot of silence into an average that describes none of them. Look at a single sample and we learn that the microphone's membrane was at position 0.013 at that instant, which says nothing about the sound being made. One sample has no pitch, no loudness, no character.
 
@@ -25,7 +25,7 @@ frame 2                       [=======================]           320..720
           <----- frame_len ------>
 ```
 
-Why overlap? A sound that straddles the boundary between two non-overlapping frames would be split in half and seen properly by neither. And later in this chapter we are going to fade the edges of every frame towards zero, so whatever sits at the edge of one frame had better sit in the middle of another. Hold that thought.
+Why overlap? A sound that straddles the boundary between two non-overlapping frames would be split in half and seen properly by neither. And later in this chapter we are going to fade the edges of every frame toward zero, so whatever sits at the edge of one frame had better sit in the middle of another. Hold that thought.
 
 How many frames do we get out of a clip? Frame `i` starts at sample `i * hop_len` and needs `frame_len` samples. The first frame needs the clip to be at least `frame_len` long, and after that every further `hop_len` samples buy us one more frame:
 
@@ -45,8 +45,7 @@ Enough of the talk, let's write some code!
 ```rust
 // src/dsp/frame.rs
 
-/// How many frames `frames` produces. Only whole frames count: nothing is
-/// padded, and a few trailing samples that do not fill a frame are dropped.
+/// How many frames [`frames`] produces.
 pub fn num_frames(n_samples: usize, frame_len: usize, hop_len: usize) -> usize {
     assert!(frame_len > 0 && hop_len > 0, "frame_len and hop_len must be at least 1");
     if n_samples < frame_len {
@@ -57,14 +56,14 @@ pub fn num_frames(n_samples: usize, frame_len: usize, hop_len: usize) -> usize {
 }
 
 /// Cut `samples` into overlapping frames of `frame_len` samples, each starting
-/// `hop_len` samples after the previous one. The frames borrow from `samples`;
-/// nothing is copied.
+/// `hop_len` samples after the previous one. See [`num_frames`] for the edge
+/// policy. The frames borrow from `samples`; nothing is copied.
 pub fn frames(samples: &[f32], frame_len: usize, hop_len: usize) -> Vec<&[f32]> {
     (0..num_frames(samples.len(), frame_len, hop_len)).map(|i| &samples[i * hop_len..i * hop_len + frame_len]).collect()
 }
 ```
 
-That is all of framing. Rust's slices make it pleasant: a frame is a `&[f32]` pointing into the original samples, so 98 overlapping frames cost us 98 pointer-and-length pairs and not one copied sample.
+That is all of framing. (The "edge policy" in the comment is the rule we just worked out: whole frames only, no padding.) Rust's slices make it pleasant: a frame is a `&[f32]` pointing into the original samples, so 98 overlapping frames cost us 98 pointer-and-length pairs and not one copied sample.
 
 How do we know it works? We ask it small questions that we can answer by hand:
 
@@ -106,7 +105,10 @@ where `x[0]` to `x[N-1]` are the `N` samples of the frame.
 // src/dsp/frame.rs
 
 /// The energy of a frame: the mean of its squared samples.
-/// A full-scale sine has energy 0.5; silence has energy 0.
+///
+/// (Strictly speaking this is *power*, energy per sample. Dividing by the
+/// length makes frames of different sizes comparable.) A full-scale sine has
+/// energy 0.5; silence has energy 0.
 pub fn energy(frame: &[f32]) -> f32 {
     if frame.is_empty() {
         return 0.0;
@@ -115,8 +117,7 @@ pub fn energy(frame: &[f32]) -> f32 {
 }
 ```
 
-**Aside** <br>
-A physicist would object that a sum of squares is energy and that what we compute, energy divided by the number of samples, is *power*. They would be right. We divide by the length so that frames of different sizes can be compared, and we keep calling it energy because the speech literature does.
+The parenthesis in that comment is an apology to the physicists: a sum of squares is energy, and energy divided by the number of samples is *power*. We keep calling it energy because the speech literature does.
 
 There is a practical problem with this number. For the loudest frame of "seven" the energy is about 0.12. For a frame of the "s" it is about 0.0006. For the room noise before the word, about 0.000000003. All three are meaningful and they span a factor of forty million. Plot them on one axis and you see the vowel and a flat line.
 
@@ -135,7 +136,7 @@ level in dB = 10 * log10(energy / reference)
 - Twice the energy is `10 * log10(2) = +3.01 dB`, which everyone rounds to "+3 dB".
 - A tenth of the energy is -10 dB. Less than the reference means a negative number, and there is nothing wrong with a negative number of decibels.
 
-Decibels turn multiplication into addition. That is the whole trick. One more fact for later: energy goes with the *square* of the amplitude, so making every sample ten times bigger makes the energy a hundred times bigger, which is +20 dB. When you see `20 * log10(...)` somewhere, it is the same decibel computed from an amplitude.
+Decibels turn multiplication into addition. One more fact for later: energy goes with the *square* of the amplitude, so making every sample ten times bigger makes the energy a hundred times bigger, which is +20 dB. When you see `20 * log10(...)` somewhere, it is the same decibel computed from an amplitude.
 
 A dB number means nothing until you know the reference. Ours is energy 1.0, the loudest thing our sample format can hold (a square wave slamming between -1 and +1). So 0 dB is the ceiling and every real signal comes out negative. A full-scale sine has energy 0.5, which is -3 dB.
 
@@ -143,7 +144,6 @@ A dB number means nothing until you know the reference. Ours is energy 1.0, the 
 // src/dsp/frame.rs
 
 /// The energy of a frame in decibels: `10 log10(energy)`.
-/// Digital silence would be minus infinity, so we stop at -100 dB.
 pub fn energy_db(frame: &[f32]) -> f32 {
     10.0 * (energy(frame) + 1e-10).log10()
 }
@@ -183,17 +183,18 @@ A slow wave crosses zero rarely. A fast one crosses it all the time. A sine of f
 ```rust
 // src/dsp/frame.rs
 
-/// Zero-crossing rate: the fraction of neighbouring sample pairs that have
+/// Zero-crossing rate: the fraction of neighboring sample pairs that have
 /// opposite signs, between 0 and 1.
 pub fn zero_crossing_rate(frame: &[f32]) -> f32 {
     if frame.len() < 2 {
         return 0.0;
     }
-    // `windows(2)` hands us every pair of neighbours: (x0, x1), (x1, x2), ...
     let crossings = frame.windows(2).filter(|pair| (pair[0] >= 0.0) != (pair[1] >= 0.0)).count();
     crossings as f32 / (frame.len() - 1) as f32
 }
 ```
+
+`windows(2)` hands us every pair of neighbors, `(x0, x1)`, `(x1, x2)` and so on, and we count the pairs whose two members sit on opposite sides of zero. The test uses the formula from a moment ago: a 440 Hz sine at 16 kHz must come out at `2 * 440 / 16000 = 0.055`.
 
 ```rust
 // src/dsp/frame.rs (tests)
@@ -223,17 +224,17 @@ zero-crossing rate per frame:
   hissiest frame: #26  at 0.26 s   -32.4 dB  zero-crossing rate 0.76
 ```
 
-Let's read it together, left to right. I printed the number behind every bar while writing this, so the values below are the real ones.
+Let's read it together, left to right. The values below are the numbers behind the bars.
 
-- **Frames 0 to 18: nothing.** The energy sits at -85 dB. That is the room and the microphone's own noise.
+- **Frames 0 to 18: nothing.** The energy sits at -85 dB. That is the room and the microphone's own noise, and it is a quiet recording: the other one-second clips in `samples/` rest at about the same level, while a noisier room or a cheaper microphone sits 20 to 30 dB higher.
 - **Frames 21 to 35: the "s".** The energy climbs to about -30 dB and the zero-crossing rate jumps to about 0.75. Three sign changes for every four samples: this is noise with its weight near the top of what a 16 kHz recording can hold.
 - **Frames 37 to 52: the first vowel, "eh".** In the space of two frames the energy leaps by 20 dB to around -10 dB, and the zero-crossing rate collapses to 0.06 to 0.09. Loud and slow: a voiced sound. Twenty decibels means the vowel carries a hundred times the energy of the "s", which is why the "s" is a thin smear in the waveform plot and the vowel is a solid block.
-- **Frames 57 to 60: the "v".** The energy dips to -35 dB, as quiet as the "s" was, but the zero-crossing rate stays at 0.02. Your lower lip is against your teeth and almost closes off the sound, while your vocal cords keep buzzing. Quiet and slow.
+- **Frames 57 to 60: the "v".** The energy dips to -35 dB, as quiet as the "s" was, but the zero-crossing rate stays at 0.02 to 0.03. Your lower lip is against your teeth and almost closes off the sound, while your vocal cords keep buzzing. Quiet and slow.
 - **Frames 62 to 72: "uh-n".** Back up to about -21.5 dB for the second syllable, quieter than the first because the stress in "seven" is on the first, then a long slide down as the "n" fades away around frame 80.
 
 Two numbers per frame, and we can already see the syllables of the word and tell its hiss from its vowels. Not bad for forty lines.
 
-Compare that with measuring the whole second at once: the energy of all 16,000 samples is -18.8 dB and their zero-crossing rate is 0.19. No frame in the word looks like that. This is what "blurring the sounds together" means in numbers.
+Compare that with measuring the whole second at once: the energy of all 16,000 samples is -18.8 dB and their zero-crossing rate is 0.19. No frame in the word looks like that.
 
 One caveat about the second sparkline. Look at its two ends: in the silence the zero-crossing rate wobbles between 0.1 and 0.2, *higher* than during the vowel. Background noise crosses zero often too. The rate only means something when there is a sound to measure, which is why the example looks for the "hissiest" frame only among frames within 30 dB of the loudest.
 
@@ -245,13 +246,12 @@ Before we go on, one small traditional step. You saw that the vowel is about 20 
 y[t] = x[t] - 0.97 * x[t-1]
 ```
 
-Each output sample is the input sample minus 97% of the one before it. Think about what that does to two extreme signals. If the input is constant, say 1, 1, 1, 1, every output is `1 - 0.97 = 0.03`: a signal that does not change is almost wiped out. If the input alternates as fast as it can, +1, -1, +1, -1, every output is `±1.97`: a signal that flips at every sample is almost doubled. Everything in between gets something in between. Slow things are turned down, fast things are turned up.
+Each output sample is the input sample minus 97% of the one before it. Think about what that does to two extreme signals. If the input is constant, say 1, 1, 1, 1, every output is `1 - 0.97 = 0.03`: a signal that does not change is almost wiped out. If the input alternates as fast as it can, +1, -1, +1, -1, every output is `±1.97`: a signal that flips at every sample is almost doubled. Everything in between gets something in between. Slow things are turned down, fast things are turned up. The 0.97 is a parameter, `coeff`, and a `coeff` of 0.0 returns the signal unchanged.
 
 ```rust
 // src/dsp/frame.rs
 
 /// Pre-emphasis: `y[t] = x[t] - coeff * x[t-1]`, with `y[0] = x[0]`.
-/// `coeff` is usually 0.97; 0.0 returns the signal unchanged.
 pub fn preemphasis(samples: &[f32], coeff: f32) -> Vec<f32> {
     let mut out = Vec::with_capacity(samples.len());
     let mut previous = 0.0;
@@ -282,13 +282,13 @@ fn preemphasis_removes_a_constant_offset_almost_entirely() {
 
 On "seven" the effect is easy to measure. Before pre-emphasis, the loudest vowel frame (45) is at -9.2 dB and the hissiest "s" frame (26) at -32.4 dB, a gap of 23 dB. After it, the vowel frame drops to -21.3 dB and the "s" frame *rises* to -27.2 dB. The gap shrinks to 6 dB. The zero-crossing rate of the vowel frame goes from 0.09 to 0.15, because the fast wiggles riding on the slow wave now carry more weight.
 
-I should be honest about where this leaves us. "Low frequencies" and "high frequencies" are words we have not earned yet. We have a feeling for them (slow waves, fast waves) but no way to look at a frame and say how much of each is in it. That tool is the next chapter's. For now, take pre-emphasis as a tradition with a plausible story. Our feature code in chapter 4 applies it by default with the classic 0.97, and it is easy to switch off there to see whether it matters.
+I should be honest about where this leaves us. "Low frequencies" and "high frequencies" are words we have not earned yet: we have a feeling for them (slow waves, fast waves) but no way to look at a frame and say how much of each is in it. That tool is the next chapter's. For now, take pre-emphasis as a tradition with a plausible story. Our feature code in chapter 4 applies it by default with the classic 0.97, and there it is easy to switch off and see whether it matters.
 
 ### The Trouble With Sharp Edges
 
 Now to the thought we put on hold. When we cut a frame out of a recording, the cut falls wherever the frame boundary happens to be, and the sound does not care about our boundaries. Frame 45 of "seven" starts while the wave is at +0.013 and ends, 25 ms later, at +0.054 and climbing steeply. Our cut goes straight through the middle of a swing.
 
-Why is that a problem? In the next chapter we hand each frame to the Fourier transform to find out which frequencies are in it, and the Fourier transform treats a frame as if it were one cycle of something that repeats forever (we will be able to prove that then). Lay copies of frame 45 end to end and at every seam the signal jumps from where the frame ended to where it began. That jump was never in the sound. Our scissors made it. A sudden jump is the fastest change a signal can make, so it shows up as a sprinkling of energy at all frequencies that the speaker never produced. The name for this is **spectral leakage**, and we will see it with our own eyes in chapter 3.
+Why is that a problem? In the next chapter we hand each frame to the Fourier transform to find out which frequencies are in it, and the Fourier transform treats a frame as if it were one cycle of something that repeats forever (chapter 3 shows why). Lay copies of frame 45 end to end and at every seam the signal jumps from where the frame ended to where it began. That jump was never in the sound. Our scissors made it. A sudden jump is the fastest change a signal can make, so it shows up as a sprinkling of energy at all frequencies that the speaker never produced. The name for this is **spectral leakage**, and we will see it with our own eyes in chapter 3.
 
 The fix: before analyzing a frame, fade it in and fade it out. Multiply every sample by a weight that is 1 in the middle of the frame and falls smoothly to 0 at both ends. Then every frame starts and ends at zero, the seams always match, and there is no jump. The list of weights is called a **window function**, or just a **window**.
 
@@ -313,7 +313,9 @@ Hann and Hamming are the same formula with a different constant, so the code has
 use std::f32::consts::PI;
 
 /// The periodic Hann window: `0.5 - 0.5 cos(2 pi i / n)`.
-/// Starts at exactly 0, peaks at 1 in the middle. Our default for everything.
+///
+/// One full period of a raised cosine. It starts at exactly 0, peaks at 1 in
+/// the middle, and is our default for everything.
 pub fn hann(n: usize) -> Vec<f32> {
     raised_cosine(n, n, 0.5)
 }
@@ -363,7 +365,7 @@ pub fn coherent_gain(window: &[f32]) -> f32 {
 The last function is there because windowing makes a frame quieter: we multiplied most of it by something less than 1. The average height of a Hann window is 0.5, of a Hamming window 0.54. When we later read amplitudes off a spectrum, we divide by this number to undo the loss. Its textbook name is **coherent gain**.
 
 **Aside** <br>
-Every window comes in two flavors, *periodic* and *symmetric*, which differ only in whether we divide by `n` or by `n - 1`. I found this confusing the first time. Dividing by `n - 1` puts the first and the last sample exactly on the two ends of the curve, so the window is a mirror image of itself: `[0, 0.5, 1, 0.5, 0]` for five points. Dividing by `n` gives the symmetric window of length `n + 1` with its last point dropped: `[0, 0.5, 1, 0.5]` for four. That looks lopsided until you lay copies of it end to end, `0, 0.5, 1, 0.5, 0, 0.5, 1, 0.5, ...`, and see that the curve continues smoothly with no doubled zero at the seam. "Lay copies end to end" is how the Fourier transform thinks about a frame, so the periodic form is the right one for analyzing spectra, and the plain `hann` and `hamming` are periodic. The symmetric form is right when the window shapes a filter, which our resampler does much later. For 400 samples the two differ by less than 1%; it matters on the day you compare your numbers with another library's.
+Every window comes in two flavors, *periodic* and *symmetric*, which differ only in whether we divide by `n` or by `n - 1`. I found this confusing the first time. Dividing by `n - 1` puts the first and the last sample exactly on the two ends of the curve, so the window is a mirror image of itself: `[0, 0.5, 1, 0.5, 0]` for five points. Dividing by `n` gives the symmetric window of length `n + 1` with its last point dropped: `[0, 0.5, 1, 0.5]` for four. That looks lopsided until you lay copies of it end to end, `0, 0.5, 1, 0.5, 0, 0.5, 1, 0.5, ...`, and see the curve continue smoothly with no doubled zero at the seam. Laying copies end to end is how the Fourier transform thinks about a frame, so the plain `hann` and `hamming` are periodic. The symmetric form is right when the window shapes a filter, which our resampler in chapter 4 does. For 400 samples the two differ by less than 1%; it matters on the day you compare your numbers with another library's.
 
 Small windows we can compute by hand make good tests:
 
@@ -396,7 +398,7 @@ fn coherent_gains_are_the_textbook_ones() {
 
 Here is what the Hann window does to frame 45, the loudest frame of "seven":
 
-![Frame 45 of the word seven, 25 milliseconds of a vowel. The raw frame in grey is cut off mid-swing at both ends. The same frame multiplied by a Hann window, in green, shrinks smoothly to zero at both ends and matches the raw frame in the middle.](../figures/ch02-frame-windowed.svg)
+![Frame 45 of the word seven, 25 milliseconds of a vowel. The raw frame in gray is cut off mid-swing at both ends. The same frame multiplied by a Hann window, in green, shrinks smoothly to zero at both ends and matches the raw frame in the middle.](../figures/ch02-frame-windowed.svg)
 *The raw frame starts and ends mid-wave; the windowed frame starts and ends at zero.*
 
 And now the overlap pays off. You might worry that we are throwing sound away: whatever happened in the first and last few milliseconds of a frame has been multiplied by almost zero. It has, in *that* frame. But frames start every 160 samples, so every sample of the recording (apart from a few milliseconds at the two ends of the clip) lies within 80 samples of the center of some frame, and 80 samples from the center the Hann weight is still 0.65. What one frame fades out, its neighbors see at nearly full strength.
@@ -419,7 +421,7 @@ I tried exactly that, and it breaks in three instructive ways.
 
 The detector in the repository answers each of these in turn. Here is the list of ideas, and then the code:
 
-1. **A noise floor instead of a fixed threshold.** The detector estimates how loud the background is, and "loud" means "so many dB above the background". Decibels turn ratios into differences, so "10 dB above the noise" means "ten times the energy of the noise" in any room.
+1. **A noise floor instead of a fixed threshold.** The detector estimates how loud the background is, and "loud" means "so many dB above the background": "10 dB above the noise" is "ten times the energy of the noise" in any room.
 2. **Two thresholds.** To *start* speech a block must be 10 dB above the floor. Once speech has started, 5 dB is enough to *keep* it going, so a word that trails off is followed further down than the level it needed to get noticed. Using a different threshold depending on the state you are in is called **hysteresis**; a thermostat does the same so that the heating does not flicker on and off around the set temperature.
 3. **A minimum speech length.** Speech only starts after 30 ms in a row were loud. A click is over before that.
 4. **Hangover.** Speech only ends after 200 ms in a row were quiet. The closed lips of a "p" last nowhere near that long.
@@ -439,21 +441,28 @@ pub struct EndpointConfig {
     /// A block is "loud" if it is this many dB above the noise floor.
     pub start_db: f32,
     /// Once speech has started, a block only has to be this many dB above the
-    /// noise floor to count.
+    /// noise floor to count. Lower than `start_db`, so that a word that
+    /// trails off is not cut short.
     pub end_db: f32,
-    /// Blocks quieter than this (in dB) never count as loud, however quiet
-    /// the background is. Without it, a background of pure digital silence
-    /// would make the faintest rustle "10 dB above the noise".
+    /// Blocks quieter than this (in dB, see [`energy_db`]) never count as
+    /// loud, however quiet the background is. Without it, a background of
+    /// pure digital silence would make the faintest rustle "10 dB above the
+    /// noise".
     pub min_level_db: f32,
-    /// Only used when the whole recording is available: blocks more than this
-    /// many dB below the loudest block of the clip never count as loud.
+    /// Only used when the whole recording is available ([`find_speech`]):
+    /// blocks more than this many dB below the loudest block of the clip
+    /// never count as loud. It replaces `min_level_db`, which a live detector
+    /// needs because it cannot know how loud the speaker is going to be.
     pub peak_range_db: f32,
-    /// Speech starts once this many milliseconds in a row were loud.
+    /// Speech starts once this many milliseconds in a row were loud. Guards
+    /// against clicks and pops.
     pub min_speech_ms: f32,
     /// "Hangover": speech ends only after this many milliseconds in a row
-    /// were quiet.
+    /// were quiet. Guards against cutting a word at a short internal pause,
+    /// like the closed lips of the "p" in "happy".
     pub hangover_ms: f32,
-    /// Extra audio kept before the first and after the last loud block.
+    /// Extra audio kept before the first and after the last loud block, in
+    /// milliseconds. The soft beginning of a word is often below threshold.
     pub padding_ms: f32,
 }
 
@@ -473,13 +482,13 @@ impl Default for EndpointConfig {
 }
 ```
 
-Notice that the detector does not use our overlapping 25 ms frames. It measures plain 10 ms **blocks**, one after the other with no overlap: 160 samples at 16 kHz. Blocks are what a microphone will deliver.
+Notice that the detector does not use our overlapping 25 ms frames. It measures plain 10 ms **blocks**, one after the other with no overlap: 160 samples at 16 kHz. A live stream can be consumed that way, one small block as soon as it has arrived.
 
 ### A Two-State Machine
 
-Those five rules sound like a tangle of special cases. They come out clean if we think of the detector as a machine that is always in one of two states, **silence** or **speech**, and looks at one block at a time.
+Those five rules come out clean if we think of the detector as a machine that is always in one of two states, **silence** or **speech**, and looks at one block at a time.
 
-![A state diagram with two boxes, Silence and Speech. An arrow from Silence to Speech is labelled 30 ms loud in a row and reports SpeechStart. An arrow back is labelled 200 ms quiet in a row and reports SpeechEnd. Below, a scale of level above the noise floor shows that 5 dB is enough to stay in speech while 10 dB is needed to start it.](../figures/ch02-endpoint-states.svg)
+![A state diagram with two boxes, Silence and Speech. An arrow from Silence to Speech is labeled 30 ms loud in a row and reports SpeechStart. An arrow back is labelled 200 ms quiet in a row and reports SpeechEnd. Below, a scale of level above the noise floor shows that 5 dB is enough to stay in speech while 10 dB is needed to start it.](../figures/ch02-endpoint-states.svg)
 *Two states, two counters, two thresholds.*
 
 In silence, it counts loud blocks in a row; a single quiet block resets the count. Three in a row (30 ms) and it switches to speech. In speech, it counts quiet blocks in a row; a single loud block resets the count. Twenty in a row (200 ms) and it switches back. Every switch is reported to the caller as an event:
@@ -493,14 +502,16 @@ pub enum EndpointEvent {
     /// Speech began at this sample (counted from the start of the stream,
     /// padding included, so it lies a little in the past).
     SpeechStart { sample: usize },
-    /// Speech ended at this sample (exclusive, padding included).
+    /// Speech ended at this sample (exclusive, padding included). Never
+    /// more than the number of samples fed so far: the padding is cut short
+    /// if the stream does not reach that far.
     SpeechEnd { sample: usize },
 }
 ```
 
 "A little in the past" is worth a second look. The machine cannot know that speech has started until it has heard 30 ms of it, and cannot know that it has ended until 200 ms of quiet have gone by. So both events arrive late, and both carry the sample position where the thing *actually* happened. Whoever uses the detector live has to keep the most recent audio around so that it can go back and fetch the beginning of the word.
 
-The state the machine carries between blocks is small:
+The state the machine carries between blocks is small. The config speaks milliseconds and the machine counts samples and blocks, so `new` converts once:
 
 ```rust
 // src/dsp/frame.rs
@@ -527,7 +538,6 @@ pub struct Endpointer {
 impl Endpointer {
     /// A detector for audio at `sample_rate`.
     pub fn new(sample_rate: u32, config: EndpointConfig) -> Self {
-        // The config speaks milliseconds; the machine counts samples and blocks.
         let ms_to_samples = |ms: f32| (ms * sample_rate as f32 / 1000.0).round() as usize;
         let block_len = ms_to_samples(config.block_ms).max(1);
         let ms_to_blocks = |ms: f32| ((ms / config.block_ms).round() as usize).max(1);
@@ -561,7 +571,7 @@ Before the machine itself, one detail about how it measures a block. It does not
 ```rust
 // src/dsp/frame.rs
 
-/// The loudness of a block for endpointing, in dB: like `energy_db`, but
+/// The loudness of a block for endpointing, in dB: like [`energy_db`], but
 /// measured around the block's own average instead of around zero.
 fn level_db(block: &[f32]) -> f32 {
     if block.is_empty() {
@@ -583,15 +593,23 @@ Now the heart of it. `push` takes one block and moves the machine one step:
 impl Endpointer {
     /// Feed the next block of audio (`block_len()` samples; the blocks do not
     /// overlap). Returns an event if this block changed the state.
+    ///
+    /// Panics if the block has any other length: every sample position the
+    /// detector reports is a block count times `block_len()`.
     pub fn push(&mut self, block: &[f32]) -> Option<EndpointEvent> {
+        assert_eq!(
+            block.len(),
+            self.block_len,
+            "Endpointer::push takes blocks of exactly block_len() = {} samples, got {} (use chunks_exact)",
+            self.block_len,
+            block.len()
+        );
         let level = level_db(block);
-        // The very first block we ever hear is taken to be background.
         let noise = *self.noise_db.get_or_insert(level);
         let block_index = self.blocks_seen;
         self.blocks_seen += 1;
 
         if self.in_speech {
-            // In speech the bar is lower: end_db above the floor is enough.
             let still_loud = level > (noise + self.config.end_db).max(self.config.min_level_db);
             if still_loud {
                 self.quiet_run = 0;
@@ -605,10 +623,10 @@ impl Endpointer {
             self.in_speech = false;
             let last_loud_end = (block_index + 1 - self.quiet_run) * self.block_len;
             self.quiet_run = 0;
-            return Some(EndpointEvent::SpeechEnd { sample: last_loud_end + self.padding_samples });
+            let fed = self.blocks_seen * self.block_len;
+            return Some(EndpointEvent::SpeechEnd { sample: (last_loud_end + self.padding_samples).min(fed) });
         }
 
-        // In silence the bar is higher: start_db above the floor.
         let loud = level > (noise + self.config.start_db).max(self.config.min_level_db);
         if !loud {
             self.loud_run = 0;
@@ -628,7 +646,9 @@ impl Endpointer {
 }
 ```
 
-Every rule from our list is a line you can point at. The two thresholds are the `let` lines that compute `still_loud` and `loud`. The minimum speech length is `self.loud_run < self.min_speech_blocks`, the hangover is `self.quiet_run < self.hangover_blocks`. The padding is added to the end and subtracted from the start, and `saturating_sub` keeps us from asking for a sample before the beginning of the stream. The `.max(self.config.min_level_db)` is the guard from the config: however low the noise floor, nothing below -60 dB is ever called loud.
+It opens with a guard: every sample position the machine reports is a block count times the block length, so one block of the wrong size would quietly shift every later answer, and we would rather panic. Then `get_or_insert` settles the noise floor: if there is none yet, the very first block we ever hear is taken to be background.
+
+After that the function has two halves, one per state, and every rule from our list is a line you can point at. The two thresholds are the `let` lines that compute `still_loud` (in speech, where the bar is `end_db` above the floor) and `loud` (in silence, where it is the higher `start_db`). The minimum speech length is `self.loud_run < self.min_speech_blocks`, the hangover is `self.quiet_run < self.hangover_blocks`. The padding is added to the end and subtracted from the start, and `saturating_sub` keeps us from asking for a sample before the beginning of the stream. The `.max(self.config.min_level_db)` is the guard from the config: however low the noise floor, nothing below -60 dB is ever called loud. And the end is clamped with `.min(fed)`, because a position beyond the audio we have been given points at nothing. With the default settings the clamp never bites (by the time 200 ms of hangover have gone by, 30 ms of padding lie well in the past); it is there for configurations with more padding than hangover.
 
 The arithmetic for "where did it actually start?" deserves a worked example. Say blocks 21, 22 and 23 are the first loud ones. When block 23 arrives, `block_index` is 23 and `loud_run` has just become 3, so the run began at block `23 + 1 - 3 = 21`, which is sample `21 * 160 = 3360`. Minus 480 samples of padding: speech started at sample 2880, or 0.18 s.
 
@@ -640,7 +660,8 @@ That leaves the noise floor. Where does `noise` come from, and how does it keep 
 impl Endpointer {
     /// Track the background level with a block we judged to be silence:
     /// follow it down at once, follow it up slowly, closing the gap with a
-    /// time constant of one second.
+    /// time constant of one second. Slowly matters: a word that swells
+    /// gently must not drag the floor up with it and go unnoticed.
     fn adapt_noise_floor(&mut self, level: f32) {
         let rise_per_block = self.config.block_ms / 1000.0;
         if let Some(noise) = self.noise_db.as_mut() {
@@ -654,7 +675,7 @@ impl Endpointer {
 }
 ```
 
-The floor is deliberately lopsided. If a block is quieter than the floor, the floor was too high and we lower it at once. If a block is louder than the floor (but not loud enough to count as speech), the floor moves 1% of the way towards it; at a hundred blocks per second that closes most of the gap in about a second. Going up slowly matters: a word that swells gently from nothing would otherwise pull the floor up with it, stay just under the start threshold, and never be noticed. The test `a_slow_fade_in_is_still_detected` builds such a signal and checks that it is caught.
+The floor is deliberately lopsided. If a block is quieter than the floor, the floor was too high and we lower it at once. If a block is louder than the floor (but not loud enough to count as speech), the floor moves 1% of the way toward it; at a hundred blocks per second that closes most of the gap in about a second. A word that swells gently from nothing would otherwise pull the floor up with it, stay just under the start threshold, and never be noticed. The test `a_slow_fade_in_is_still_detected` builds such a signal and checks that it is caught.
 
 Notice also *when* the floor adapts: only in the silence state, and only on blocks that were not loud. During speech it is frozen, so the word itself is not mistaken for the new background.
 
@@ -667,16 +688,27 @@ impl Endpointer {
     /// Tell the detector the stream is over. If we were in the middle of
     /// speech, this closes it.
     pub fn finish(&mut self) -> Option<EndpointEvent> {
+        self.finish_at(self.blocks_seen * self.block_len)
+    }
+
+    /// [`finish`](Self::finish) for a stream of `stream_len` samples in all.
+    /// The reported end never lies beyond `stream_len`. For a live stream
+    /// that is the number of samples pushed; [`find_speech_with`] passes the
+    /// length of the whole clip, which can include a ragged tail shorter
+    /// than one block that was never pushed.
+    fn finish_at(&mut self, stream_len: usize) -> Option<EndpointEvent> {
         if !self.in_speech {
             return None;
         }
         self.in_speech = false;
         let last_loud_end = (self.blocks_seen - self.quiet_run) * self.block_len;
         self.quiet_run = 0;
-        Some(EndpointEvent::SpeechEnd { sample: last_loud_end + self.padding_samples })
+        Some(EndpointEvent::SpeechEnd { sample: (last_loud_end + self.padding_samples).min(stream_len) })
     }
 }
 ```
+
+Here the clamp does bite. A stream that stops while somebody is still talking has its last loud block at the very end, and the 30 ms of padding would point past it. `finish` cuts the end off at what was pushed. The private `finish_at` lets a caller who knows the true length of the audio say so; we need it in a moment.
 
 ### The Whole Clip At Once
 
@@ -694,7 +726,13 @@ pub fn find_speech(samples: &[f32], sample_rate: u32) -> Option<(usize, usize)> 
     find_speech_with(samples, sample_rate, &EndpointConfig::default())
 }
 
-/// `find_speech` with your own settings.
+/// [`find_speech`] with your own settings.
+///
+/// One field of `config` is not used as given: `min_level_db` is overridden
+/// with "the loudest block of this clip minus `peak_range_db`" (see
+/// [`EndpointConfig::peak_range_db`]). To move the absolute threshold of a
+/// whole-clip search, change `peak_range_db`; `min_level_db` only matters to
+/// a live [`Endpointer`].
 pub fn find_speech_with(samples: &[f32], sample_rate: u32, config: &EndpointConfig) -> Option<(usize, usize)> {
     let block_len = Endpointer::new(sample_rate, config.clone()).block_len();
     let mut levels: Vec<f32> = samples.chunks_exact(block_len).map(level_db).collect();
@@ -713,16 +751,16 @@ pub fn find_speech_with(samples: &[f32], sample_rate: u32, config: &EndpointConf
 
     let (mut first_start, mut last_end) = (None, None);
     let events = samples.chunks_exact(block_len).filter_map(|block| endpointer.push(block)).collect::<Vec<_>>();
-    for event in events.into_iter().chain(endpointer.finish()) {
+    for event in events.into_iter().chain(endpointer.finish_at(samples.len())) {
         match event {
             EndpointEvent::SpeechStart { sample } => first_start = first_start.or(Some(sample)),
-            EndpointEvent::SpeechEnd { sample } => last_end = Some(sample.min(samples.len())),
+            EndpointEvent::SpeechEnd { sample } => last_end = Some(sample),
         }
     }
     Some((first_start?, last_end?))
 }
 
-/// The part of `samples` that `find_speech` considers speech. If it finds
+/// The part of `samples` that [`find_speech`] considers speech. If it finds
 /// none, the whole input is returned unchanged: better a clip with silence
 /// around it than no clip at all.
 pub fn trim_silence(samples: &[f32], sample_rate: u32) -> &[f32] {
@@ -734,6 +772,8 @@ pub fn trim_silence(samples: &[f32], sample_rate: u32) -> &[f32] {
 ```
 
 There is no second detector here. `find_speech_with` prepares a noise floor and a guard level, builds the very same `Endpointer`, and pushes the clip through it block by block. If the machine fires more than once (two words with a long pause between them), the answer spans from the first start to the last end.
+
+Two details. The guard level overwrites `min_level_db`, so whatever you put in that field of your own config is ignored here, as the comment warns; for a whole clip the knob to turn is `peak_range_db`. And the clip is closed with `finish_at(samples.len())`: `chunks_exact` never pushes a ragged tail shorter than one block, but those samples exist, so the padding may reach into them.
 
 **Aside** <br>
 `f32` does not implement `Ord`, because `NaN` refuses to be compared with anything, so `levels.sort()` does not compile. `sort_by(f32::total_cmp)` uses a total order that puts every float somewhere, `NaN` included.
@@ -771,7 +811,7 @@ fn a_short_click_is_ignored_and_a_short_pause_is_bridged() {
 }
 ```
 
-The second test is our list of failures turned into assertions: the click is ignored, the pause is bridged. Further tests check that pure noise and pure silence give `None`, and that the streaming detector reports two separate utterances when the pause between them (400 ms) is longer than the hangover. Run them all with `cargo test dsp::frame`.
+The second test is our list of failures turned into assertions: the click is ignored, the pause is bridged. Further tests check that pure noise and pure silence give `None`, that the streaming detector reports two separate utterances when the pause between them (400 ms) is longer than the hangover, that a reported end never lies beyond the samples fed (`speech_end_never_exceeds_the_samples_fed`), and that `push` panics on a block of the wrong length. Run them all with `cargo test dsp::frame`.
 
 ### Running It
 
@@ -808,7 +848,7 @@ wrote ../figures/ch02-windows.svg
 wrote ../figures/ch02-frame-windowed.svg
 ```
 
-Most of this we have already met. The new part is the endpoint detection, and the figure the example draws shows it best (the figures in this chapter are written by a small SVG plotting helper in the repository; when you run the example, you regenerate them):
+Most of this we have already met. The new part is the endpoint detection, and the figure the example draws shows it best (running the example regenerates this chapter's figures, through the small SVG helper `plot`):
 
 ![Top: the waveform of a one-second recording of the word seven. Bottom: its energy in decibels for each 25 millisecond frame, rising from minus 85 dB to about minus 30 for the s, to minus 10 for the first vowel, dipping to minus 35 at the v, rising to minus 21 for the second syllable and falling back. The stretch from 0.18 to 0.80 seconds is shaded as speech in both.](../figures/ch02-energy-endpoints.svg)
 *The energy contour of "seven" and the stretch the detector marked as speech.*
@@ -828,19 +868,20 @@ The detector is crude and we should say where its limits are.
 * **The first block is assumed to be background.** If the stream begins in the middle of a word, the streaming detector starts with a floor that is far too high. It recovers as soon as a quiet block arrives, but the first word may be lost.
 * **Events arrive late**, by 30 ms at the start and 200 ms at the end. A shorter hangover responds faster and cuts more words in half.
 * **The numbers are picked by hand.** 10 dB, 5 dB, 30 ms, 200 ms: none of them is derived from anything.
-* **Pre-emphasis and windows are still unproven.** We gave a story for each. The evidence comes in the next chapter.
+* **The noise floor only learns in silence.** If the background gets more than 10 dB louder for good (a fan switches on), the machine takes that for speech, freezes the floor, and never finds out that this is the new quiet. Chapter 11 runs into exactly this and adds a guard around the detector.
+* **Pre-emphasis and windows are still unproven.** We gave a story for each. The evidence for windows comes in the next chapter. Pre-emphasis has to wait until chapter 4, where the features are built and you can switch it off and compare.
 
 ### Try It Yourself
 
 1. **Other words.** Run `cargo run --release --example ch02_frames -- ../samples/yes.wav`, then `stop.wav` and `happy.wav`. Before looking, guess what the two sparklines will look like. "Yes" ends with the sound "seven" begins with, so its zero-crossing rate should peak at the end of the word, not the start.
-2. **Other frame sizes.** In the example, change the frame to 5 ms and the hop to 2 ms, then to 100 ms and 50 ms. With tiny frames the energy contour becomes jagged: inside the vowel it ripples by 2 to 4 dB from frame to frame, because a frame now holds less than one buzz of the vocal cords. With huge ones the dip at the "v" gets shallower, about -27 dB where we measured -35. 25 and 10 sit between the two.
+2. **Other frame sizes.** In the example, change the frame to 5 ms and the hop to 2 ms, then to 100 ms and 50 ms. With tiny frames the energy contour becomes jagged: inside the vowel it ripples up and down by 2 to 4 dB, because a frame now holds less than one buzz of the vocal cords. With huge ones the dip at the "v" gets shallower, about -27 dB where we measured -35. 25 and 10 sit between the two.
 3. **Break "stop" in two.** Feed `samples/stop.wav` to an `Endpointer` built with `EndpointConfig { hangover_ms: 30.0, min_level_db: -50.0, ..EndpointConfig::default() }` and print the events. You should get two utterances, roughly 0.34 to 0.67 s and 0.64 to 0.73 s: the closed lips before the "p" end the first one, and the little burst of the "p" becomes a second word (they overlap because each gets its own padding). Raise the hangover to 50 ms and they merge into one, 0.34 to 0.73 s.
-4. **The fixed threshold.** Write the naive detector from the start of the endpoint section (first and last frame with `energy_db` above -40) and run it on `seven.wav` and on `zero_george.wav`. The first loses the edges of the word; the second keeps every frame, because nothing in that clip is below -30 dB.
+4. **The fixed threshold.** Write the naive detector from the start of the endpoint section (first and last frame with `energy_db` above -40) and run it on `seven.wav` and on `zero_george.wav`. The first loses the edges of the word; the second keeps every frame, because the quietest frame of that clip is at -30 dB.
 5. **Pre-emphasis in dB.** Apply `preemphasis(&wav.samples, 0.97)` and print `energy_db` of frames 26 and 45 before and after. The vowel should lose about 12 dB and the "s" should gain about 5. Then try a coefficient of 0.5 and of 1.0.
 
-What's next on our agenda? Let's take stock. We can cut a recording into overlapping 25 ms frames, 98 of them for one second. For each frame we can say how loud it is, in decibels, and how often it crosses zero. We can tilt the balance towards the fast-changing parts with pre-emphasis, fade a frame's edges with a Hann window so that our own scissors leave no mark, and find where the word starts and stops, in a file or in a stream that arrives 10 ms at a time. The streaming `Endpointer` now waits in the library until chapter 11, where it decides when our recognizer should start listening.
+What's next on our agenda? Let's take stock. We can cut a recording into overlapping 25 ms frames, 98 of them for one second. For each frame we can say how loud it is, in decibels, and how often it crosses zero. We can tilt the balance toward the fast-changing parts with pre-emphasis, fade a frame's edges with a Hann window so that our own scissors leave no mark, and find where the word starts and stops, in a file or in a stream that arrives 10 ms at a time. `trim_silence` and `find_speech` come back in chapters 5 and 9 to cut clips down to their word. The streaming `Endpointer` waits in the library until [chapter 11](11-listening-live.md), where it cuts a live microphone stream into utterances, with a longer hangover because people pause between words.
 
-However, a loudness contour can only do so much. "Seven" is a soft hiss, a loud hump, a dip and a smaller hump. Say "eleven" and you get humps and dips of much the same kind. Loudness tells us *that* something is being said and when, and the zero-crossing rate gives a one-number hint of whether it is hissy. Neither tells us *what* is being said. What distinguishes "eh" from "uh", or "s" from "sh", is which frequencies are present in the frame and how strong each one is. We have been leaning on the words "low" and "high frequencies" all chapter without being able to measure either. In the next chapter we fix that, by building the Fourier transform by hand.
+However, a loudness contour can only do so much. "Seven" is a soft hiss, a loud hump, a dip and a smaller hump. Say "eleven" and you get humps and dips of much the same kind. Loudness tells us *that* something is being said and when, and the zero-crossing rate gives a one-number hint of whether it is hissy. Neither tells us *what* is being said. What distinguishes "eh" from "uh", or "s" from "sh", is which frequencies are present in the frame and how strong each one is, and we cannot measure that yet. In the next chapter, [The Fourier Transform, By Hand](03-the-fourier-transform-by-hand.md), we fix that.
 
 ### References
 

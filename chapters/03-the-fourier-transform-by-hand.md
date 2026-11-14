@@ -8,7 +8,7 @@ That is today's problem, and it is the centerpiece of the first part of this boo
 
 Try this before any maths. Sing "eeee" on one comfortable note, and without changing the note or the loudness, slide to "oooo". Same pitch. Same volume. Our energy meter from chapter 2 would not flinch. Yet nobody would confuse the two sounds.
 
-What changed is the shape of your mouth. A vowel starts in your throat as a buzz: your vocal folds snap open and shut a hundred or two hundred times a second. A buzz is not a pure tone. It contains its basic frequency (the *pitch*, say 120 Hz) and also every multiple of it (240 Hz, 360 Hz, 480 Hz, ...), which are called *harmonics*. Your mouth and throat then act like an oddly shaped bottle: depending on where your tongue and lips are, some of those harmonics ring loudly and others are damped. The word you say is written in *which frequencies are emphasized*, and how that changes over time.
+What changed is the shape of your mouth. A vowel starts in your throat as a buzz: your vocal cords snap open and shut a hundred or two hundred times a second. A buzz is not a pure tone. It contains its basic frequency (the *pitch*, say 120 Hz) and also every multiple of it (240 Hz, 360 Hz, 480 Hz, ...), which are called *harmonics*. Your mouth and throat then act like an oddly shaped bottle: depending on where your tongue and lips are, some of those harmonics ring loudly and others are damped. The word you say is written in *which frequencies are emphasized*, and how that changes over time.
 
 Your ear reads it out directly. Inside the inner ear there is a membrane that is stiff at one end and floppy at the other, so each stretch of it responds to a different frequency, and the nerves along it report "how much" for each place. The ear is a frequency analyzer. (Its quirks are the subject of the next chapter.)
 
@@ -118,8 +118,10 @@ impl Complex {
     }
 
     /// The point on the unit circle at `angle` radians:
-    /// `e^(i angle) = cos(angle) + i sin(angle)`. The angle is an `f64` so
-    /// that the rounding happens once, at the end.
+    /// `e^(i angle) = cos(angle) + i sin(angle)`.
+    ///
+    /// The angle is an `f64` because for large transforms the angles get very
+    /// close together, and we want the rounding to happen once, at the end.
     pub fn from_angle(angle: f64) -> Self {
         Complex { re: angle.cos() as f32, im: angle.sin() as f32 }
     }
@@ -157,12 +159,7 @@ impl Add for Complex {
     }
 }
 
-impl Sub for Complex {
-    type Output = Complex;
-    fn sub(self, o: Complex) -> Complex {
-        Complex { re: self.re - o.re, im: self.im - o.im }
-    }
-}
+// ... `impl Sub for Complex` is the same with minus signs
 
 impl Mul for Complex {
     type Output = Complex;
@@ -198,8 +195,7 @@ The code is the formula with a `for` loop for each index:
 
 ```rust
 // src/dsp/fft.rs
-/// The discrete Fourier transform, straight from the definition. Works for
-/// any length, and is the reference the fast version is tested against.
+/// The discrete Fourier transform, straight from the definition.
 pub fn dft(input: &[Complex]) -> Vec<Complex> {
     let n = input.len();
     let mut output = Vec::with_capacity(n);
@@ -223,9 +219,10 @@ The input is complex even though our samples are real numbers (we pass them in w
 
 The `% n` avoids a numerical trap: for a 4,096-sample block the raw angle would be thousands of turns, and a float that spends its digits counting whole turns has few left for the position within the turn, which is all that matters.
 
-Let's point it at the two tiny frames we did by hand: wrap each sample in a `Complex`, call `dft`, and print every bin with its length.
+Let's point it at the two tiny frames we did by hand. The example for this chapter, `ch03_fft`, starts by doing just that: its `by_hand` function wraps each of the eight samples in a `Complex`, calls `dft`, and prints every bin with its length. The program prints a good deal more after this, and we will read the rest as we get to it. Go ahead and run it (bins 3 to 5 are trimmed here; they are zero too):
 
 ```text
+$ cargo run --release --example ch03_fft
 cosine, one cycle in 8 samples:
   X[0] =  0.000 +0.000i    |X[0]| = 0.000
   X[1] =  4.000 +0.000i    |X[1]| = 4.000
@@ -240,15 +237,16 @@ sine, one cycle in 8 samples:
   ...
   X[6] = -0.000 +0.000i    |X[6]| = 0.000
   X[7] =  0.000 +4.000i    |X[7]| = 4.000
+...
 ```
 
-There is our 4, in bin 1, for both frames. The cosine put it in the real part and the sine in the imaginary part (negated, as promised), and the length does not care which. One bin lights up and the rest are dark. That is amazing.
+There is our 4, in bin 1, for both frames. The cosine put it in the real part and the sine in the imaginary part (negated, as promised), and the length does not care which. (The stray `-0.000` is rounding error: a tiny negative number that prints as zero.) One bin lights up and the rest are dark. That is amazing.
 
 Except that it is not quite one bin. If you have been paying attention, you'll notice bin 7 lit up as well.
 
 ### Reading The Bins
 
-Three things need explaining before we can read a spectrum: what frequency a bin stands for, what that echo in bin 7 is, and what the size of the number means.
+Three things need explaining before we can read a spectrum.
 
 **Which frequency is bin k?** Bin `k` is the probe that makes `k` cycles per frame. A frame of `n` samples lasts `n / sample_rate` seconds, so `k` cycles per frame is `k * sample_rate / n` cycles per second:
 
@@ -288,7 +286,7 @@ Start from the definition and split the sum into the two piles. In the even pile
 X[k] = Even[k] + w^k * Odd[k]            where  w = e^(-2πi / n)
 ```
 
-`w` is one `n`-th of a turn, and `w^k` is `k` of those steps. In words: the odd samples sit one sample later than their even neighbours, and to probe `k` a delay of one sample is a rotation by `k / n` of a turn.
+`w` is one `n`-th of a turn, and `w^k` is `k` of those steps. In words: the odd samples sit one sample later than their even neighbors, and to probe `k` a delay of one sample is a rotation by `k / n` of a turn.
 
 So far this is rearranging. The payoff is in the top half of the output. `Even` and `Odd` only have `n / 2` bins each. What about `X[k + n/2]`? Ask what probe `k + n/2` does on the even pile: between consecutive even samples it advances `2 * (k + n/2) / n` turns, which is `2k / n` turns *plus one whole turn*. A whole turn is invisible. On the half-size pile, probe `k + n/2` and probe `k` are the same probe, so `Even[k + n/2] = Even[k]`, and likewise for `Odd`. The only thing that changes is the extra rotation: `w^(k + n/2)` is `w^k` followed by another half turn, and a half turn is multiplying by -1. Therefore:
 
@@ -324,7 +322,10 @@ The derivation is recursive, so the most direct code is recursive too. We write 
 
 ```rust
 // src/dsp/fft.rs
-/// The FFT exactly as the derivation goes. `input.len()` must be a power of two.
+/// The FFT exactly as the derivation goes: split into even and odd samples,
+/// transform each half, combine. Allocates at every level, so it is slower
+/// than [`fft`]; it is here because it is the easiest version to understand.
+/// `input.len()` must be a power of two.
 pub fn fft_recursive(input: &[Complex]) -> Vec<Complex> {
     let n = input.len();
     assert!(n.is_power_of_two(), "FFT length must be a power of two, got {n}");
@@ -356,7 +357,7 @@ Two observations get us there.
 ```rust
 // src/dsp/fft.rs
 /// An FFT of one fixed length, with its table of sines and cosines computed
-/// once up front. The transform itself needs no trigonometry at all.
+/// once up front.
 #[derive(Clone, Debug)]
 pub struct Fft {
     n: usize,
@@ -396,7 +397,7 @@ Drawn as a diagram, the two crossing lines of this step look like a bow tie, or 
 
 *The 8-point FFT: three stages of four butterflies each. The dashed boxes are the transforms being built, and each one is made from the two boxes to its left.*
 
-Read it left to right. Each box in stage 2 takes two finished transforms of length 2 (the upper one is `Even`, the lower one `Odd`) and makes one of length 4. Stage 3 does it once more. Three stages (`log2(8)`), four butterflies per stage (`8 / 2`), twelve multiplications in all, against 64 for the definition.
+Read it left to right. Each box in stage 2 takes two finished transforms of length 2 (the upper one is `Even`, the lower one `Odd`) and makes one of length 4. Stage 3 does it once more. That is `log2(8)` stages of `8 / 2` butterflies: twelve multiplications, against 64 for the definition.
 
 And the code:
 
@@ -451,7 +452,7 @@ A few details are worth a second look.
 
 The `stride` is the only subtle line. Transforms of length `len` need steps of `1 / len` of a turn, while our table has steps of `1 / n`, so we take every `n / len`-th entry. In stage 1 the only entry used is `twiddles[0]`, which is 1. In the last stage the stride is 1 and we use the whole table.
 
-For callers with one buffer and no plan lying around, `fft(buf)` is a one-line wrapper: `Fft::new(buf.len()).forward(buf)`.
+For callers with one buffer and no plan lying around, `fft(buf)` is a one-line wrapper: `Fft::new(buf.len()).forward(buf)`. It builds a fresh table of twiddle factors on every call and throws it away afterwards, which is fine for a one-off or a test (on my machine a 512-point `fft` call takes about 3 microseconds against 2 for `forward` on a plan we kept). Anything that transforms many buffers of the same length should keep the plan.
 
 ### Going Back: The Inverse Transform
 
@@ -560,7 +561,7 @@ fn ifft_undoes_fft() {
 }
 ```
 
-**Energy is the same on both sides.** In chapter 2 we measured the energy of a frame as the sum of its squared samples. The spectrum holds the same energy, shared out among the bins: the sum of `|X[k]|²`, divided by `n` because of our unscaled convention. This is *Parseval's theorem*: the spectrum is a full account of where the frame's energy went.
+**Energy is the same on both sides.** In chapter 2 we measured the energy of a frame from its squared samples: their mean, which is their sum divided by the frame length. Take the sum. The spectrum holds the same energy, shared out among the bins: the sum of `|X[k]|²`, divided by `n` because of our unscaled convention. This is *Parseval's theorem*: the spectrum is a full account of where the frame's energy went.
 
 ```rust
 // src/dsp/fft.rs (tests)
@@ -578,23 +579,23 @@ fn parseval_energy_is_the_same_on_both_sides() {
 There are a few more in the file (the naive DFT on a length that is not a power of two, zero-padding, and a `should_panic` for `fft` on 12 samples). `cargo test fft` runs the lot:
 
 ```text
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 238 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 292 filtered out; finished in 0.01s
 ```
 
 ### Racing Them
 
-The example for this chapter, `ch03_fft`, does four things, and we will take its output piece by piece. Go ahead and run it:
+The next thing `ch03_fft` prints, after the two by-hand frames, is a race:
 
 ```text
-$ cargo run --release --example ch03_fft
 DFT (n^2) against FFT (n log n) on random complex input:
+(the n^2 / (n log2 n) column is the textbook ratio; it understates the gap to expect by at least a factor of 2)
 
      n      naive DFT            FFT    speed-up    n^2 / (n log2 n)    largest difference
-   256    448.24 us        1.02 us        438x              32x        1.9e-5
-   512      1.41 ms        2.04 us        691x              57x        5.0e-5
-  1024      4.91 ms        4.31 us       1140x             102x        9.3e-5
-  2048     19.01 ms        9.55 us       1991x             186x        3.8e-4
-  4096     74.61 ms       19.86 us       3757x             341x        5.0e-4
+   256    564.26 us        1.19 us        472x              32x        1.9e-5
+   512      1.57 ms        2.19 us        719x              57x        5.0e-5
+  1024      5.08 ms        4.24 us       1198x             102x        9.3e-5
+  2048     19.06 ms        9.40 us       2029x             186x        3.8e-4
+  4096     74.89 ms       20.11 us       3724x             341x        5.0e-4
 
 ifft(fft(x)) for 1024 random samples: largest error 7.2e-7
 ...
@@ -602,15 +603,16 @@ ifft(fft(x)) for 1024 random samples: largest error 7.2e-7
 
 These timings are from my machine (an Apple M4 Max); yours will differ, but the shape will not. Each time `n` doubles, the naive DFT takes three to four times as long and the FFT a little more than twice as long. That is `n²` against `n log n`, measured. The last column says the two disagree by rounding error only.
 
-For our 512-point frames: 1.41 milliseconds against 2.04 microseconds. Remember the dataset of 105,000 one-second clips, 98 frames each? With the naive transform, one pass over it would spend about four hours in the DFT. With the FFT, about 21 seconds.
+For our 512-point frames: 1.57 milliseconds against 2.19 microseconds. Remember the dataset of 105,000 one-second clips, 98 frames each? With the naive transform, one pass over it would spend about four and a half hours in the DFT. With the FFT, about 23 seconds.
 
-Now the honest part. The measured speed-up at 512 is 691x, but the column next to it says theory predicts 57x. Where does the other factor of twelve come from? The comparison is not a fair fight, in three ways:
+Now the honest part, which the program hints at in its second line. The measured speed-up at 512 is 719x, but the column next to it says theory predicts 57x. Where does the other factor of twelve or so come from? The comparison is not a fair fight, in two ways:
 
 - The textbook ratio `n² / (n log2 n)` drops a constant. Our FFT does `(n/2) * log2(n)` multiplications, half of `n log2 n`, so in multiplications the ratio at 512 is 114x.
-- The naive `dft` computes a cosine and a sine for each of its 262,144 products. The plan looks its rotations up in a table. As a side experiment I gave the naive loop a table too (still two nested loops, still `n²`): it dropped to about 330 microseconds on the same machine, roughly 150 times slower than the FFT. So trigonometry alone was a factor of four or five.
-- The rest I have not taken apart. My guess is the integer `%` in the naive inner loop.
+- The naive `dft` computes a cosine and a sine for each of its 262,144 products. The plan looks its rotations up in a table. As a side experiment I gave the naive loop a table too (still two nested loops, still `n²`): it dropped to about 170 microseconds on the same machine, roughly 80 times slower than the FFT. So the trigonometry alone was a factor of eight or nine.
 
-The same side experiment timed the recursive version at 512 points: about 53 microseconds, some thirty times faster than the naive loop and about twenty-five times slower than the version we ship. Same algorithm, same multiplications; the difference is all allocation and trigonometry.
+Between them, those two more than cover the gap. With the trigonometry out of the way, one multiply-and-add in the naive loop costs, if anything, a little less than one butterfly, and the FFT wins purely by doing far fewer of them.
+
+The same side experiment timed the recursive version at 512 points: about 50 microseconds, some thirty times faster than the naive loop and about twenty-five times slower than the version we ship. Same algorithm, same multiplications; the difference is all allocation and trigonometry.
 
 ### A Spectrum We Can Check
 
@@ -642,7 +644,7 @@ The DFT has probes for whole numbers of cycles only: 32 cycles per frame, 33 cyc
 
 There is another way to see it. Lay copies of the frame end to end. A wave with a whole number of cycles continues seamlessly; with 32.5 cycles there is a sudden jump at every seam. A jump is a sharp event in time, a relative of the impulse from our test, and sharp events contain every frequency.
 
-The third part of the example measures the damage. It puts a single tone exactly halfway between bins 32 and 33 of a 512-point FFT, the worst case, and takes its spectrum twice: once on the raw frame (which is the same as applying a *rectangular* window, all ones) and once with a Hann window. Levels are in decibels relative to the tone's true level, so 0 means "all of it" and every -20 dB is a factor of ten in amplitude.
+The next part of the example measures the damage. It puts a single tone exactly halfway between bins 32 and 33 of a 512-point FFT, the worst case, and takes its spectrum twice: once on the raw frame (which is the same as applying a *rectangular* window, all ones) and once with a Hann window. Levels are in decibels relative to the tone's true level, so 0 means "all of it" and every -20 dB is a factor of ten in amplitude.
 
 ```text
 leakage: a 1015.6 Hz tone falls between bins 32 and 33 of a 512-point FFT.
@@ -694,17 +696,7 @@ Since this runs for every frame of every clip, the workhorse is a method on the 
     }
 ```
 
-The `zip` stops when `out` runs out, so the mirror half of `scratch` is never read. For one-off use there is a plain function that builds a plan and throws it away:
-
-```rust
-// src/dsp/fft.rs
-/// Power spectrum of a real frame: `|X[k]|^2` for `k = 0 ..= n_fft/2`.
-pub fn power_spectrum(frame: &[f32], n_fft: usize) -> Vec<f32> {
-    let mut out = vec![0.0; n_fft / 2 + 1];
-    Fft::new(n_fft).power_spectrum_into(frame, &mut Vec::new(), &mut out);
-    out
-}
-```
+The `zip` stops when `out` runs out, so the mirror half of `scratch` is never read. For one-off use, such as the sine test earlier, the free function `power_spectrum(frame, n_fft)` allocates the output, builds a plan, calls this method and throws the plan away.
 
 **What zero-padding buys, and what it does not.** Padding 400 samples to 512 changes the bin spacing from 40 Hz to 31.25 Hz, which looks like better resolution for free. It is not. The zeros carry no information about the sound. Our frame is still 25 milliseconds long, and two tones closer together than roughly `1 / 0.025 = 40` Hz still melt into one bump. Padding samples the *same* blurry spectrum at more points. Pad the loudest frame of "seven" all the way to 4,096 and I get a peak at 585.9 Hz where 512 said 593.75 Hz: the same bump read off a finer ruler. What padding really buys is permission to use the fast algorithm on a frame length chosen for speech reasons (25 ms) and not arithmetic ones. The alternative, cutting the frame to 256 samples, would throw away a third of it.
 
@@ -741,7 +733,7 @@ pub fn power_spectrogram(samples: &[f32], window: &[f32], hop_len: usize, n_fft:
 }
 ```
 
-Frame, window, pad, transform, square: everything so far is in those few lines. One plan serves every frame, and each spectrum is written straight into its row of the output.
+Frame, window, pad, transform, square: everything so far is in those few lines.
 
 If we plotted these numbers as they are, we would see almost nothing. In the spectrogram of our sample "seven", the largest cell is about 340 million times the median cell, and only 276 of the 25,186 cells are above one percent of the maximum. Drawn on a linear scale, the picture is a few dark specks on a blank page. It is the problem we had with energy in chapter 2, with the same solution: decibels.
 
@@ -753,8 +745,8 @@ pub fn db(power: f32) -> f32 {
     10.0 * power.max(1e-10).log10()
 }
 
-/// Convert a power spectrogram to decibels **relative to its loudest cell**
-/// (which becomes 0 dB), keeping only the top `dynamic_range_db`.
+/// Convert a power spectrogram to decibels **relative to its loudest cell**,
+/// keeping only the top `dynamic_range_db`.
 pub fn power_to_db(power: &Mat, dynamic_range_db: f32) -> Mat {
     let peak = power.data.iter().copied().fold(0.0f32, f32::max);
     let peak_db = db(peak);
@@ -762,9 +754,9 @@ pub fn power_to_db(power: &Mat, dynamic_range_db: f32) -> Mat {
 }
 ```
 
-It is `10 log10` here and not the `20 log10` used for amplitudes, because power is already amplitude squared. Clipping the bottom matters as much as the logarithm: digital silence would otherwise sit a hundred decibels or more down and use up most of the color scale.
+The loudest cell becomes 0 dB and everything else is negative. It is `10 log10` here and not the `20 log10` used for amplitudes, because power is already amplitude squared. Clipping the bottom matters as much as the logarithm: digital silence would otherwise sit a hundred decibels or more down and use up most of the color scale.
 
-The last function in the file, `time_extent`, is bookkeeping for the plot: a frame is best represented by its middle, so the first cell of the picture is centred half a frame in, and `time_extent` works out where the time axis starts and ends so that the picture lines up with the waveform above it.
+The last function in the file, `time_extent`, is bookkeeping for the plot: it works out where the time axis starts and ends when each frame is drawn at its middle, so that the picture lines up with the waveform above it.
 
 The tests pin the shape (one second at 16 kHz gives 98 rows of 257 bins) and check the spectrogram's reason for existing in miniature: a tone that jumps from 1,000 Hz to 3,000 Hz halfway through is loudest in bin 32 early on and in bin 96 at the end.
 
@@ -808,13 +800,13 @@ Even in sixteen rows of terminal characters there is a shape, and it is not the 
 
 Time runs left to right, and in the lower panel frequency runs bottom to top. Let's read it together, one sound at a time.
 
-**"s", from about 0.22 to 0.37 s.** In the waveform this is the unimpressive fuzz before the main event. In the spectrogram it is a tall cloud sitting high up: in these frames, over 90% of the energy is above 4,000 Hz. An "s" is not made by the vocal folds at all. It is air forced through a narrow gap behind the teeth, which makes noise, and noise has no pitch and no harmonics, so the cloud has no regular structure. A telephone line carries nothing above about 3,400 Hz, which is why "s" and "f" are so hard to tell apart on the phone.
+**"s", from about 0.22 to 0.37 s.** In the waveform this is the unimpressive fuzz before the main event. In the spectrogram it is a tall cloud sitting high up: in these frames, over 90% of the energy is above 4,000 Hz. An "s" is not made by the vocal cords at all. It is air forced through a narrow gap behind the teeth, which makes noise, and noise has no pitch and no harmonics, so the cloud has no regular structure. A telephone line carries nothing above about 3,400 Hz, which is why "s" and "f" are so hard to tell apart on the phone.
 
-**The first "e", from about 0.38 to 0.53 s.** The picture flips. Now the vocal folds are buzzing, the energy drops to the bottom of the plot (less than 1% of it is above 4,000 Hz) and it arranges itself in dark horizontal bands: the strongest around 600 Hz, another near 1,500 Hz, and fainter ones higher up. These bands are the resonances of the mouth from the start of the chapter, the frequencies this mouth shape lets ring. They are called *formants*, and their positions are what makes this vowel an "e" and not an "o". We are looking at the shape of someone's mouth.
+**The first "e", from about 0.38 to 0.53 s.** The picture flips. Now the vocal cords are buzzing, the energy drops to the bottom of the plot (less than 1% of it is above 4,000 Hz) and it arranges itself in dark horizontal bands: the strongest around 600 Hz, another near 1,500 Hz, and fainter ones higher up. These bands are the resonances of the mouth from the start of the chapter, the frequencies this mouth shape lets ring. They are called *formants*, and their positions are what makes this vowel an "e" and not an "o". We are looking at the shape of someone's mouth. This lopsidedness is also the fact behind chapter 2's pre-emphasis: a voiced sound keeps nearly all of its energy at the bottom, and pre-emphasis tilts the balance back toward the top before the features of the next chapter are computed. (The spectrogram here is drawn without it.)
 
-**The fine stripes.** Look closely inside the vowel and the dark bands are themselves made of thin horizontal lines. Those are the harmonics of the buzz. In frame 45 the peaks of the spectrum sit at about 125, 219, 344, 469 and 594 Hz: evenly spaced, a little under 120 Hz apart. That spacing is the pitch of the speaker's voice. So two things are superimposed in a vowel's spectrum: a fine comb of harmonics, set by the vocal folds, and a broad envelope over the comb, set by the mouth. The loudest harmonic, at 594 Hz, is just the one that happened to fall nearest the first formant.
+**The fine stripes.** Look closely inside the vowel and the dark bands are themselves made of thin horizontal lines. Those are the harmonics of the buzz. In frame 45 the peaks of the spectrum sit at about 125, 219, 344, 469 and 594 Hz: evenly spaced, a little under 120 Hz apart. That spacing is the pitch of the speaker's voice. So two things are superimposed in a vowel's spectrum: a fine comb of harmonics, set by the vocal cords, and a broad envelope over the comb, set by the mouth. The loudest harmonic, at 594 Hz, is just the one that happened to fall nearest the first formant.
 
-**"v", around 0.55 to 0.62 s.** The pale gap. The lower lip touches the upper teeth, the mouth is nearly closed, and the level drops to about 25 dB below the vowel before it. But look at the very bottom: a faint line survives near 125 Hz. A "v" is a *voiced* consonant, which means the vocal folds keep buzzing through it. That thin line is the difference between "v" and "f".
+**"v", around 0.55 to 0.62 s.** The pale gap. The lower lip touches the upper teeth, the mouth is nearly closed, and the level drops to about 25 dB below the vowel before it. But look at the very bottom: a faint line survives near 125 Hz. A "v" is a *voiced* consonant, which means the vocal cords keep buzzing through it. That thin line is the difference between "v" and "f".
 
 **The second "e" and the "n", from about 0.63 to 0.78 s.** Voicing comes back up, quieter than the first vowel, with nearly all the energy below 500 Hz. For the "n" the mouth is closed and the sound comes out through the nose, which muffles everything higher.
 
@@ -822,25 +814,25 @@ Different sounds, visibly different patches. "Eleven" would start with a vowel's
 
 ### Try It Yourself
 
-- **Find the alias.** Run `dft` on a cosine that makes 7 cycles in 8 samples (`(2.0 * PI * 7.0 * t / 8.0).cos()`) and on one that makes 1 cycle. The two printouts should match to three decimals: at eight sample instants the two waves are the same numbers.
+- **Find the alias.** In `by_hand` in `examples/ch03_fft.rs`, make the cosine complete 7 cycles in the 8 samples (`2.0 * PI * 7.0 * t as f64 / n as f64`) and run it again. The printout should match the one-cycle cosine to three decimals: at eight sample instants the two waves are the same numbers.
 - **Break the bit reversal.** In a copy of `forward`, delete the `if i < j` guard so that every pair is swapped twice, and run the tests. `fft_agrees_with_dft_on_random_input` should fail for every size above 2, while `impulse_has_a_flat_spectrum` and `constant_signal_lands_in_bin_zero` still pass. Why can those two not see the bug?
 - **Move the tone.** In `leakage` in `examples/ch03_fft.rs`, change `32.5` to `32.0` and then to `32.25`. On the bin, the rectangular window is perfect: everything away from the peak drops to the -140 dB floor of the printout. A quarter of a bin off, it is back to about -32 dB at ten bins. Windows are insurance against the case we cannot avoid.
-- **Trade time for frequency.** Call `power_spectrogram` on `seven.wav` with a 64-sample Hann window (4 ms) and a hop of 16, keeping `n_fft` at 512, and plot it the way the example does. A 4 ms frame is shorter than one cycle of this voice, so the horizontal harmonic stripes should give way to vertical ones: the individual pulses of the vocal folds. Then try a 1,024-sample window with `n_fft` 1024 and watch the harmonics sharpen while the edges of the "s" smear.
+- **Trade time for frequency.** Call `power_spectrogram` on `seven.wav` with a 64-sample Hann window (4 ms) and a hop of 16, keeping `n_fft` at 512, and plot it the way the example does. A 4 ms frame is shorter than one cycle of this voice, so the horizontal harmonic stripes should give way to vertical ones: the individual pulses of the vocal cords. Then try a 1,024-sample window with `n_fft` 1024 and watch the harmonics sharpen while the edges of the "s" smear.
 
 ### Loose Ends
 
-- **Powers of two only.** There are fast algorithms for every length (mixed-radix transforms, Bluestein's trick for primes). We pad instead.
+- **Powers of two only.** There are fast algorithms for every length (mixed-radix transforms, Bluestein's trick for primes). We pad instead. In chapter 12 we meet a model that insists on a 400-point transform with no padding, and there the slow `dft` idea, given a table, comes back to do the job.
 - **Half the work is wasted.** For real input the top half of the output mirrors the bottom half, yet we compute both. A "real FFT" exploits the symmetry, and production libraries add SIMD on top.
-- **The time-frequency trade is a law, not a bug in our code.** We said that being sharp in time means being blurry in frequency and never proved it. It is a theorem, and it is why the frame length is a compromise: 25 ms is long enough to resolve a voice's harmonics and short enough that the mouth has barely moved.
+- **The time-frequency trade is a theorem we never proved.** Sharp in time means blurry in frequency, whatever the code. It is why the frame length is a compromise: 25 ms is long enough to resolve a voice's harmonics and short enough that the mouth has barely moved.
 
-What's next on our agenda? Take stock first: we built complex numbers and the Fourier transform in three versions, raced the fast one against the slow one, saw for ourselves that windows matter, and turned a recording into a picture in which different speech sounds look different. But look at what we are now holding: 257 numbers for every frame, 25,186 for one short word. Much of that detail is not about *which word* was said. The fine comb of harmonics tells us the pitch of the speaker's voice, and "seven" is "seven" whether it is said high or low. And half of our bins are spent resolving the region above 4,000 Hz in 31 Hz steps, where our ears make no such fine distinctions. In the next chapter we squeeze the spectrogram the way the ear does: wide, overlapping frequency bands on a scale that matches human hearing, which keeps the formants, smooths away the harmonics, and leaves a few dozen numbers per frame. That compact picture is what every recognizer in the rest of this book will look at.
+What's next on our agenda? Take stock first: we built complex numbers and the Fourier transform in three versions, saw for ourselves that windows matter, and turned a recording into a picture in which different speech sounds look different. But look at what we are now holding: 257 numbers for every frame, 25,186 for one short word. Much of that detail is not about *which word* was said. The fine comb of harmonics tells us the pitch of the speaker's voice, and "seven" is "seven" whether it is said high or low. And half of our bins are spent resolving the region above 4,000 Hz in 31 Hz steps, where our ears make no such fine distinctions. In the next chapter we squeeze the spectrogram the way the ear does: wide, overlapping frequency bands on a scale that matches human hearing, which keeps the formants, smooths away the harmonics, and leaves a few dozen numbers per frame. That compact picture is what every recognizer in the rest of this book will look at.
 
 ### References
 
 - [`code/src/dsp/fft.rs`](../code/src/dsp/fft.rs): `Complex`, `dft`, `fft_recursive`, the `Fft` plan, `fft`, `ifft`, `power_spectrum`, and their tests.
 - [`code/src/dsp/spectrogram.rs`](../code/src/dsp/spectrogram.rs): `power_spectrogram`, `power_to_db`, `time_extent`.
-- [`code/examples/ch03_fft.rs`](../code/examples/ch03_fft.rs): the benchmark, the two tones, the leakage measurement and the spectrogram of "seven".
-- J. W. Cooley and J. W. Tukey, [An Algorithm for the Machine Calculation of Complex Fourier Series](https://www.ams.org/journals/mcom/1965-19-090/S0025-5718-1965-0178586-1/), Mathematics of Computation, 1965.
+- [`code/examples/ch03_fft.rs`](../code/examples/ch03_fft.rs): the two by-hand frames, the benchmark, the two tones, the leakage measurement and the spectrogram of "seven".
+- J. W. Cooley and J. W. Tukey, [An Algorithm for the Machine Calculation of Complex Fourier Series](https://doi.org/10.1090/S0025-5718-1965-0178586-1), Mathematics of Computation, 1965.
 - M. T. Heideman, D. H. Johnson and C. S. Burrus, [Gauss and the History of the Fast Fourier Transform](https://doi.org/10.1109/MASSP.1984.1162257), IEEE ASSP Magazine, 1984. Where the Gauss story comes from.
 - F. J. Harris, [On the Use of Windows for Harmonic Analysis with the Discrete Fourier Transform](https://doi.org/10.1109/PROC.1978.10837), Proceedings of the IEEE, 1978. The standard reference on leakage and windows.
 - Steven W. Smith, [The Scientist and Engineer's Guide to Digital Signal Processing](https://www.dspguide.com/), chapters 8 to 12. Free online; explains the DFT by correlation, the way we did.

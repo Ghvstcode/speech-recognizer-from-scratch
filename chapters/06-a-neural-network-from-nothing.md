@@ -1,6 +1,6 @@
 ## A Neural Network From Nothing
 
-In the last chapter we recognized spoken digits without learning anything. We kept 2,700 recordings as templates and compared every new clip against all of them with dynamic time warping. It worked: 300 out of 300 on speakers it had templates for, and 80.2% on a speaker it had never heard. It was also expensive, about 8.6 ms per clip and 1.1 million stored numbers, and we ended on a wish: a system that distills what many "sevens" have in common into far fewer numbers.
+In the last chapter we recognized spoken digits without learning anything. We kept 2,700 recordings as templates and compared every new clip against all of them with dynamic time warping. It worked: 300 out of 300 on speakers it had templates for, and 80.2% on a speaker it had never heard. It was also expensive, more than 9 ms per clip and 1.1 million stored numbers, and we ended on a wish: a system that distills what many "sevens" have in common into far fewer numbers.
 
 That distilling is what people mean by *learning*, and today we build the machinery for it: a neural network, the code that trains it, and the tool that tells us whether that code is correct. As always, `[dependencies]` stays empty. I will tell you now how it ends: our network will tie with DTW on accuracy, not beat it. What it wins is cost, by a factor of about a hundred, and the reason it only ties is the most useful thing in the chapter.
 
@@ -9,7 +9,7 @@ That distilling is what people mean by *learning*, and today we build the machin
 Strip away the vocabulary and there are four ingredients:
 
 1. **A function with adjustable numbers.** It takes the features of a clip and returns ten scores, one per digit. Inside it are thousands of numbers called *weights*. Different weights, different function.
-2. **Examples with known answers.** The same 2,700 labelled clips chapter 5 used as templates.
+2. **Examples with known answers.** The same 2,700 labeled clips chapter 5 used as templates.
 3. **A loss.** One number that says how wrong the function is on an example: near zero when it puts its money on the right digit, large when it does not.
 4. **A rule for nudging.** For every weight, work out whether making it slightly larger would make the loss go up or down, and move it a small step in the "down" direction. Repeat a few thousand times.
 
@@ -139,7 +139,7 @@ pub struct Linear {
     }
 ```
 
-(`kernels::matmul` gives the same result as `Mat::matmul`, taking four rows of `W` per pass; `src/nn/kernels.rs` holds a handful of such inner loops, and speed becomes chapter 7's concern. `add_row_to_each` adds the bias to every row.)
+(`kernels::matmul` gives the same result as `Mat::matmul`, taking four rows of `W` per pass; `src/nn/kernels.rs` holds a handful of such inner loops, and chapter 7 is where speed starts to matter. `add_row_to_each` adds the bias to every row.)
 
 The starting weights are small random numbers from our `Rng`. They cannot all be zero, or every output would compute the same thing and receive the same nudge forever. How small matters too; `src/nn/init.rs` has the two standard recipes, Xavier and He, which scale the randomness so a signal keeps roughly its size as it passes through a layer.
 
@@ -265,7 +265,7 @@ A sanity check that needs no calculus: the shapes. `X` is T × n_in and `dY` is 
     }
 ```
 
-And the test is our worked example, both rows at once:
+And the test is our worked example, both rows at once (`tiny()` builds the layer with the `W` and `b` above):
 
 ```rust
 // src/nn/linear.rs
@@ -275,9 +275,16 @@ And the test is our worked example, both rows at once:
         let d_out = Mat::from_vec(2, 2, vec![1.0, 0.0, 0.5, -1.0]);
         let mut grads = vec![Mat::zeros(2, 2), Mat::zeros(1, 2)];
         let d_in = tiny().backward(&x, &d_out, &mut grads);
-        assert_eq!(grads[0].data, vec![2.0, -2.0, 0.5, 1.0]); // dW = X^T dY
-        assert_eq!(grads[1].data, vec![1.5, -1.0]); // db = column sums of dY
-        assert_eq!(d_in.data, vec![1.0, 3.0, -1.5, -2.5]); // dX = dY W^T
+        // dW = X^T dY:
+        //   dW[0][0] = 1*1 + 2*0.5 = 2     dW[0][1] = 1*0 + 2*(-1) = -2
+        //   dW[1][0] = 1*1 - 1*0.5 = 0.5   dW[1][1] = 1*0 - 1*(-1) = 1
+        assert_eq!(grads[0].data, vec![2.0, -2.0, 0.5, 1.0]);
+        // db = column sums of dY
+        assert_eq!(grads[1].data, vec![1.5, -1.0]);
+        // dX = dY W^T:
+        //   row 0: [1*1 + 0*2, 1*3 + 0*4] = [1, 3]
+        //   row 1: [0.5*1 - 1*2, 0.5*3 - 1*4] = [-1.5, -2.5]
+        assert_eq!(d_in.data, vec![1.0, 3.0, -1.5, -2.5]);
     }
 ```
 
@@ -389,7 +396,7 @@ relative error = |a - n| / (|a| + |n|)        (|.| = length of the vector)
 
 which is 0 for identical gradients, 1 for a flipped sign, and 1/3 when one is twice the other. `gradcheck(&model, &x, loss_fn, &config)` does this for every weight tensor of a `Model` (up to 40 randomly picked entries each) and for the input.
 
-Enough of the talk, let's see it catch something. `ch06_gradcheck` defines one neuron, `y = tanh(w·x + b)` with a squared-error loss, and writes its backward pass three times: correctly, with a flipped sign, and forgetting tanh's slope.
+Enough of the talk, let's see it catch something. `ch06_gradcheck` defines one neuron, `y = tanh(w·x + b)` with a squared-error loss, and writes its backward pass three times: correctly, with a flipped sign, and forgetting tanh's slope. (It prints a fourth case as well, which we come to in a moment.)
 
 ```text
 $ cargo run --release --example ch06_gradcheck
@@ -422,6 +429,7 @@ $ cargo run --release --example ch06_gradcheck
   b            0.271670    0.182860
 
   relative error 1.96e-1  =>  MISMATCH, the backward pass is wrong
+...
 ```
 
 Bug 2 scores 0.92 and not 1 only because its bias gradient was left correct. Now look at bug 3. Every number has the right sign and the right order of magnitude. A network trained with it would learn, badly. Nothing but this comparison would ever tell you. From here to the end of the book the rule is: **no backward pass is trusted until it has passed the checker.** The GRU in chapter 7 and the CTC loss in chapter 8 go through the same gate.
@@ -436,18 +444,35 @@ The checker has limits, and we ran into both.
 
 *With a nudge of 0.01 one probe lands on the flat side: the checker measures 0.7 where backprop correctly says 1.*
 
-Backprop is right and the checker is wrong. One such unit among hundreds is enough to spoil a tensor's score. Here is the default checker on the digit network we are about to build (384 ReLUs, four real clips):
+Backprop is right and the checker is wrong. The fourth case of `ch06_gradcheck` stages exactly this. It is the same neuron with ReLU in place of tanh, a backward pass with no mistake in it, and a bias chosen so that the value going into the ReLU is +0.004:
 
 ```text
-   tensor                   checked   max |diff|   rel. error
-   0.linear.weight               40      9.70e-5      1.93e-4  ok
-   0.linear.bias                 40      1.73e-4      1.90e-4  ok
-   2.linear.weight               40      5.71e-5      3.57e-5  ok
-   2.linear.bias                 40      3.08e-2      1.32e-2  MISMATCH
-   ...
+4. No bug, but a false alarm: a ReLU neuron next to its kink
+
+  the value going into ReLU is +0.0040; the backward pass is correct
+
+  nudging by eps = 0.01:
+  parameter    backprop   numerical
+  w[0]        -0.148000   -0.132975
+  w[1]         0.296000    0.205100
+  w[2]        -0.592000   -0.345600
+  b           -0.296000   -0.205100
+
+  relative error 2.30e-1  =>  MISMATCH, although nothing is wrong: the nudge crossed the kink
+
+  nudging by eps = 0.001:
+  parameter    backprop   numerical
+  w[0]        -0.148000   -0.148000
+  w[1]         0.296000    0.296005
+  w[2]        -0.592000   -0.592000
+  b           -0.296000   -0.296000
+
+  relative error 3.65e-6  =>  ok, the two agree
 ```
 
-A false alarm, and it has a signature. A kink gives an error of a few percent, in one or two tensors, that moves with the seed and vanishes when every ReLU is swapped for tanh (this one drops to 6.41e-5). A bug gives 0.2 to 1 and survives everything. That is why our XOR demo below uses tanh, and why `ch06_digits` checks its ReLU network with `eps = 1e-3` and, if that still complains (on random inputs I saw it happen for one seed in three), repeats the check on a tanh copy before it refuses to train. The linear layers and the loss, where real bugs hide, are the same code in both.
+Look at the `b` row under `eps = 0.01`: the checker measured 0.205 where the truth is 0.296, about 0.7 of it, as in the figure. A relative error of 0.23 is as bad as bug 3, from code that is correct. Shrink the nudge to 0.001, so that both probes stay on the sloped side, and the two columns agree to six digits. (`cargo run --release --example ch06_gradcheck -- kink` prints this case alone.)
+
+Here every weight feeds the one unit that sits next to its kink, so the damage is as large as it gets. In a real network a few units out of hundreds are that close to zero, and the false alarm is milder: typically a few percent, in one or two tensors, while the rest pass. Either way it has a signature that a bug does not. It shrinks or disappears with a smaller `eps`, it moves when the seed changes (the units sit somewhere else), and it vanishes when every ReLU is swapped for tanh. A bug stays at 0.1 or more whatever you do. That is why our XOR demo below uses tanh, and why `ch06_digits` checks its ReLU network with `eps = 1e-3` and, if that still complains, repeats the check on a tanh copy before it refuses to train. The linear layers and the loss, where real bugs hide, are the same code in both.
 
 ### Gradient Descent
 
@@ -647,7 +672,7 @@ Free Spoken Digit Dataset: 3000 clips. Network input: 8 time slices x 12 MFCCs =
    ...
    epoch 40   train loss 0.0449  accuracy 100.0%   |   test loss 0.0076  accuracy  99.7%
 
-   trained in 1.4 s on one core
+   trained in 1.2 s on one core
 
    DTW against the MLP, same clips, same splits (MLP: mean over seeds [1, 2, 3] with lowest-highest)
 
@@ -666,11 +691,11 @@ Free Spoken Digit Dataset: 3000 clips. Network input: 8 time slices x 12 MFCCs =
 4. What one answer costs (one core, official split, averaged over the 300 test clips)
 
                                     features         deciding        total     numbers to store
-   DTW, 2700 templates                 96 us         10059 us     10155 us              1141404
-   MLP                                 90 us           3.2 us        93 us                59018
+   DTW, 2700 templates                 82 us          9903 us      9985 us              1141404
+   MLP                                 81 us           3.0 us        84 us                59018
 
-   Deciding is 3102 times faster with the MLP (109 times counting the features), and it keeps 19 times fewer numbers.
-   The price was paid once, in advance: 1.4 s of training on one core. DTW needs no training at all.
+   Deciding is 3262 times faster with the MLP (119 times counting the features), and it keeps 19 times fewer numbers.
+   The price was paid once, in advance: 1.2 s of training on one core. DTW needs no training at all.
 ```
 
 That is a lot of table. Let's read it slowly.
@@ -685,7 +710,7 @@ And the comparison flatters the network a little. Tables 1 and 2 chose the input
 
 *Two completely different methods, the same shape: fine on four speakers, poor on george and nicolas.*
 
-**Cost.** This is the decisive win. Once the features are computed, DTW needs about 10 ms per clip on this run to compare against 2,700 templates (chapter 5 measured 8.6 ms; timings wander with the machine's mood). The network needs 3 microseconds: three small matrix products. Counting the features, which now dominate, it is roughly 90 µs against 10 ms, a factor of about a hundred. It stores 59,018 numbers where DTW stores 1.1 million. The price was 1.4 seconds of training, paid once.
+**Cost.** This is the decisive win. Once the features are computed, DTW needs 9.9 ms per clip to compare against 2,700 templates, averaged over all 300 test clips (chapter 5's table timed 50 of them and got 9.3 ms; both are from my machine, and yours will differ). The network needs 3 microseconds: three small matrix products. Counting the features, which now dominate, it is 84 µs against 10 ms, a factor of about a hundred. It stores 59,018 numbers where DTW stores 1.1 million. The price was 1.2 seconds of training, paid once.
 
 So the wish from chapter 5 came true in one sense and not in another. The network did distill 2,700 clips into nineteen times fewer numbers, at the price of one clip in 300. It did not learn something *more general* than the templates knew.
 
@@ -703,7 +728,7 @@ The input noise is the simplest medicine there is, a *regularizer*: every time a
 
 ### Ask It Yourself
 
-The run saved its network to `models/digits-mlp.bin`, which ships with the repository, so this works without the dataset. (`Model::save` and `load` live in `src/nn/io.rs`; chapter 7 looks at the format. The standardizing is folded into the first layer's weights before saving, so the file takes raw slice averages.)
+The run saved its network to `models/digits-mlp.bin`, which ships with the repository, so this works without the dataset. (`Model::save` and `load` live in `src/nn/io.rs`; the format is a short header followed by every weight as a little-endian `f32`, and the top of that file spells it out. The standardizing is folded into the first layer's weights before saving, so the file takes raw slice averages.)
 
 ```text
 $ cargo run --release --example ch06_digits -- classify ../samples/seven_jackson.wav
@@ -737,7 +762,7 @@ It was wrong, but it was not sure, and it said so. That will matter later: from 
 ### Try It Yourself
 
 1. **Plant a bug.** In `Linear::backward`, comment out the `add_column_sums` line, then run `cargo test linear` and `ch06_xor`. The hand-computed test fails and the checker flags both bias tensors with a relative error of 1.00. Now look at what training does anyway: the loss falls to 0.18 instead of 0.002 and the program still prints 4/4. That is what a silent gradient bug looks like.
-2. **Meet the kink.** In `ch06_digits.rs`, change the gradient check's `eps: 1e-3` to `1e-2`. You should get the MISMATCH on `2.linear.bias` shown above, then the tanh copy passing.
+2. **Meet the kink.** Run `ch06_gradcheck -- kink` and find the false alarm from the text: 2.30e-1 at `eps = 0.01`, 3.65e-6 at `eps = 0.001`. Then, in `kink()` in `examples/ch06_gradcheck.rs`, change the bias from `-0.596` to `-0.55`, which moves the value going into the ReLU from +0.004 to +0.05. A nudge of 0.01 on `w[2]`, whose input is 2, moves that value by 0.02 and no longer reaches the kink, so both nudge sizes should now pass.
 3. **Remove the bend.** In `ch06_xor.rs`, delete `Layer::Tanh`. The loss stalls at 0.6931, which is `ln 2`, and the accuracy stays at 2/4, as the two inequalities promised.
 4. **Turn the learning rate.** Run `ch06_spiral -- --lr 0.01`, then `--lr 2`. The first crawls (its loss was still 0.18 after 300 epochs when I tried); the second bounces around and ends near 63%.
 5. **Starve the network.** In `ch06_spiral.rs`, shrink both hidden layers from 32 to 4. It still scored 97% for me, but look at the picture: with so few bends, the regions are bounded by a handful of long straight edges.
@@ -753,7 +778,7 @@ It was wrong, but it was not sure, and it said so. That will matter later: from 
 
 What's next on our agenda? Let's take stock. We have a matrix type, a random number generator, linear layers, activations, a loss, backpropagation derived by hand and verified by a checker we now refuse to work without, and SGD: a small but complete neural network library with no dependencies. We trained it on XOR, on a spiral and on spoken digits, where it matched our template recognizer at a hundredth of the cost, and we were honest that matching is all it did.
 
-Two weaknesses are left standing. The input squashes every clip into 96 numbers and throws away how the sound moves through time, and five speakers are too few to learn what a digit is, as opposed to who is saying it. In the next chapter we take on both: layers that understand time, convolutions and recurrent units, trained on 105,000 clips from thousands of speakers.
+Two weaknesses are left standing. The input squashes every clip into 96 numbers and throws away how the sound moves through time, and five speakers are too few to learn what a digit is, as opposed to who is saying it. In the next chapter we take on both. The second is a download: Speech Commands, a dataset of 105,829 one-second clips of 35 words from more than two thousand speakers. The first is the real work: layers that understand time, a convolution that slides one small set of weights along the frames and a recurrent layer that carries a memory from frame to frame, each with a hand-derived backward pass that has to get through the gradient checker. Along the way we swap SGD for a better optimizer and put every core of the machine to work.
 
 ### References
 

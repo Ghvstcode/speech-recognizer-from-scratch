@@ -1,12 +1,12 @@
 ## Decoding: From Probabilities To Words
 
-In the last chapter we trained a recognizer. Log-mel frames go in, and out comes a grid: one row per output frame, 28 numbers per row, a probability for the blank, the space and each letter `a` to `z`. To see what the network had learned we did the lazy thing: take the most probable class in every frame, collapse, print. That gave us a character error rate of 8.2% and a word error rate of 16.4% on the test set, along with spellings like "lein" for "learn" and "bir" for "bird".
+In the last chapter we trained a recognizer. Log-mel frames go in, and out comes a grid: one row per output frame, 28 numbers per row, a probability for the blank, the space and each letter `a` to `z`. To see what the network had learned we used greedy decoding: take the most probable class in every frame, collapse, print. That gave us a character error rate of 8.2% and a word error rate of 16.4% on the test set, along with spellings like "lein" for "learn" and "bir" for "bird".
 
-We never asked whether the lazy thing is the *right* thing, and we used those two error rates without saying how they are computed. This chapter fixes both. Turning the grid into text is called **decoding**, and we are going to write three decoders, each a little more careful than the last, plus the scoring code that tells us whether the care paid off. The network is frozen; everything here happens after it has spoken.
+We never asked whether the lazy thing is the *right* thing, and the two error rates got one sentence of definition and no code. This chapter fixes both. Turning the grid into text is called **decoding**, and we are going to write three decoders, each a little more careful than the last, plus the scoring code that tells us whether the care paid off. The network is frozen; everything here happens after it has spoken.
 
 ### Naming The Classes
 
-One piece of housekeeping first. The mapping between class ids and characters has been implicit so far. From now on it is written down in exactly one place:
+One piece of housekeeping first. Chapter 9 used `Alphabet` to turn text into CTC targets and back without showing it. Every decoder below leans on it, so here it is:
 
 ```rust
 // src/decode.rs
@@ -21,8 +21,8 @@ impl Alphabet {
     pub const SIZE: usize = 28;
 
     /// Text to class ids. Upper case is folded to lower case; anything that
-    /// is not a letter or a space is dropped. The blank is never produced:
-    /// it is not a character.
+    /// is not a letter `a`-`z` or a space (digits, punctuation) is dropped.
+    /// The blank is never produced: it is not a character.
     pub fn encode(text: &str) -> Vec<usize> {
         let mut labels = Vec::with_capacity(text.len());
         for ch in text.chars() {
@@ -41,11 +41,11 @@ impl Alphabet {
 }
 ```
 
-Every decoder below takes **log-probabilities**: a `Mat` with one row per frame and one column per class, each row already through chapter 8's `log_softmax`.
+Every decoder below takes **log-probabilities**: a `Mat` with one row per output frame and one column per class, each row already through chapter 8's `log_softmax`. That is exactly what chapter 9's `Recognizer::log_probs` returns. In this chapter "frame" always means an output frame, one row of that grid.
 
 ### Greedy Decoding
 
-The decoder we have been using informally takes four lines to write properly. Pick the best class in every frame, then apply chapter 8's `collapse` (merge repeats, drop blanks):
+Greedy decoding, which chapter 9 called from its training loop, takes four lines of logic. Pick the best class in every frame, then apply chapter 8's `collapse` (merge repeats, drop blanks):
 
 ```rust
 // src/decode.rs
@@ -72,7 +72,7 @@ pub fn greedy(log_probs: &Mat) -> Vec<usize> {
 }
 ```
 
-Look at the doc comment on `best_path`. Because CTC multiplies per-frame probabilities, choosing the best class in each frame does give the most probable **alignment**. But chapter 8 was built on the idea that we do not care about alignments. We care about the **labelling**, and the probability of a labelling is the *sum* over all the alignments that collapse to it. Training summed. Greedy decoding picks one alignment and ignores the rest. Those are different questions with, sometimes, different answers.
+Look at the doc comment on `best_path`. Because CTC multiplies per-frame probabilities, choosing the best class in each frame does give the most probable **alignment**. But chapter 8 was built on the idea that we do not care about alignments. We care about the **labeling**, and the probability of a labeling is the *sum* over all the alignments that collapse to it. Training summed. Greedy decoding picks one alignment and ignores the rest. Those are different questions with, sometimes, different answers.
 
 The smallest case I know has two frames and two classes. In both frames the blank gets 0.6 and `a` gets 0.4. Greedy sees the blank win twice and returns the empty string, whose only alignment is `__` with probability 0.6 × 0.6 = 0.36. But "a" can be spelled three ways: `a_`, `_a` and `aa`, worth 0.24 + 0.24 + 0.16 = 0.64. The answer greedy threw away is almost twice as likely as the one it gave.
 
@@ -98,15 +98,16 @@ The truth, by adding up all 27 alignments:
     ...
 ```
 
-Greedy says "b". The most probable labelling is "ab", and "b" is not even second. Where did the `a` go? It never won a frame. The network was fairly sure there was an `a` near the start, but it split its evidence between "it was in frame 0" and "it was in frame 1", and each half lost to the blank. Add the halves back together (`a_b` 0.120, `_ab` 0.120, `aab` 0.096, `abb` 0.024, `ab_` 0.012) and you get 0.372.
+Greedy says "b". The most probable labeling is "ab", and "b" is not even second. Where did the `a` go? It never won a frame. The network was fairly sure there was an `a` near the start, but it split its evidence between "it was in frame 0" and "it was in frame 1", and each half lost to the blank. Add the halves back together (`a_b` 0.120, `_ab` 0.120, `aab` 0.096, `abb` 0.024, `ab_` 0.012) and you get 0.372.
 
 The "truth" column comes from a function that does exactly what the definition says, using the alignment enumerator we wrote for chapter 8's tests:
 
 ```rust
 // src/decode.rs
-/// The exact probability of **every** labelling, by enumerating all `C^T`
-/// alignments. Most probable first.
-pub fn all_labellings(log_probs: &Mat) -> Vec<Hypothesis> {
+/// The exact probability of **every** labeling, by enumerating all `C^T`
+/// alignments and adding each one's probability to the labeling it
+/// collapses to. Most probable first.
+pub fn all_labelings(log_probs: &Mat) -> Vec<Hypothesis> {
     let mut probability: BTreeMap<Vec<usize>, f64> = BTreeMap::new();
     crate::ctc::for_each_alignment(log_probs.rows, log_probs.cols, |path| {
         let p = crate::ctc::alignment_log_prob(log_probs, path).exp();
@@ -122,9 +123,9 @@ A `Hypothesis` is a pair: `labels` and `log_prob`. This function is our ground t
 
 ### Prefixes Instead Of Alignments
 
-Here is the way out. Sweep over the frames from left to right, as greedy does, but instead of committing to one class per frame, keep a short list of the most promising *labellings so far*. A labelling-so-far is called a **prefix**. After frame 0 of the toy the candidate prefixes are the empty one, "a" and "b". After frame 1 there are more: "ab", "ba" and so on. The list is called the **beam** and its maximum length is the **beam width**. At each frame every prefix in the beam is extended in every possible way, the results are ranked, and only the best `beam_width` survive. This is **prefix beam search**.
+Here is the way out. Sweep over the frames from left to right, as greedy does, but instead of committing to one class per frame, keep a short list of the most promising *labelings so far*. A labeling-so-far is called a **prefix**. After frame 0 of the toy the candidate prefixes are the empty one, "a" and "b". After frame 1 there are more: "ab", "ba" and so on. The list is called the **beam** and its maximum length is the **beam width**. At each frame every prefix in the beam is extended in every possible way, the results are ranked, and only the best `beam_width` survive. This is **prefix beam search**.
 
-The important word is *prefix*. Many alignments collapse to the same prefix: after two frames, `a_`, `_a` and `aa` are all the prefix "a". We keep one entry for "a" and add their probabilities together. That is the same sum over alignments that training did, done on the fly for the labellings we have not yet given up on.
+The important word is *prefix*. Many alignments collapse to the same prefix: after two frames, `a_`, `_a` and `aa` are all the prefix "a". We keep one entry for "a" and add their probabilities together. That is the same sum over alignments that training did, done on the fly for the labelings we have not yet given up on.
 
 There is one catch, and it is the reason this algorithm looks more complicated than it is. Suppose the prefix is "a" and the next frame says `a` again. What is the new prefix?
 
@@ -138,7 +139,7 @@ Same prefix, same next symbol, two different outcomes. So one probability per pr
 /// One prefix being tracked by the beam search, part-way through the input.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BeamEntry {
-    /// The labelling so far.
+    /// The labeling so far.
     pub labels: Vec<usize>,
     /// Log of the summed probability of the alignments of `labels` that end
     /// in a blank.
@@ -146,14 +147,17 @@ pub struct BeamEntry {
     /// Log of the summed probability of the alignments of `labels` that end
     /// in its last label (not a blank).
     pub log_p_non_blank: f32,
-    /// Lexicon decoding only: the trie node of the word being spelled.
+    /// Lexicon decoding only: the trie node reached by the letters of the
+    /// word currently being spelled (the root when there is no lexicon).
     node: usize,
-    /// Lexicon decoding only: bonuses for the words completed so far.
+    /// Lexicon decoding only: bonuses collected for the words completed so
+    /// far (zero when there is no lexicon).
     word_score: f32,
 }
 
 impl BeamEntry {
-    /// Log of the total probability of this prefix.
+    /// Log of the total probability of this prefix: blank-ending plus
+    /// non-blank-ending alignments.
     pub fn log_total(&self) -> f32 {
         log_add(self.log_p_blank, self.log_p_non_blank)
     }
@@ -348,13 +352,13 @@ How do we know it works? We have an exact answer to compare against, so the test
 ```rust
 // src/decode.rs
 /// With a beam wide enough to hold every prefix, beam search is exact:
-/// same labellings, same probabilities as the enumeration.
+/// same labelings, same probabilities as the enumeration.
 #[test]
 fn wide_beam_matches_brute_force_exactly() {
     let mut rng = Rng::new(31);
     for (frames, classes) in [(1, 3), (4, 3), (5, 3), (6, 3), (4, 4), (5, 4)] {
         let lp = random_log_probs(&mut rng, frames, classes);
-        let exact = all_labellings(&lp);
+        let exact = all_labelings(&lp);
         let beam = prefix_beam_search(&lp, 100_000);
         assert_eq!(beam.len(), exact.len(), "T={frames} C={classes}");
         assert_eq!(beam[0].labels, exact[0].labels);
@@ -369,7 +373,7 @@ fn wide_beam_matches_brute_force_exactly() {
 }
 ```
 
-The last assertion is my favorite: the probabilities of all labellings add up to 1, so no alignment was counted twice or lost. Sibling tests pin the 0.372 and 0.336 of the walk-through, check the two-frame example, and check that a narrow beam never reports more than the true probability.
+The last assertion is my favorite: the probabilities of all labelings add up to 1, so no alignment was counted twice or lost. Sibling tests pin the 0.372 and 0.336 of the walk-through, check the two-frame example, and check that a narrow beam never reports more than the true probability.
 
 > **Play with it:** [beam search, frame by frame](../interactive/beam.html). It starts on this chapter's three-frame table. Step through the frames, shrink the beam to 1 and watch "ab" disappear, then drag the probabilities around until greedy and the beam agree again.
 
@@ -377,7 +381,7 @@ The last assertion is my favorite: the probabilities of all labellings add up to
 
 Before we point the new decoder at the real model we need to say what "better" means. A transcript is rarely all right or all wrong. "three two one go" heard as "tree two one go" is one small mistake, and we want a number that says so.
 
-The standard number is the **edit distance** (or Levenshtein distance): the smallest number of single-token edits that turns one sequence into the other. An edit is a **substitution** (one token replaced by another), a **deletion** (a token of the reference is missing) or an **insertion** (the recognizer made up a token). The correct text is the **reference**; what the recognizer produced is the **hypothesis**.
+Chapter 9 gave the recipe in a sentence: count the characters, or the words, you would have to insert, delete or replace. That count is the **edit distance** (or Levenshtein distance): the smallest number of single-token edits that turns one sequence into the other. An edit is a **substitution** (one token replaced by another), a **deletion** (a token of the reference is missing) or an **insertion** (the recognizer made up a token). The correct text is the **reference**; what the recognizer produced is the **hypothesis**.
 
 How do we find the *smallest* number of edits? If you read chapter 5 this will feel familiar. Put the reference down the side of a grid and the hypothesis along the top. Let `d[i][j]` be the distance between the first `i` reference tokens and the first `j` hypothesis tokens. The last step into any cell came from one of three neighbors:
 
@@ -425,12 +429,15 @@ pub fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(|w| w.to_lowercase()).collect()
 }
 
-/// Characters for CER: every run of whitespace squeezed to one space.
+/// Split a sentence into characters for CER: lower-cased, with every run of
+/// whitespace squeezed to one space and none at the ends. Spaces count as
+/// characters, so gluing two words together ("turnon") costs one edit.
 pub fn chars(text: &str) -> Vec<char> {
     words(text).join(" ").chars().collect()
 }
 
-/// An empty reference has no sensible rate, so we divide by 1 instead of 0.
+/// An empty reference has no sensible rate, so we divide by 1 instead of 0:
+/// an empty hypothesis scores 0.0 and every invented token costs 1.0.
 fn rate(edits: usize, reference_len: usize) -> f32 {
     edits as f32 / reference_len.max(1) as f32
 }
@@ -521,23 +528,23 @@ Now the real model. `ch10_decode` loads chapter 9's recognizer, runs the network
 ```text
 $ cargo run --release --example ch10_decode
 model: ../models/recognizer.bin (496508 weights)
-2000 validation and 2000 test utterances (95 min of test audio) scored in 4.1 s
+2000 validation and 2000 test utterances (95 min of test audio) scored in 5.2 s
 
-features + network: 4.8 ms per utterance on one thread (mean length 2.87 s, so 594x faster than real time)
+features + network: 5.3 ms per utterance on one thread (mean length 2.87 s, so 537x faster than real time)
 ...
 | decoder (test set, 2000 utterances) |    CER |    WER | exact match | decode time |
 |------------------------------------|-------:|-------:|------------:|------------:|
 | greedy                             |  8.24% | 16.37% |       63.2% |     0.01 ms |
-| beam search, width 4               |  7.96% | 15.56% |       64.9% |     2.52 ms |
-| beam search, width 16              |  7.98% | 15.57% |       64.9% |    12.36 ms |
-| beam search, width 64              |  7.98% | 15.56% |       64.9% |    53.06 ms |
+| beam search, width 4               |  7.96% | 15.56% |       64.9% |     3.12 ms |
+| beam search, width 16              |  7.98% | 15.57% |       64.9% |    14.28 ms |
+| beam search, width 64              |  7.98% | 15.56% |       64.9% |    63.28 ms |
 ```
 
 (Timings are from my machine; yours will differ.)
 
 After all that care: 16.4% becomes 15.6%. Beam search repairs 44 utterances that greedy got wrong and breaks 9 that greedy got right. Widening the beam from 4 to 64 changes nothing except the bill, and at width 16 the decoder already costs more than twice what the network does.
 
-That is disappointing, and here is my reading of why (we measured the effect, not the cause). Beam search finds a better answer to the question "which labelling does *the network* think is most probable?". On our toy table the network was torn, and the question had a surprising answer. A trained CTC network is rarely torn in that way: it puts sharp spikes of high probability on single frames with confident blanks in between, and when one alignment holds most of the probability, the best alignment and the best labelling are the same thing. Where they differ, the improved answer is still the network's opinion. If the network believes it heard "bir", the most careful search in the world returns "bir".
+That is disappointing, and here is my reading of why (we measured the effect, not the cause). Beam search finds a better answer to the question "which labeling does *the network* think is most probable?". On our toy table the network was torn, and the question had a surprising answer. A trained CTC network is rarely torn in that way: it puts sharp spikes of high probability on single frames with confident blanks in between, and when one alignment holds most of the probability, the best alignment and the best labeling are the same thing. Where they differ, the improved answer is still the network's opinion. If the network believes it heard "bir", the most careful search in the world returns "bir".
 
 To do better the decoder needs to know something the network does not.
 
@@ -642,9 +649,11 @@ The most probable class in each frame:
     ...
 ```
 
-The lexicon's answer has a *lower* probability than "stob go lest" (−21.95 against −20.85), and that is fine. It is the most probable labelling among those that are allowed. The runner-up, "stop no left", is about seven units of log-probability behind, a factor of a thousand: once non-words are ruled out, the acoustics leave little doubt.
+(The `_` is the blank, as in chapter 9's `frames` lines. Here a space is printed as a space, and the `|` at each end only marks where the line starts and stops.)
 
-The tests follow the same pattern as before: on random tables, a wide lexicon search must return exactly the valid labellings from `all_labellings`, with their exact probabilities, and a rigged "lefd" must come out as "left".
+The lexicon's answer has a *lower* probability than "stob go lest" (−21.95 against −20.85), and that is fine. It is the most probable labeling among those that are allowed. The runner-up, "stop no left", is about seven units of log-probability behind, a factor of a thousand: once non-words are ruled out, the acoustics leave little doubt.
+
+The tests follow the same pattern as before: on random tables, a wide lexicon search must return exactly the valid labelings from `all_labelings`, with their exact probabilities, and a rigged "lefd" must come out as "left".
 
 One practical wrinkle. `lexicon_beam_search` returns an empty list when no complete word sequence survives in the beam. That happens when the network's favorite spellings are all non-words and the beam is too narrow to keep a real word alive next to them. The `decode` function in `src/data/pipeline.rs`, which the rest of the book calls, gives it a second chance with a beam four times as wide:
 
@@ -662,9 +671,9 @@ Decoder::Lexicon { width, word_bonus } => {
 And on the real model? The word bonus has to be chosen somehow, and choosing it on the test set would be cheating, so `ch10_decode` tunes it on the validation set first. From −4 to +4 the validation WER only moves between 8.02% and 8.15%; it picks −2.0 and the knob barely matters. (Validation and test are different utterances from different speakers, so do not compare 8.02% with the numbers below.) The rest of the table:
 
 ```text
-| lexicon beam, width 4              |  7.95% | 10.54% |       75.0% |     0.42 ms |
-| lexicon beam, width 16             |  7.09% |  9.74% |       75.3% |     1.47 ms |
-| lexicon beam, width 64             |  7.06% |  9.69% |       75.4% |     6.12 ms |
+| lexicon beam, width 4              |  7.95% | 10.54% |       75.0% |     0.45 ms |
+| lexicon beam, width 16             |  7.09% |  9.74% |       75.3% |     1.77 ms |
+| lexicon beam, width 64             |  7.06% |  9.69% |       75.4% |     7.24 ms |
 
 (the lexicon decoder returned nothing for 2 of 2000 utterances: no sequence of whole words survived in its beam)
 ```
@@ -731,16 +740,16 @@ So the honest summary: our lexicon is a blunt, effective language model for a cl
 ### Try It Yourself
 
 1. **Find the width that is enough.** In `part_one` of `ch10_decode_toy.rs`, change the widths from `[3, 10]` to `[1, 2, 4]`. Width 1 answers "b" like greedy, width 2 already finds "ab" at 0.336, and width 4 reaches the exact 0.372: "ab" and "ba" tie at 0.04 after frame 1, and the dictionary-order tie-break keeps the one we need.
-2. **Make greedy right again.** In the same table, lower `p(a)` in frames 0 and 1 from 0.4 to 0.25 (and raise the blank to 0.65). Now `all_labellings` agrees with greedy: "b" leads with 0.3405. At 0.3 the two labellings tie at 0.297. The [interactive page](../interactive/beam.html) lets you find such points by dragging.
+2. **Make greedy right again.** In the same table, lower `p(a)` in frames 0 and 1 from 0.4 to 0.25 (and raise the blank to 0.65). Now `all_labelings` agrees with greedy: "b" leads with 0.3405. At 0.3 the two labelings tie at 0.297. The [interactive page](../interactive/beam.html) lets you find such points by dragging.
 3. **Shrink the vocabulary.** In `part_two`, filter `"left"` out of `VOCABULARY` before building the lexicon. The decoder still returns three well-formed words, "stop go yes", at `ln p` of about −33.3 against −21.954 before.
-4. **Pay per word.** In `part_two`, replace `LexiconOptions::new(32)` with `LexiconOptions { word_bonus: -20.0, ..LexiconOptions::new(32) }`. A penalty that large makes two words beat three, and I got "stop house". Anything from −10 to +9 leaves "stop go left" alone, which is why the knob mattered so little on the real model.
+4. **Pay per word.** In `part_two`, replace `LexiconOptions::new(32)` with `LexiconOptions { word_bonus: -20.0, ..LexiconOptions::new(32) }`. A penalty that large makes two words beat three, and I got "stop house". Anything from −10 to +9 leaves "stop go left" alone, which is why the knob mattered so little on the real model. Then go the other way with a large reward, say +20 or +50. The bonus is paid at the space that ends a word, so prefixes that squeeze in extra short words, or that end in a space and are still waiting for a word, climb the ranking. Expect either a string of short words or the program's "nothing survived the beam" line, which is `lexicon_beam_search` returning an empty list because no prefix left in the beam ended on a whole word. Widen the beam and see whether an answer comes back.
 5. **Character-level alignment.** `align` is generic. Call it on `metrics::chars("three")` and `metrics::chars("tree")` and print the operations; you should get one `Delete` among four `Match`es.
 
 ### Loose Ends
 
 - **No real language model.** Every sequence of our 35 words is as likely as any other. A real decoder would score "turn left" above "turn loft" using word statistics; `unigram_weight` is the hook for the simplest version, and we never use it on the real model. Chapter 14 points at what a proper one looks like.
 - **No rejection.** As shown above, out-of-vocabulary speech becomes vocabulary words. We return no confidence at all.
-- **The beam is wasteful.** `advance` clones a `Vec` of labels for every candidate and keys a `BTreeMap` on it. Production decoders store prefixes in a tree and skip classes whose probability is negligible. At 1.5 ms per utterance for the lexicon decoder, against 4.8 ms for the network, we left it readable.
+- **The beam is wasteful.** `advance` clones a `Vec` of labels for every candidate and keys a `BTreeMap` on it. Production decoders store prefixes in a tree and skip classes whose probability is negligible. At 1.8 ms per utterance for the lexicon decoder, against 5.3 ms for the network, we left it readable.
 
 What's next on our agenda? Let's take stock. We have three decoders: greedy, which is free and returns what the network literally spells; prefix beam search, which answers the right question and on our model improves little; and the lexicon-constrained search, which takes the word error rate from 16.4% to 9.7% by refusing to spell non-words. We also have the tools to measure all of this: edit distance, WER, CER, and aligned printouts that show where the errors are.
 

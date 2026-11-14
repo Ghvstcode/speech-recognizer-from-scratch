@@ -34,10 +34,11 @@ pub struct TrimConfig {
     /// Extra audio kept on each side of what the endpoint detector found,
     /// in milliseconds. (The detector already keeps 30 ms of its own.)
     pub margin_ms: f32,
-    /// A "word" shorter than this is a click or a cough, not a word.
+    /// A "word" shorter than this (margins included, so 100 ms of them are
+    /// padding) is a click or a cough, not a word. Such clips are left out.
     pub min_word_ms: f32,
 }
-// Default: margin_ms 20, min_word_ms 200.
+// ... the defaults: margin_ms 20, min_word_ms 200
 
 /// Where the word is inside a clip: `Some((start, end))` in samples, or
 /// `None` if the clip should not be used.
@@ -49,7 +50,7 @@ pub fn locate_word(samples: &[f32], config: &TrimConfig) -> Option<(usize, usize
 }
 ```
 
-What about the clips where it returns `None`? We could keep the whole second, but a second of noise labelled "seven" would teach the recognizer the wrong thing. We drop them. On the real dataset that is 1,825 of the 84,843 training clips, about 2%, and nobody will miss them.
+What about the clips where it returns `None`? In fewer than one clip in a hundred the detector finds nothing at all: the recording is noise from end to end, or silent. We could keep the whole second, but a second of noise labeled "seven" would teach the recognizer the wrong thing, so we drop those clips, along with the larger number whose "word" is shorter than 200 ms. On the real dataset the two rules together reject 1,825 of the 84,843 training clips, about 2%, and nobody will miss them.
 
 The trimmed words go into a `WordBank`: a `Vec<Word>` (class id, speaker, samples) with two indexes on the side, one by word and one by speaker. The indexes exist for two methods. `draw_any` picks a random word class *first* and then a random clip of it, so all 35 words are equally likely (the dataset has twice as many recordings of "zero" as of "follow", and we do not want the recognizer to inherit that preference). `draw_same_speaker` picks another clip by the speaker of a clip we already have. Trimming all 105,000 clips on ten threads took 0.6 seconds in our run.
 
@@ -166,9 +167,9 @@ impl<'a> Synthesizer<'a> {
 
 A few of these lines deserve a word.
 
-**Step 2.** The clips were recorded by thousands of people on their own laptops and phones, at wildly different volumes, more different than one person's words ever are. So each word is first brought to the same RMS level (root mean square, the loudness measure from chapter 2) and only then given a small random gain. `change_speed` reads the clip at a different rate with linear interpolation between neighboring samples, like a record played slightly too fast or slow. `fade_edges` ramps the first and last 5 ms so that a cut never produces a click.
+**Step 2.** The clips were recorded by thousands of people on their own laptops and phones, at wildly different volumes, more different than one person's words ever are. So each word is first brought to the same RMS level (root mean square: the square root of the mean-square energy we measured in chapter 2, taken over the whole word) and only then given a small random gain. `change_speed` reads the clip at a different rate with linear interpolation between neighboring samples, like a record played slightly too fast or slow. `fade_edges` ramps the first and last 5 ms so that a cut never produces a click.
 
-**Step 3.** The gap is drawn as `low + (high - low) * u * u` with `u` uniform between 0 and 1. Squaring pushes values toward the low end, so short pauses are common and long ones rare. A negative gap moves the cursor backwards, and because we *add* each piece into the timeline, two words can overlap by up to 40 ms. Their trimmed edges are nearly silent, so this just removes the pause.
+**Step 3.** The gap is drawn as `low + (high - low) * u * u` with `u` uniform between 0 and 1. Squaring pushes values toward the low end, so short pauses are common and long ones rare. A negative gap moves the cursor backward, and because we *add* each piece into the timeline, two words can overlap by up to 40 ms. Their trimmed edges are nearly silent, so this just removes the pause.
 
 **Step 4.** The **signal-to-noise ratio**, SNR, is speech power divided by noise power, in decibels: `10 * log10(speech / noise)`. 30 dB is a quiet room, 5 dB is a running tap next to you. We measure speech power over the words only (not the pauses, or a long pause would make the same utterance look quieter), pick a ratio, and solve for the factor `k` to scale the noise by. Scaling a signal by `k` scales its power by `k * k`, which is where the square root comes from.
 
@@ -187,6 +188,7 @@ fn noise_is_mixed_at_the_requested_snr() {
     let noisy = Synthesizer::new(&bank, &noise, config.clone()).utterance_at(2, 0);
     let clean = Synthesizer::new(&bank, &NoiseBank::empty(), config).utterance_at(2, 0);
     assert_eq!(noisy.snr_db, Some(10.0));
+    assert_eq!(noisy.noise_track, Some(0));
     assert_eq!(noisy.words, clean.words);
     // What was added is the difference; its power should be a tenth of
     // the speech power (0.1^2), i.e. 10 dB below.
@@ -385,9 +387,9 @@ for step in 0..=options.steps {
 }
 ```
 
-Step `s` uses utterances `32 * s` to `32 * s + 31` of the stream, so the model never sees the same utterance twice. There are no epochs. There is no training *set* either, only a recipe and a counter, so the model cannot memorize its examples: each one is gone after a single step.
+`parallel_map` is the helper from chapter 7's dataset loader: it runs the closure on every item of a slice, on several threads, and returns the results in order. Step `s` uses utterances `32 * s` to `32 * s + 31` of the stream, so the model never sees the same utterance twice. There are no epochs. There is no training *set* either, only a recipe and a counter, so the model cannot memorize its examples: each one is gone after a single step.
 
-`CLIP` is 5.0, the gradient clipping of chapter 7. The one new piece is `schedule`, an `LrSchedule` from `nn/optim.rs`. It changes Adam's learning rate over the run: for the first 500 steps the rate climbs in a straight line from 0 to its peak of 0.002 (freshly initialized weights give large, erratic gradients, so we begin with small steps), and after that it glides down along half a cosine wave to a twentieth of the peak. Big steps early to cover ground, small steps late to settle.
+`CLIP` is 5.0, and `schedule` is chapter 7's `LrSchedule`: a warm-up over the first 500 steps to a peak learning rate of 0.002, then a cosine decay to a twentieth of that.
 
 The elided "every so often" block is worth describing, because it is what makes the run watchable. At steps 100, 200, 300, 500, 700 and then every 1,000, the program
 
@@ -541,9 +543,9 @@ On the test set, speakers and noise the model has never heard, about one charact
 
 **The gradient is clipped on every single step.** Look at the `grad norm` column of the log: after the first few hundred steps it sits between 17 and 21 for the entire run, and we clip at 5. So `clip_global_norm` is not an emergency brake that fires now and then, it shortens every step to about a quarter. In effect Adam is being fed only the direction of the gradient. Training works fine this way, but be aware that the learning rate and the clip threshold are tangled together here: change one and you have changed the other.
 
-**The loss is heavy-tailed.** The average loss at the end is about 3.3 per utterance, but an average hides the shape. Measured on the validation set partway through training (around step 24,000), the mean was 4.16 while the median was 0.81; one utterance in ten had a loss above 12 and one in a hundred above 36. The worst 10% of utterances carried 55% of the total loss. The worst cases look like bad clips: a "backward" that the model hears as "teo", or as nothing. So the model is quite sure about most utterances and hopelessly wrong about a few, and a good part of every gradient step is spent on recordings that may not be learnable.
+**The loss is heavy-tailed.** The average loss at the end is about 3.3 per utterance, but an average hides the shape. The training program does not print the shape, so this is a measurement we made on the side during development: on the validation set partway through training (around step 24,000), the mean was 4.16 while the median was 0.81; one utterance in ten had a loss above 12 and one in a hundred above 36. The worst 10% of utterances carried 55% of the total loss. The worst cases look like bad clips: a "backward" that the model hears as "teo", or as nothing. So the model is quite sure about most utterances and hopelessly wrong about a few, and a good part of every gradient step is spent on recordings that may not be learnable.
 
-**What we tried.** Before settling on this network we ran some short experiments, 4,000 steps each. Greedy WER:
+**What we tried.** Before settling on this network we ran some short experiments, 4,000 steps each. These too are numbers from our development runs and not something your run will print (the first row is the `--quick` run, and exercise 2 below reproduces the second). Greedy WER:
 
 | variant | weights | validation | test |
 |---|---:|---:|---:|
@@ -554,7 +556,7 @@ On the test set, speakers and noise the model has never heard, about one charact
 | trim margin 120 ms instead of 20 ms | 497k | 19.8% | 22.0% |
 | drop the 10% highest-loss utterances of each batch | 497k | 19.8% | 22.3% |
 
-The second recurrent layer pays for itself: without it the error nearly doubles. A narrower network is almost as good and trains in half the time. The last two rows were attempts to deal with the bad clips, and neither made a difference, so neither is in the code. More training helps only a little: continuing the finished model for another 12,000 steps at a lower learning rate brought test WER from 16.4% to 15.5%. Whatever is holding this model back, it is not twelve more minutes.
+The second row is the one chapter 7 has been waiting for. There the GRU bought nothing: on single words a stack of convolutions did just as well, and we kept the recurrent layer on a promise. Here is the payment. Take one of the two BiGrus away and the error nearly doubles, from 19.8% to 37.9%. Spelling several words in a row needs context that reaches further than a convolution's window, and the recurrent layers are what carry it. (We did not train a recognizer with no GRU at all, so that is as far as the evidence goes.) A narrower network is almost as good and trains in half the time. The last two rows were attempts to deal with the bad clips, and neither made a difference, so neither is in the code. More training helps only a little: continuing the finished model for another 12,000 steps at a lower learning rate brought test WER from 16.4% to 15.5%. Whatever is holding this model back, it is not twelve more minutes.
 
 Here is one test utterance going through the finished model:
 
@@ -591,7 +593,7 @@ All four right, several hundred times faster than real time on my machine. In fa
 - **35 words, and it shows.** The model spells letter by letter, but every letter sequence it has ever been rewarded for is one of 35 words. Say "eleven" and you will get the nearest thing it knows how to write.
 - **Glued words are not fluent speech.** There is no coarticulation between our words, and no sentence melody. Chapter 11 puts a microphone on this model and we will see what that costs.
 - **The trimming is loose.** `find_speech` keeps quiet tails, so many "trimmed" words still end in a stretch of near-silence. Tightening the trim did not change the error rate in our experiment, so we left it alone.
-- **Bad clips stay in.** Some recordings in Speech Commands are mislabelled, cut off or drowned in noise, and they carry a large share of the loss. We found no cheap fix.
+- **Bad clips stay in.** Some recordings in Speech Commands are mislabeled, cut off or drowned in noise, and they carry a large share of the loss. We found no cheap fix.
 - **Clipping does more than it should.** With the gradient norm always above the threshold, we are effectively training on normalized gradients. A higher threshold with a lower learning rate might do as well or better; we did not explore it.
 - **Reproducibility has a footnote.** The run is repeatable bit for bit, but only for a given `--threads`, because `batch_gradients` adds the threads' gradients in thread order. Reproducing the shipped model exactly needs `--threads 10`.
 - **Normalization needs the whole utterance.** `FrontEnd::features` cannot produce a frame until it has seen the last one. Fine for files; for a live microphone it means waiting for the speaker to finish.
@@ -603,10 +605,10 @@ However, if you have been paying attention, you'll notice that we have been read
 ### References
 
 - [Speech Commands: A Dataset for Limited-Vocabulary Speech Recognition](https://arxiv.org/abs/1804.03209), Pete Warden, 2018: the dataset, its speaker split and its background noise recordings.
-- [Connectionist Temporal Classification](https://www.cs.toronto.edu/~graves/icml_2006.pdf), Graves et al., 2006: the paper's first figure shows the same spiky outputs we watched appear.
+- [Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks](https://www.cs.toronto.edu/~graves/icml_2006.pdf), Graves, Fernández, Gomez and Schmidhuber, ICML 2006: the paper's first figure shows the same picture we watched appear, a CTC network predicting "a series of spikes, separated by 'blanks'".
 - [Deep Speech 2: End-to-End Speech Recognition in English and Mandarin](https://arxiv.org/abs/1512.02595), Amodei et al., 2015: our network is a miniature of this one (convolution, bidirectional recurrent layers, character CTC), trained there on thousands of hours.
-- [Audio Augmentation for Speech Recognition](https://www.danielpovey.com/files/2015_interspeech_augmentation.pdf), Ko, Peddinti, Povey and Khudanpur, 2015: the speed change of step 2, applied at 0.9x and 1.1x.
-- [SGDR: Stochastic Gradient Descent with Warm Restarts](https://arxiv.org/abs/1608.03983), Loshchilov and Hutter, 2016: where the cosine learning-rate decay comes from.
+- [Audio Augmentation for Speech Recognition](https://www.danielpovey.com/files/2015_interspeech_augmentation.pdf), Ko, Peddinti, Povey and Khudanpur, Interspeech 2015: the speed change of step 2. They make copies of the training set at 0.9x and 1.1x; we draw a speed between the two for every word.
+- [SGDR: Stochastic Gradient Descent with Warm Restarts](https://arxiv.org/abs/1608.03983), Loshchilov and Hutter, 2016: the paper usually credited with the cosine learning-rate decay.
 - Our code: [`src/data/synth.rs`](../code/src/data/synth.rs), [`src/data/pipeline.rs`](../code/src/data/pipeline.rs), [`examples/ch09_train.rs`](../code/examples/ch09_train.rs), [`examples/ch09_figures.rs`](../code/examples/ch09_figures.rs). The run's full output: [`models/recognizer-training.log`](../models/recognizer-training.log).
 
 [← Previous: The Alignment Problem: CTC](08-the-alignment-problem-ctc.md) · [Contents](../README.md) · [Next: Decoding: From Probabilities To Words →](10-decoding.md)

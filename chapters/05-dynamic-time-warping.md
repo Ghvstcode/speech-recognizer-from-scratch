@@ -10,11 +10,11 @@ Here is the simplest recognizer we could think of. Keep one recording of each wo
 
 All the difficulty hides in "most similar". A recording, after chapter 4, is a `Mat`: a grid of `f32` with one row per frame. The obvious comparison is frame by frame: row 0 against row 0, row 1 against row 1, add up the differences. Look at what that is up against.
 
-![Two waveforms of the word seven spoken by the same person on a shared time axis. The first lasts 0.43 seconds, the second 0.32 seconds, and their loud parts do not line up](../figures/ch05-two-sevens.svg)
+![Two waveforms of the word seven spoken by the same person on a shared time axis. The first is 0.43 seconds of speech. The second is 0.32 seconds of speech followed by a quiet tail that is shaded and labeled trimmed, and the loud parts of the two do not line up](../figures/ch05-two-sevens.svg)
 
-*The same person says "seven" twice. One take is a third longer than the other.*
+*The same person says "seven" twice. One take is a third longer than the other. The shaded tail is what chapter 2's endpoint detector trims away.*
 
-These are two takes of "seven" by one speaker. One is 41 frames long and the other 30. Frame by frame, we run out of frames in one before the other is finished. Worse, even two takes of equal length would not line up, because people do not speed up evenly: one take holds the "s" longer, the other lingers on the "e".
+These are two takes of "seven" by one speaker. With the silence trimmed, one is 41 frames long and the other 30. Frame by frame, we run out of frames in one before the other is finished. Worse, even two takes of equal length would not line up, because people do not speed up evenly: one take holds the "s" longer, the other lingers on the "e".
 
 ### A Toy We Can Check By Hand
 
@@ -113,7 +113,7 @@ fn accumulate(a: &Mat, b: &Mat, band: Option<usize>) -> Mat {
         for j in band_columns(i, m, radius) {
             let local = frame_distance(a.row(i), b.row(j));
             // The cheapest way to arrive at (i, j). On the top row and left
-            // column some neighbours do not exist; a missing neighbour is
+            // column some neighbors do not exist; a missing neighbor is
             // "infinitely expensive", so `min` never picks it.
             let best_before = if i == 0 && j == 0 {
                 0.0 // the start cell: nothing came before
@@ -221,7 +221,8 @@ pub fn band_radius(n: usize, m: usize, band: Option<usize>) -> usize {
     }
 }
 
-/// The columns of row `i` that lie inside the band, clipped to the grid.
+/// The columns of row `i` that lie inside the band: `i - radius ..= i + radius`,
+/// clipped to the grid.
 fn band_columns(i: usize, m: usize, radius: usize) -> std::ops::Range<usize> {
     i.saturating_sub(radius)..(i + radius + 1).min(m)
 }
@@ -295,37 +296,45 @@ The other tests check `dtw_cost` against the full grid on awkward shapes with an
 
 ### From A Distance To A Recognizer
 
-After all that, the recognizer is short. A `Template` is a label and a feature `Mat`. A `TemplateBank` is a `Vec` of templates and an optional band. To recognize, we measure the distance to every template and sort.
+After all that, the recognizer is short. A `Template` is a label and a feature `Mat`. A `TemplateBank` is a `Vec` of templates and an optional band. To recognize, we measure the distance to every template and sort. `nearest_templates` says *which* templates came closest, as positions in the bank; `nearest` swaps each position for its label, which is all the vote needs.
 
 ```rust
 // src/dtw.rs
 
 impl TemplateBank {
-    /// The `k` templates closest to `query`, nearest first.
-    pub fn nearest(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
+    /// The `k` templates closest to `query`, nearest first, as
+    /// `(index into self.templates, normalized DTW cost)`.
+    pub fn nearest_templates(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
         let mut scored: Vec<(usize, f32)> =
-            self.templates.iter().map(|t| (t.label, dtw_distance(query, &t.features, self.band))).collect();
+            self.templates.iter().enumerate().map(|(index, t)| (index, dtw_distance(query, &t.features, self.band))).collect();
         scored.sort_by(|x, y| x.1.total_cmp(&y.1));
         scored.truncate(k);
         scored
     }
 
-    /// Let the `k` closest templates vote.
+    /// The `k` templates closest to `query`, nearest first, as
+    /// `(label, normalized DTW cost)`.
+    pub fn nearest(&self, query: &Mat, k: usize) -> Vec<(usize, f32)> {
+        self.nearest_templates(query, k).into_iter().map(|(index, cost)| (self.templates[index].label, cost)).collect()
+    }
+
+    /// Let the `k` closest templates vote. Returns the winning label and the
+    /// normalized cost of that label's closest template.
     pub fn classify_knn(&self, query: &Mat, k: usize) -> (usize, f32) {
         assert!(!self.is_empty(), "cannot classify with an empty template bank");
         assert!(k > 0, "k must be at least 1");
-        let neighbours = self.nearest(query, k);
-        // `neighbours` is sorted nearest first, so the first time we meet a
+        let neighbors = self.nearest(query, k);
+        // `neighbors` is sorted nearest first, so the first time we meet a
         // label is that label's closest template. Requiring strictly more
         // votes to take the lead means earlier (nearer) labels win ties.
-        let mut winner = neighbours[0];
+        let mut winner = neighbors[0];
         let mut winner_votes = 0;
-        for (index, &(label, cost)) in neighbours.iter().enumerate() {
-            let first_time_seen = neighbours[..index].iter().all(|&(l, _)| l != label);
+        for (index, &(label, cost)) in neighbors.iter().enumerate() {
+            let first_time_seen = neighbors[..index].iter().all(|&(l, _)| l != label);
             if !first_time_seen {
                 continue;
             }
-            let votes = neighbours.iter().filter(|&&(l, _)| l == label).count();
+            let votes = neighbors.iter().filter(|&&(l, _)| l == label).count();
             if votes > winner_votes {
                 winner = (label, cost);
                 winner_votes = votes;
@@ -373,7 +382,7 @@ Time for real speech. The [Free Spoken Digit Dataset](https://github.com/Jakobov
 $ git clone https://github.com/Jakobovski/free-spoken-digit-dataset data/fsdd
 ```
 
-Our programs look for datasets in `../data` relative to `code/`, or in `$SPEECH_DATA` if you set it. Without the dataset you can still run the toy and the tests; everything from here on, `classify` included, needs the download.
+Our programs look for datasets in `../data` relative to `code/`, or in `$SPEECH_DATA` if you set it. Without the dataset you can still run the toy, the tests and, in a reduced form we come to at the end, `classify`. The experiments from here on need the download.
 
 The loader in [`src/data/fsdd.rs`](../code/src/data/fsdd.rs) is plumbing, so we describe it without listing it. File names look like `7_jackson_32.wav` (digit, speaker, take), and `load` turns each into a `Clip` with those three fields and the samples from chapter 1's WAV reader. A recognizer must be judged on recordings it has never seen, and the loader offers two honest ways to arrange that:
 
@@ -402,23 +411,23 @@ Chapter 4 built MFCCs for this chapter, and left us a menu: keep or drop c0, add
 $ cargo run --release --example ch05_digits
 ...
    recipe                                    dims   1 own   known  unseen     time
-   settled: 13 MFCCs, c0 dropped, trimmed      12   94.0%   99.3%   79.6%   1.21 s
-     keep c0 (loudness)                        13   87.7%   98.8%   62.7%   1.22 s
-     add deltas                                24   93.6%   99.2%   79.1%   2.02 s
-     subtract the clip's mean                  12   87.4%   98.3%   67.3%   1.29 s
-     normalize mean and variance               12   87.2%   98.0%   76.0%   1.27 s
-     do not trim silence                       12   93.0%   98.7%   76.2%   1.80 s
-     6 coefficients                             5   91.2%   98.9%   70.0%   1.07 s
-     8 coefficients                             7   92.4%   99.1%   76.9%   1.19 s
-     20 coefficients                           19   93.4%   99.0%   77.8%   1.51 s
-     30 coefficients                           29   92.8%   99.0%   75.6%   2.08 s
-     Sakoe-Chiba band of 2 frames              12   94.0%   99.3%   79.4%   0.58 s
-     Sakoe-Chiba band of 5 frames              12   94.0%   99.3%   79.6%   0.66 s
-     Sakoe-Chiba band of 10 frames             12   94.0%   99.3%   79.2%   0.67 s
-   textbook: c0, deltas, mean+variance         26   83.4%   97.7%   74.7%   1.93 s
+   settled: 13 MFCCs, c0 dropped, trimmed      12   94.0%   99.3%   79.6%   0.65 s
+     keep c0 (loudness)                        13   87.7%   98.8%   62.7%   0.71 s
+     add deltas                                24   93.6%   99.2%   79.1%   0.94 s
+     subtract the clip's mean                  12   87.4%   98.3%   67.3%   0.66 s
+     normalize mean and variance               12   87.2%   98.0%   76.0%   0.67 s
+     do not trim silence                       12   93.0%   98.7%   76.2%   0.98 s
+     6 coefficients                             5   91.2%   98.9%   70.0%   0.58 s
+     8 coefficients                             7   92.4%   99.1%   76.9%   0.64 s
+     20 coefficients                           19   93.4%   99.0%   77.8%   0.82 s
+     30 coefficients                           29   92.8%   99.0%   75.6%   1.16 s
+     Sakoe-Chiba band of 2 frames              12   94.0%   99.3%   79.4%   0.33 s
+     Sakoe-Chiba band of 5 frames              12   94.0%   99.3%   79.6%   0.32 s
+     Sakoe-Chiba band of 10 frames             12   94.0%   99.3%   79.2%   0.38 s
+   textbook: c0, deltas, mean+variance         26   83.4%   97.7%   74.7%   1.07 s
 ```
 
-The numbers are measurements. The explanations that follow are our best guesses.
+The accuracies are measurements (the times are from my machine and will differ on yours). The explanations that follow are our best guesses.
 
 **Dropping c0 matters a lot.** Keeping it costs 17 points on unseen speakers. c0 is the loudness of the frame. It says more about how far the speaker sat from the microphone than about the word, and it is the coefficient with the largest swings, so it dominates a Euclidean distance.
 
@@ -430,7 +439,7 @@ The numbers are measurements. The explanations that follow are our best guesses.
 
 So was chapter 4 wrong? No, but its advice has a context. That recipe grew up with statistical models trained on long utterances from many speakers and microphones. We have a distance function and one-word clips. A feature recipe is a hypothesis about your data, and it is cheap to test.
 
-For the rest: trimming silence with chapter 2's endpoint detector helps a little, 13 coefficients is the sweet spot, and a band changes nothing we can measure while halving the time. We settle on the first row, `MfccRecipe::standard()`, with the band off.
+For the rest: trimming silence with chapter 2's endpoint detector helps a little, 13 coefficients is the sweet spot, and a band changes nothing we can measure in accuracy while halving the time. We settle on the first row, `MfccRecipe::standard()`, with the band off.
 
 ### How Well Does It Work?
 
@@ -445,7 +454,7 @@ Now the official test takes. First the smallest recognizer imaginable: for each 
    nicolas    10 templates, 50 test clips    80.0%
    theo       10 templates, 50 test clips    98.0%
    yweweler   10 templates, 50 test clips    92.0%
-   mean                                        95.0%   (13 ms)
+   mean                                        95.0%   (2 ms)
 ```
 
 95% from ten recordings and no training. That is amazing. It is also how speaker-dependent voice dialing worked: you said each name once, the phone kept it.
@@ -462,10 +471,13 @@ Take 5 was a kind choice, though (possibly because it was recorded right after t
          100         10    99.5%    98.3%   100.0%
          200         20    99.8%    99.0%   100.0%
          450         45   100.0%   100.0%   100.0%
+   (81 ms)
 
 3. All six speakers, official split (2700 templates, 300 test clips)
 
-   1-nearest   100.0%   (0 of 300 wrong, 0.71 s)
+   1-nearest   100.0%   (0 of 300 wrong, 0.33 s)
+   3-nearest   100.0%   (0 of 300 wrong, 0.35 s)
+   5-nearest   100.0%   (0 of 300 wrong, 0.34 s)
 ```
 
 ![A line plot of accuracy against templates per digit, rising from 91.0 percent with one template to 98.8 percent with five and 100 percent with 45, with dashed lines for the luckiest and unluckiest draws](../figures/ch05-accuracy-vs-templates.svg)
@@ -482,12 +494,12 @@ We should not stop here, because in every experiment so far the recognizer had a
 4. A speaker never heard before (leave one speaker out: 2,500 templates from five speakers, 500 test clips)
 
    held out    1-nearest  5-nearest       time
-   george          54.8%      51.2%     1.98 s
-   jackson         91.8%      92.4%     2.02 s
-   lucas           91.4%      94.2%     2.63 s
-   nicolas         64.2%      62.2%     1.78 s
-   theo            92.0%      92.6%     1.97 s
-   yweweler        87.2%      84.8%     1.87 s
+   george          54.8%      51.2%     1.09 s
+   jackson         91.8%      92.4%     1.14 s
+   lucas           91.4%      94.2%     1.19 s
+   nicolas         64.2%      62.2%     0.95 s
+   theo            92.0%      92.6%     0.94 s
+   yweweler        87.2%      84.8%     1.02 s
    mean            80.2%      79.6%
 ```
 
@@ -519,17 +531,17 @@ One more measurement before we judge the method.
 5. What one answer costs (one clip against N templates, one core)
 
     templates      ms per clip    ms per clip, band 5
-           10             0.04                   0.02
-          100             0.34                   0.22
-          450             1.49                   0.90
-         2700            10.23                   5.25
+           10             0.03                   0.02
+          100             0.32                   0.16
+          450             1.50                   0.74
+         2700             9.27                   4.77
 ```
 
-A typical clip is 35 frames, so one DTW fills 35 × 35 = 1,225 cells. Against 2,700 templates that takes about 10 ms on one core of my machine (yours will differ). That is fast enough here. But read down the column: ten times the templates, ten times the wait. Every recording we add to become more accurate makes every answer slower, and the bank is the entire dataset held in memory. The vocabulary multiplies it again: ten words at 270 templates each is 2,700 grids, and ten thousand words at the same rate would be a thousand times that, about ten seconds per word.
+A typical clip is 35 frames, so one DTW fills 35 × 35 = 1,225 cells. Against 2,700 templates that takes 9.3 ms on one core of my machine (yours will differ). That is fast enough here. But read down the column: ten times the templates, ten times the wait. Every recording we add to become more accurate makes every answer slower, and the bank is the entire dataset held in memory. The vocabulary multiplies it again: ten words at 270 templates each is 2,700 grids, and ten thousand words at the same rate would be a thousand times that, about nine seconds per word.
 
 ### Your Turn
 
-`classify` computes the features of one file, compares it with every clip of the dataset and shows its work. If the file is itself in the dataset (the samples in `samples/` are), that clip is left out of the templates, since finding yourself proves nothing.
+`classify` computes the features of one file, compares it with every clip of the dataset and shows its work. If the file is itself in the dataset (the digit clips in `samples/` are), that clip is left out of the templates, since finding yourself proves nothing.
 
 ```text
 $ cargo run --release --example ch05_digits -- classify ../samples/seven_jackson.wav
@@ -585,6 +597,32 @@ $ cargo run --release --example ch05_digits -- classify me.wav
 
 Any mono WAV at any sample rate will do. Say one digit, and do not be surprised if the answer is wrong. You are george in experiment 4: nobody in the bank sounds like you, or like your microphone. That is the lesson of this chapter.
 
+And if you have not downloaded the dataset? `classify` still runs. It says so on its second line and falls back to the six digit clips that ship in `samples/`: a "zero", a "three" and a "seven" from each of jackson and george. Six templates make a very small bank, and it shows:
+
+```text
+$ cargo run --release --example ch05_digits -- classify ../samples/seven_jackson.wav
+../samples/seven_jackson.wav: 0.43 s at 8000 Hz
+no dataset in ../data/fsdd/recordings: using the 6 digit clips in ../samples/ as templates (zero, three and seven only)
+41 frames of 12 MFCCs after trimming silence
+loaded 6 templates and computed their features in 2 ms
+this recording is in the dataset as 7_jackson_0.wav; leaving that one out of the templates
+
+compared with 5 templates in 0 ms (all cores)
+
+All 5 templates, nearest first:
+
+   rank  template               digit   distance
+      1  3_jackson_0.wav        three      6.947
+      2  0_jackson_0.wav        zero       7.077
+      3  7_george_0.wav         seven      7.470
+      4  3_george_0.wav         three      8.886
+      5  0_george_0.wav         zero      10.152
+...
+It says "three" (digit 3, distance 6.947 to 3_jackson_0.wav).
+```
+
+Wrong, and for a reason we have already met. The file is one of the six, so it is left out, and the only "seven" that remains is george's. Jackson's own "three" and "zero" are both closer to jackson's "seven" than another man's "seven" is: with one template per word, the voice outweighs the word. `../samples/seven.wav` fares better against the same six clips. It comes out as "seven", nearest to jackson's take at a distance of 5.976, with jackson's "zero" next at 6.989. Treat the fallback as a way to watch the machinery run. The accuracy lives in the 3,000 clips.
+
 ### Why This Approach Runs Out Of Road
 
 **Aside** <br>
@@ -601,7 +639,7 @@ Let's collect those reasons.
 ### Try It Yourself
 
 1. **Break the toy.** Run `ch05_dtw_toy -- 0,1,4,6,4,1,0 0,5,6,2,1,3,6,5,1,0`: similar numbers, different shape. The cost is 11, not 2, and the path has a long flat run like the "seven" against "zero" figure.
-2. **Put c0 back.** In `classify`, replace `MfccRecipe::standard()` with `MfccRecipe { keep_c0: true, ..MfccRecipe::standard() }` and classify `samples/seven.wav` again. Watch what happens to the margin between "seven" and the runner-up.
+2. **Put c0 back.** In `classify`, replace `MfccRecipe::standard()` with `MfccRecipe { keep_c0: true, ..MfccRecipe::standard() }` and classify `samples/seven.wav` again. Every distance grows, because loudness is now part of each frame. On this one clip "seven" still won when I tried it (6.70, with "zero" at 7.60), which is a reminder that one clip proves little: the 17 points c0 costs on unseen speakers show up over the thousands of clips in the table.
 3. **Count the paths.** The number of warping paths obeys its own recurrence: `P(i, j) = P(i-1, j-1) + P(i-1, j) + P(i, j-1)`, with 1 along the top row and left column. Write it and check that a 7 × 10 grid gives 75,517. You have just swapped a `min` for a sum on the same grid. Hold that thought until chapter 8.
 4. **Be a template.** Record yourself saying each digit once, add your ten clips to the bank in `classify`, and record a second take of one digit. Experiment 2 suggests one template per digit in your own voice is right about nine times in ten.
 
@@ -618,8 +656,8 @@ If you have been paying attention, you'll notice what is missing. We want a syst
 
 ### References
 
-- Sakoe & Chiba, [Dynamic programming algorithm optimization for spoken word recognition](https://doi.org/10.1109/TASSP.1978.1163055) (1978): the paper, the band, and the step patterns we skipped
-- T. K. Vintsyuk, [Speech discrimination by dynamic programming](https://doi.org/10.1007/BF01074755) (1968): the earliest description
+- H. Sakoe & S. Chiba, [Dynamic programming algorithm optimization for spoken word recognition](https://doi.org/10.1109/TASSP.1978.1163055), *IEEE Transactions on Acoustics, Speech, and Signal Processing* 26(1), 43-49 (1978): the paper, the band, and the step patterns we skipped
+- T. K. Vintsyuk, [Speech discrimination by dynamic programming](https://doi.org/10.1007/BF01074755), *Cybernetics* 4(1), 52-57 (1968; the English translation of a paper in the Russian journal *Kibernetika*): the earliest description
 - Zohar Jackson and contributors, [Free Spoken Digit Dataset](https://github.com/Jakobovski/free-spoken-digit-dataset) (CC BY-SA 4.0)
 - [std::thread::scope](https://doc.rust-lang.org/std/thread/fn.scope.html)
 - Corresponding code: [`src/dtw.rs`](../code/src/dtw.rs), [`src/data/fsdd.rs`](../code/src/data/fsdd.rs), [`examples/ch05_dtw_toy.rs`](../code/examples/ch05_dtw_toy.rs), [`examples/ch05_digits.rs`](../code/examples/ch05_digits.rs)

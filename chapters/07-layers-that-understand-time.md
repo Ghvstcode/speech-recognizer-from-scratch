@@ -6,7 +6,7 @@ Today we fix both. The second one is a download: a dataset with thousands of spe
 
 ### A Hundred Thousand Clips
 
-[Google Speech Commands](https://arxiv.org/abs/1804.03209) (version 2) is 105,829 recordings of 35 words, "yes", "no", "seven", "marvin" and so on, each at most one second long, at 16,000 samples per second, spoken by a couple of thousand volunteers into whatever microphone they had. `samples/seven.wav`, which we have been using since chapter 1, comes from it. It is a 2.3 GB download, licensed CC BY 4.0. From the root of the repository:
+[Google Speech Commands](https://arxiv.org/abs/1804.03209) (version 2) is 105,829 recordings of 35 words, "yes", "no", "seven", "marvin" and so on, each at most one second long, at 16,000 samples per second, spoken by a couple of thousand volunteers into whatever microphone they had. `samples/seven.wav`, which we have been using since chapter 1, comes from it. It is a 2.3 GB download, licensed CC BY 4.0. Our programs look for it where they looked for chapter 5's digits, in `data/` at the root of the repository (or wherever `SPEECH_DATA` points). From the root of the repository:
 
 ```text
 $ mkdir -p data/speech_commands
@@ -25,7 +25,7 @@ loaded 105829 clips in 5.7 s (3.32 GB of 16-bit audio)
 computed 98 x 40 log-mel features for every clip in 5.3 s (1.66 GB)
 ```
 
-That last line is chapters 2 to 4 at work. Every clip is padded with zeros to exactly one second, cut into 25 ms frames every 10 ms, and turned into 40 log-mel bands, normalized per clip. One second is 16,000 samples, so there are `(16000 - 400) / 160 + 1 = 98` frames. Every clip is a 98 × 40 picture.
+That last line is chapters 2 to 4 at work. Every clip is padded with zeros to exactly one second, cut into 25 ms frames every 10 ms, and turned into 40 log-mel bands, normalized per clip. One second is 16,000 samples, so there are `(16000 - 400) / 160 + 1 = 98` frames. Every clip is a 98 × 40 picture. The clips do not depend on each other, so the work is spread over the cores by a small helper in the same file, `parallel_map(items, threads, work)`, which runs a closure on every item of a slice and returns the results in the order of the items. We will borrow it again in chapter 9.
 
 ### The Wrong Shape
 
@@ -99,7 +99,8 @@ The backward pass is the same story in reverse. With patches as the input, the w
 
 ```rust
 // src/nn/conv.rs
-    /// Add every patch entry's gradient onto the frame it was copied from ("col2im").
+    /// The reverse of `gather_patches` for gradients: add every patch entry's
+    /// gradient onto the input frame it was copied from ("col2im").
     fn scatter_patches(&self, d_patches: &Mat, t_in: usize) -> Mat {
         let mut d_x = Mat::zeros(t_in, self.c_in);
         for out_frame in 0..d_patches.rows {
@@ -127,13 +128,12 @@ The backward pass is the same story in reverse. With patches as the input, the w
     }
 ```
 
-How do we know it works? First by hand, on a convolution small enough to do in your head: one channel, kernel `[1, 2, 3]`, bias 0.5, the input `1 2 3 4 5`, stride 2, padding 1.
+How do we know it works? First by hand, on a convolution small enough to do in your head: one channel, kernel `[1, 2, 3]`, bias 0.5, the input `1 2 3 4 5`, stride 2, padding 1. The padded input is `0 1 2 3 4 5 0`, so the three windows are `[0,1,2]`, `[2,3,4]` and `[4,5,0]`.
 
 ```rust
 // src/nn/conv.rs (tests)
     #[test]
     fn backward_by_hand() {
-        // Padded input: 0 1 2 3 4 5 0. Stride 2 gives windows [0,1,2], [2,3,4], [4,5,0].
         let conv = tiny(2, 1);
         let (_, patches) = conv.forward(&ramp());
         let d_out = Mat::from_vec(3, 1, vec![1.0, 10.0, 100.0]);
@@ -145,13 +145,16 @@ How do we know it works? First by hand, on a convolution small enough to do in y
         //   dW[2] = 2*1 + 4*10 + 0*100 = 42
         assert_eq!(grads[0].data, vec![420.0, 531.0, 42.0]);
         assert_eq!(grads[1].data, vec![111.0]);
-        // Frame 1 is the end of window 0 and the start of window 1: 3*1 + 1*10 = 13,
-        // frame 3 likewise for windows 1 and 2; the others sit in one window each.
+        // Input frame 0 (value 1) is the middle of window 0:            2*1          = 2
+        // frame 1 is the end of window 0 and the start of window 1:     3*1 + 1*10   = 13
+        // frame 2 is the middle of window 1:                            2*10         = 20
+        // frame 3 is the end of window 1 and the start of window 2:     3*10 + 1*100 = 130
+        // frame 4 is the middle of window 2:                            2*100        = 200
         assert_eq!(d_x.data, vec![2.0, 13.0, 20.0, 130.0, 200.0]);
     }
 ```
 
-And then by the rule we made in chapter 6: no backward pass is trusted until it has passed the gradient checker. Off-by-one errors in strides and paddings are the classic convolution bug, so the test tries nine combinations, several where `T` is not a multiple of the stride:
+And then by the rule we made in chapter 6: no backward pass is trusted until it has passed the gradient checker. Off-by-one errors in strides and paddings are the classic convolution bug, so the test tries nine combinations. The helper it calls uses two small methods of `Model` we have not needed until now: `predict` is `forward` for when no backward pass will follow, returning only the output, and `summary` is the table of layers and parameter counts that our programs print. It also randomizes the biases first, because biases start at zero and some bugs hide there.
 
 ```rust
 // src/nn/tests.rs
@@ -159,7 +162,7 @@ And then by the rule we made in chapter 6: no backward pass is trusted until it 
 /// cross-entropy loss, and fail with the full report if anything is off.
 fn assert_gradients_ok(mut model: Model, t: usize, n_in: usize, seed: u64) {
     let mut rng = Rng::new(seed);
-    randomize_biases(&mut model, &mut rng); // biases start at zero, where some bugs hide
+    randomize_biases(&mut model, &mut rng);
     let x = random_mat(t, n_in, &mut rng);
     let out = model.predict(&x);
     let classes = random_classes(out.rows, out.cols, &mut rng);
@@ -170,7 +173,8 @@ fn assert_gradients_ok(mut model: Model, t: usize, n_in: usize, seed: u64) {
 #[test]
 fn gradcheck_conv1d_across_strides_and_paddings() {
     let mut rng = Rng::new(30);
-    // (kernel, stride, padding, T)
+    // (kernel, stride, padding, T). Several have T not divisible by the
+    // stride, and some leave trailing frames that no window covers.
     for (kernel, stride, padding, t) in [(3, 1, 0, 7), (3, 1, 1, 7), (5, 2, 2, 11), (5, 2, 0, 10), (3, 2, 1, 8), (4, 3, 0, 11), (4, 3, 2, 13), (1, 1, 0, 4), (3, 4, 1, 9)] {
         let model = Model::new(vec![Layer::conv1d(3, 4, kernel, stride, padding, &mut rng)]);
         assert_gradients_ok(model, t, 3, 31);
@@ -332,14 +336,23 @@ Now we have the gradient of all three sums. Each sum is "input side plus state s
     pub fn backward(&self, x: &Mat, cache: &GruCache, d_out: &Mat, direction: Direction, grads: &mut [Mat]) -> Mat {
         let (t_len, h) = (x.rows, self.hidden());
         // ... assert that d_out is T x H
-        // Row t holds the state frame t started from (zeros for the first step).
+
+        // The state each frame started from: row t holds the output of the
+        // step before frame t (zeros for the very first step).
         let h_prev_all = self.previous_states(&cache.h, direction);
 
-        // Gradients of the two sums inside the gates, for every frame.
+        // Gradients of the two sums inside the gates, for every frame:
+        // (x W_x + b_x), the input side, and (h_prev W_h + b_h), the state
+        // side. We fill these in inside the loop. Each side is a linear layer
+        // in disguise, so afterwards the weight gradients fall out of a few
+        // whole-sequence products, mirroring the forward pass.
         let mut d_input_side = Mat::zeros(t_len, 3 * h);
         let mut d_state_side = Mat::zeros(t_len, 3 * h);
+        // W_h transposed, so that "push a gradient back through W_h" is the
+        // same fast vector-matrix product the forward pass uses.
         let w_h_transposed = self.w_h.transpose();
 
+        // Scratch buffers, reused at every frame.
         let mut from_future = vec![0.0; h]; // dLoss/dh_t arriving from the step processed after t
         let mut to_past = vec![0.0; h]; // the same thing, being built for the step before t
 
@@ -360,6 +373,7 @@ Now we have the gradient of all three sums. Each sum is "input side plus state s
                 to_past[j] = dh * z; // the direct copy path; more is added below
 
                 // n = tanh(a_n), with a_n = [input side] + r * state_n.
+                // tanh'(a) = 1 - tanh(a)^2 = 1 - n^2
                 let da_n = dn * (1.0 - n * n);
                 let dr = da_n * state_n[j];
 
@@ -367,6 +381,9 @@ Now we have the gradient of all three sums. Each sum is "input side plus state s
                 let da_r = dr * r * (1.0 - r);
                 let da_z = dz * z * (1.0 - z);
 
+                // The input side and the state side enter a_r and a_z as a
+                // plain sum, so both get the same gradient. In a_n the state
+                // side is multiplied by r, so its gradient is too.
                 d_in_r[j] = da_r;
                 d_in_z[j] = da_z;
                 d_in_n[j] = da_n;
@@ -375,10 +392,12 @@ Now we have the gradient of all three sums. Each sum is "input side plus state s
                 d_st_n[j] = da_n * r;
             }
 
-            // The state side read h_prev through W_h: dh_prev += d W_h^T.
+            // The state side read h_prev through W_h, so its gradient flows
+            // back to h_prev through W_h transposed: dh_prev += d W_h^T.
             kernels::add_vec_mat(d_state_side.row(t), &w_h_transposed, &mut to_past);
 
-            // What we built for the past is the future's message next iteration.
+            // What we just built for the past is the future's message for the
+            // next iteration.
             std::mem::swap(&mut from_future, &mut to_past);
         }
 
@@ -391,8 +410,6 @@ Now we have the gradient of all three sums. Each sum is "input side plus state s
         kernels::matmul_transposed(&d_input_side, &self.w_x)
     }
 ```
-
-After the loop, both sides turn out to be linear layers in disguise, so the weight gradients fall out of the same three kernels as always, over all frames at once.
 
 Look at `to_past[j] = dh * z` again. Where the update gate is near 1, the gradient passes from frame to frame multiplied by almost exactly 1. That is the green line of the figure, read right to left, and it is the reason a GRU can learn from something 77 frames back when the simple recurrent layer cannot.
 
@@ -668,7 +685,9 @@ Now the MLP. It has the most weights of the three and comes 24 points behind, an
 
 And now the result I did not expect when we started. The convolution-only network is as good as the one with the GRU: 93.84% against 93.45%, a gap of 0.4 points from one run each, at less than half the training time. All that work on gates and backpropagation through time, and on this task it buys nothing.
 
-I think the reason is the task. A single short word is mostly local evidence: with a receptive field of 0.3 seconds each output frame of the conv stack already sees a large part of the word, and mean pooling collects the rest. There is nothing far away to remember. That stops being true in chapter 9, where the input is several words in a row and the network must write out letters, some of which can only be decided by what was said half a second earlier or later. There the GRU earns its place. We save the conv + GRU model to `models/words.bin` because it is the shape we build on.
+I think the reason is the task. A single short word is mostly local evidence: with a receptive field of 0.3 seconds each output frame of the conv stack already sees a large part of the word, and mean pooling collects the rest. There is nothing far away to remember. That stops being true in chapter 9, where the input is several words in a row and the network must write out letters, some of which can only be decided by what was said half a second earlier or later. That is where the GRU has to earn its place, and chapter 9 measures whether it does. We save the conv + GRU model to `models/words.bin` because it is the shape we build on.
+
+Saving is `Model::save`, which chapter 6 used and promised we would look inside. The format, in `src/nn/io.rs`, is as plain as we could make it: the eight ASCII bytes `SPEECHNN`, a version number, the number of layers, and then for each layer a one-byte tag saying what kind it is, its sizes, and its weight tensors as little-endian `f32`s. Every tensor is preceded by its own rows and columns even though the layer's sizes already imply them, so that `Model::load` notices a corrupt or mismatched file instead of quietly reading garbage. Our 170,851 weights make a file of 684 KB.
 
 ### What It Gets Wrong
 

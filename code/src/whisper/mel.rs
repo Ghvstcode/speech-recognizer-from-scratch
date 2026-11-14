@@ -29,7 +29,7 @@
 //! use the last. With the sines and cosines tabulated once, each bin is two
 //! dot products of length 400, the whole spectrogram is about half a billion
 //! multiply-adds, and spread over the cores that takes a few hundredths of a
-//! second: well under 1% of the total. Clarity wins.
+//! second: a few percent of the total. Clarity wins.
 
 use super::parallel::for_each_row_par;
 use crate::mat::{dot, Mat};

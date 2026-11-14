@@ -55,7 +55,7 @@ Some ideas are easier to play with than to read about, so several chapters link 
 
 ### Running The Code
 
-You need Rust (any recent stable toolchain, installed with [rustup](https://rustup.rs)). Nothing else for most of the book. Chapter 11 uses `ffmpeg` to read the microphone.
+You need Rust 1.88 or newer (installed with [rustup](https://rustup.rs)). Nothing else for most of the book. Chapter 11 uses `ffmpeg` to read the microphone.
 
 ```
 git clone <this repository>
