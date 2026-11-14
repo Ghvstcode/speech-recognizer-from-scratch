@@ -434,7 +434,7 @@ fn save_figures(results: &[RunResult], confusion: &Mat) -> std::io::Result<()> {
 
     // Training curve: validation accuracy (solid) and training accuracy
     // (dashed, kept out of the legend) per model.
-    let mut accuracy_plot = LinePlot::new("accuracy on validation clips (solid) and on training clips as seen during training (dashed)").y_label("accuracy (%)").x_label("epoch").y_range(0.0, 100.0).height(260.0);
+    let mut accuracy_plot = LinePlot::new("validation (solid) and training (dashed) accuracy").y_label("accuracy (%)").x_label("epoch").y_range(0.0, 100.0).height(260.0);
     let mut loss_plot = LinePlot::new("training loss").y_label("cross-entropy").x_label("epoch").height(150.0);
     for (r, &color) in results.iter().zip(&colors) {
         accuracy_plot = accuracy_plot
@@ -466,8 +466,13 @@ fn save_figures(results: &[RunResult], confusion: &Mat) -> std::io::Result<()> {
     // so that the rare mistakes are visible next to the dominant diagonal.
     // Below it, the twelve most frequent mistakes spelled out.
     let scaled = Mat::from_fn(WORDS.len(), WORDS.len(), |r, c| (confusion[(r, c)] / confusion.row(r).iter().sum::<f32>().max(1.0)).sqrt());
-    let short: Vec<String> = WORDS.iter().map(|w| w.chars().take(3).collect()).collect();
-    let short: Vec<&str> = short.iter().map(String::as_str).collect();
+    // 35 words do not fit under 35 narrow columns, so the columns carry
+    // numbers and the rows say which word each number is.
+    let numbers: Vec<String> = (1..=WORDS.len()).map(|n| n.to_string()).collect();
+    let numbers: Vec<&str> = numbers.iter().map(String::as_str).collect();
+    let shorten = |word: &str| if word.len() > 6 { format!("{}.", &word[..5]) } else { word.to_string() };
+    let numbered: Vec<String> = WORDS.iter().enumerate().map(|(i, word)| format!("{} {}", shorten(word), i + 1)).collect();
+    let numbered: Vec<&str> = numbered.iter().map(String::as_str).collect();
     let mut pairs: Vec<(f32, usize, usize)> = Vec::new();
     for said in 0..WORDS.len() {
         for heard in (0..WORDS.len()).filter(|&heard| heard != said) {
@@ -482,11 +487,10 @@ fn save_figures(results: &[RunResult], confusion: &Mat) -> std::io::Result<()> {
     Figure::new("Which words the conv+gru network mixes up (test set)")
         .desc("A 35 by 35 confusion matrix with a strong diagonal, and a bar chart of the twelve most frequent confusions, such as tree heard as three and follow heard as four.")
         .panel(
-            Heatmap::new("what was said (rows) against what was heard (columns, first three letters); darkness is the square root of the fraction", &scaled)
-                .row_labels(&WORDS)
-                .col_labels(&short)
-                .y_label("said")
-                .x_label("heard")
+            Heatmap::new("rows: the word said; columns: the word heard, by its number; square-root shading", &scaled)
+                .row_labels(&numbered)
+                .col_labels(&numbers)
+                .x_label("heard (word number)")
                 .value_range(0.0, 1.0)
                 .height(640.0),
         )

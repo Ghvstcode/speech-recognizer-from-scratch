@@ -1,0 +1,120 @@
+loaded 105829 clips in 5.7 s (3.32 GB of 16-bit audio)
+  train       84843 clips, 2112 speakers
+  validation   9981 clips,  256 speakers
+  test        11005 clips,  250 speakers
+computed 98 x 40 log-mel features for every clip in 5.3 s (1.66 GB)
+
+== mlp ==
+  0  Linear(3920 -> 64)                                      250944 params
+  1  ReLU                                                         0 params
+  2  Linear(64 -> 64)                                          4160 params
+  3  ReLU                                                         0 params
+  4  Linear(64 -> 35)                                          2275 params
+     total                                                   257379 params
+epoch  1   loss 2.5185   train 29.10%   validation 50.14% *   lr 0.00199   3.3 s (25523 clips/s)
+epoch  2   loss 1.9026   train 44.63%   validation 55.98% *   lr 0.00196   3.2 s (26388 clips/s)
+epoch  3   loss 1.7848   train 47.76%   validation 58.50% *   lr 0.00190   3.2 s (26353 clips/s)
+epoch  4   loss 1.7025   train 50.17%   validation 59.08% *   lr 0.00182   3.2 s (26831 clips/s)
+epoch  5   loss 1.6500   train 51.78%   validation 62.01% *   lr 0.00173   3.2 s (26151 clips/s)
+epoch  6   loss 1.6115   train 52.78%   validation 63.66% *   lr 0.00161   3.2 s (26626 clips/s)
+epoch  7   loss 1.5622   train 54.07%   validation 64.77% *   lr 0.00148   3.2 s (26273 clips/s)
+epoch  8   loss 1.5289   train 54.89%   validation 65.76% *   lr 0.00134   3.4 s (24729 clips/s)
+epoch  9   loss 1.4961   train 56.04%   validation 65.51%     lr 0.00119   3.5 s (24056 clips/s)
+epoch 10   loss 1.4535   train 57.10%   validation 66.58% *   lr 0.00103   3.2 s (26695 clips/s)
+epoch 11   loss 1.4319   train 57.82%   validation 67.67% *   lr 0.00088   3.3 s (25957 clips/s)
+epoch 12   loss 1.3916   train 59.07%   validation 69.07% *   lr 0.00073   3.2 s (26384 clips/s)
+epoch 13   loss 1.3637   train 59.67%   validation 70.11% *   lr 0.00058   3.2 s (26351 clips/s)
+epoch 14   loss 1.3396   train 60.71%   validation 70.06%     lr 0.00045   3.2 s (26215 clips/s)
+epoch 15   loss 1.3102   train 61.57%   validation 71.43% *   lr 0.00033   3.2 s (26196 clips/s)
+epoch 16   loss 1.2945   train 61.96%   validation 71.24%     lr 0.00023   3.3 s (25749 clips/s)
+epoch 17   loss 1.2712   train 62.54%   validation 72.06% *   lr 0.00015   3.2 s (26429 clips/s)
+epoch 18   loss 1.2578   train 62.69%   validation 72.34% *   lr 0.00009   3.2 s (26180 clips/s)
+epoch 19   loss 1.2490   train 63.17%   validation 72.45% *   lr 0.00005   3.2 s (26279 clips/s)
+epoch 20   loss 1.2440   train 63.27%   validation 72.42%     lr 0.00004   3.3 s (25718 clips/s)
+best validation accuracy 72.45% at epoch 19; test accuracy with those weights: 69.32%
+
+== conv ==
+  0  Conv1d(40 -> 64, kernel 5, stride 2, padding 2)          12864 params
+  1  ReLU                                                         0 params
+  2  Conv1d(64 -> 96, kernel 5, stride 2, padding 2)          30816 params
+  3  ReLU                                                         0 params
+  4  Conv1d(96 -> 128, kernel 5, stride 1, padding 2)         61568 params
+  5  ReLU                                                         0 params
+  6  MeanPool                                                     0 params
+  7  Linear(128 -> 35)                                         4515 params
+     total                                                   109763 params
+epoch  1   loss 1.3236   train 62.81%   validation 84.91% *   lr 0.00199   5.2 s (16191 clips/s)
+epoch  2   loss 0.6651   train 80.55%   validation 88.90% *   lr 0.00196   5.2 s (16286 clips/s)
+epoch  3   loss 0.5565   train 83.65%   validation 88.99% *   lr 0.00190   5.0 s (16834 clips/s)
+epoch  4   loss 0.4919   train 85.44%   validation 90.77% *   lr 0.00182   4.9 s (17259 clips/s)
+epoch  5   loss 0.4504   train 86.64%   validation 91.55% *   lr 0.00173   4.9 s (17242 clips/s)
+epoch  6   loss 0.4223   train 87.55%   validation 91.29%     lr 0.00161   4.9 s (17246 clips/s)
+epoch  7   loss 0.3946   train 88.26%   validation 91.91% *   lr 0.00148   4.9 s (17282 clips/s)
+epoch  8   loss 0.3740   train 88.77%   validation 92.46% *   lr 0.00134   4.9 s (17295 clips/s)
+epoch  9   loss 0.3521   train 89.45%   validation 92.55% *   lr 0.00119   4.9 s (17211 clips/s)
+epoch 10   loss 0.3389   train 89.78%   validation 92.85% *   lr 0.00103   4.9 s (17286 clips/s)
+epoch 11   loss 0.3198   train 90.35%   validation 92.94% *   lr 0.00088   4.9 s (17184 clips/s)
+epoch 12   loss 0.3062   train 90.74%   validation 93.05% *   lr 0.00073   4.9 s (17228 clips/s)
+epoch 13   loss 0.2909   train 91.15%   validation 93.34% *   lr 0.00058   5.4 s (15620 clips/s)
+epoch 14   loss 0.2788   train 91.51%   validation 93.46% *   lr 0.00045   5.4 s (15570 clips/s)
+epoch 15   loss 0.2658   train 91.90%   validation 93.53% *   lr 0.00033   4.9 s (17199 clips/s)
+epoch 16   loss 0.2601   train 92.07%   validation 93.68% *   lr 0.00023   4.9 s (17320 clips/s)
+epoch 17   loss 0.2504   train 92.39%   validation 93.66%     lr 0.00015   4.9 s (17274 clips/s)
+epoch 18   loss 0.2480   train 92.59%   validation 93.74% *   lr 0.00009   4.9 s (17241 clips/s)
+epoch 19   loss 0.2392   train 92.73%   validation 93.81% *   lr 0.00005   4.9 s (17247 clips/s)
+epoch 20   loss 0.2374   train 92.71%   validation 93.69%     lr 0.00004   4.9 s (17249 clips/s)
+best validation accuracy 93.81% at epoch 19; test accuracy with those weights: 93.84%
+
+== conv+gru ==
+  0  Conv1d(40 -> 64, kernel 5, stride 2, padding 2)          12864 params
+  1  ReLU                                                         0 params
+  2  BiGru(64 -> 2 x 128)                                    148992 params
+  3  MeanPool                                                     0 params
+  4  Linear(256 -> 35)                                         8995 params
+     total                                                   170851 params
+epoch  1   loss 1.2318   train 65.93%   validation 85.84% *   lr 0.00199   12.3 s (6874 clips/s)
+epoch  2   loss 0.6169   train 82.01%   validation 88.45% *   lr 0.00196   12.3 s (6871 clips/s)
+epoch  3   loss 0.5207   train 84.70%   validation 89.95% *   lr 0.00190   12.3 s (6877 clips/s)
+epoch  4   loss 0.4731   train 85.92%   validation 90.77% *   lr 0.00182   12.4 s (6851 clips/s)
+epoch  5   loss 0.4378   train 86.83%   validation 91.24% *   lr 0.00173   12.4 s (6855 clips/s)
+epoch  6   loss 0.4076   train 87.84%   validation 91.45% *   lr 0.00161   12.3 s (6880 clips/s)
+epoch  7   loss 0.3849   train 88.37%   validation 91.52% *   lr 0.00148   12.3 s (6897 clips/s)
+epoch  8   loss 0.3665   train 88.86%   validation 91.54% *   lr 0.00134   12.3 s (6919 clips/s)
+epoch  9   loss 0.3474   train 89.55%   validation 92.02% *   lr 0.00119   12.4 s (6868 clips/s)
+epoch 10   loss 0.3245   train 90.12%   validation 92.35% *   lr 0.00103   12.3 s (6885 clips/s)
+epoch 11   loss 0.3129   train 90.48%   validation 92.34%     lr 0.00088   12.3 s (6920 clips/s)
+epoch 12   loss 0.2918   train 91.16%   validation 92.84% *   lr 0.00073   12.4 s (6852 clips/s)
+epoch 13   loss 0.2770   train 91.44%   validation 92.99% *   lr 0.00058   12.3 s (6873 clips/s)
+epoch 14   loss 0.2668   train 91.80%   validation 93.22% *   lr 0.00045   12.3 s (6887 clips/s)
+epoch 15   loss 0.2533   train 92.32%   validation 93.48% *   lr 0.00033   12.4 s (6856 clips/s)
+epoch 16   loss 0.2428   train 92.55%   validation 93.38%     lr 0.00023   12.5 s (6803 clips/s)
+epoch 17   loss 0.2313   train 92.94%   validation 93.56% *   lr 0.00015   12.4 s (6861 clips/s)
+epoch 18   loss 0.2269   train 93.06%   validation 93.44%     lr 0.00009   12.4 s (6847 clips/s)
+epoch 19   loss 0.2238   train 93.15%   validation 93.49%     lr 0.00005   12.4 s (6861 clips/s)
+epoch 20   loss 0.2229   train 93.15%   validation 93.60% *   lr 0.00004   12.3 s (6872 clips/s)
+best validation accuracy 93.60% at epoch 20; test accuracy with those weights: 93.45%
+
+| model    | parameters | best validation | test accuracy | time per epoch |
+|----------|-----------:|----------------:|--------------:|---------------:|
+| mlp      |     257379 |          72.45% |        69.32% |          3.3 s |
+| conv     |     109763 |          93.81% |        93.84% |          5.0 s |
+| conv+gru |     170851 |          93.60% |        93.45% |         12.3 s |
+
+conv+gru: hardest words on the test set: tree 82.9%, learn 83.2%, bed 84.1%, follow 88.4%, go 89.6%, forward 89.7%
+conv+gru: easiest words on the test set: stop 98.8%, six 98.2%, sheila 97.2%, yes 96.7%, right 96.5%, seven 96.3%
+most frequent mistakes (said -> heard, count of test clips):
+  four     -> forward   19   (4.8% of the "four" clips)
+  tree     -> three     19   (9.8% of the "tree" clips)
+  go       -> no        14   (3.5% of the "go" clips)
+  up       -> off       13   (3.1% of the "up" clips)
+  forward  -> four      11   (7.1% of the "forward" clips)
+  four     -> follow    10   (2.5% of the "four" clips)
+  off      -> up        10   (2.5% of the "off" clips)
+  bird     -> bed        8   (4.3% of the "bird" clips)
+  down     -> no         8   (2.0% of the "down" clips)
+  no       -> nine       8   (2.0% of the "no" clips)
+  two      -> go         8   (1.9% of the "two" clips)
+  go       -> down       7   (1.7% of the "go" clips)
+
+saved the conv+gru model to ../models/words.bin
+wrote ../figures/ch07-training-curve.svg, ch07-architectures.svg, ch07-confusion.svg

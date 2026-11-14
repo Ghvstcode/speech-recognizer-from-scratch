@@ -13,9 +13,14 @@
 //! fresh batch each step, never the same utterance twice.
 //!
 //! ```text
-//! cargo run --release --example ch09_train                # the full run, about half an hour
-//! cargo run --release --example ch09_train -- --quick     # a working model in a few minutes
+//! cargo run --release --example ch09_train                # the full run: 40,000 steps, about 40 minutes on 10 threads
+//! cargo run --release --example ch09_train -- --quick     # 4,000 steps, about 5 minutes: already spells most words
 //! ```
+//!
+//! The full run that produced `models/recognizer.bin` reached a word error
+//! rate of 16% on the test set with greedy decoding (10% with the lexicon
+//! decoder of chapter 10); the quick run reaches 22% (12%). The numbers a
+//! run prints are reproducible bit for bit for a given `--threads`.
 //!
 //! While it runs it prints the loss every 100 steps, and at regular
 //! intervals what it currently hears in three fixed validation utterances.
