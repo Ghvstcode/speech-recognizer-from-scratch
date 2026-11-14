@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listening Live · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="The recognizer we trained in the book, compiled to WebAssembly and running in this page: speak a few of its 35 words, or pick a recording, and watch it find the speech and spell it out.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #wave { --h: 250px; }
+  #transcript {
+    min-height: 3.2em;
+    padding: 18px 20px;
+    font-size: 26px; line-height: 1.3; font-weight: 400; letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+  }
+  #transcript[data-empty="true"] { font-size: 15px; line-height: 1.55; color: var(--ink-60); letter-spacing: 0; }
+  #toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; }
+  #toolbar .sr-chip-row { margin: 0; }
+  #record { min-width: 104px; }
+  #record[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: var(--paper); }
+  #status { flex: 1 1 200px; min-width: 0; }
+  #words { font-family: var(--mono); font-size: 12px; line-height: 1.9; color: var(--ink-70); }
+  .sr-stat-value.listen-text { font-family: var(--sans); font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+  @media (max-width: 799px) {
+    #wave { --h: 210px; }
+    #transcript { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/11-listening-live.md">Chapter 11</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 11 · Interactive</span>
+    <h1 class="sr-title">Listening Live</h1>
+    <p class="sr-lede">This is the recognizer we trained in chapter 9, the same Rust code, compiled to WebAssembly and running in this page. Speak, or pick a recording, and it finds the speech, runs the network and spells out what it heard.</p>
+    <p class="sr-small">It knows 35 words and nothing else, and it learned them from one dataset of one-second clips. Say two or three of them with a short pause in between. Expect mistakes with your own voice and microphone: chapter 10 measures how often it is wrong even on its own test set. Your audio never leaves this page.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div class="sr-card" id="toolbar">
+        <button class="sr-btn sr-btn--primary" type="button" id="record" aria-pressed="false" disabled>Record</button>
+        <div class="sr-chip-row" id="clips" role="group" aria-label="Recordings to try">
+          <button class="sr-chip" type="button" data-file="utt_two_yes_go_visual.wav" disabled>two yes go visual</button>
+          <button class="sr-chip" type="button" data-file="utt_yes_right.wav" disabled>yes right</button>
+          <button class="sr-chip" type="button" data-file="utt_down_five_three_sheila_nine.wav" disabled>five words</button>
+          <button class="sr-chip" type="button" data-file="seven.wav" disabled>seven</button>
+        </div>
+        <span class="sr-small" id="status" role="status">Loading the recognizer…</span>
+      </div>
+
+      <div class="sr-card" id="transcript" data-empty="true" aria-live="polite">Press Record and say a few of the 35 words below, or pick one of the recordings.</div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">What it heard, and where</span>
+          <span class="sr-pill" id="wave-pill">no audio yet</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="wave" role="img" aria-label="The waveform of the recording, the stretch the endpoint detector kept, and the network's best symbol in every frame"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green-wash)"></span>the stretch the endpoint detector kept</li>
+            <li><span class="sr-swatch" style="--c: var(--green)"></span>frames where the network names a letter</li>
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-30)"></span>frames where it says blank</li>
+          </ul>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-greedy">
+          <span class="sr-overline">Greedy</span>
+          <span class="sr-stat-value listen-text">–</span>
+          <span class="sr-stat-sub">best symbol per frame, collapsed</span>
+        </div>
+        <div class="sr-stat" id="stat-beam">
+          <span class="sr-overline">Beam search</span>
+          <span class="sr-stat-value listen-text">–</span>
+          <span class="sr-stat-sub">16 prefixes kept per frame</span>
+        </div>
+        <div class="sr-stat" id="stat-lexicon">
+          <span class="sr-overline">With the lexicon</span>
+          <span class="sr-stat-value listen-text">–</span>
+          <span class="sr-stat-sub">only sequences of known words</span>
+        </div>
+        <div class="sr-stat" id="stat-time">
+          <span class="sr-overline">Time to recognize</span>
+          <span class="sr-stat-value">–</span>
+          <span class="sr-stat-sub">in your browser</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+    <div class="sr-control-group">
+      <span class="sr-overline">The answer on top</span>
+      <div class="sr-field">
+        <span class="sr-label" id="decoder-label">Decoder</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="decoder-label">
+          <label><input type="radio" name="decoder" value="greedy"><span>Greedy</span></label>
+          <label><input type="radio" name="decoder" value="beam"><span>Beam</span></label>
+          <label><input type="radio" name="decoder" value="lexicon" checked><span>Lexicon</span></label>
+        </div>
+        <p class="sr-hint">All three read the same network output. Greedy and beam may spell things that are not words; the lexicon decoder cannot.</p>
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn" type="button" id="play" disabled>Play it back</button>
+      </div>
+    </div>
+    <div class="sr-control-group">
+      <span class="sr-overline">The 35 words it knows</span>
+      <p id="words">backward bed bird cat dog down eight five follow forward four go happy house learn left marvin nine no off on one right seven sheila six stop three tree two up visual wow yes zero</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/11-listening-live.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 11.</span>
+  <span>The recognizer is <a href="../code/src/data/pipeline.rs"><code>pipeline.rs</code></a>, compiled by <a href="../web/src/lib.rs"><code>web/</code></a>; the weights are <a href="../models/README.md"><code>recognizer.bin</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX_SECONDS = 12;
+  var $ = function (id) { return document.getElementById(id); };
+  var recordBtn = $('record'), playBtn = $('play'), statusEl = $('status'), transcriptEl = $('transcript');
+  var clipButtons = Array.prototype.slice.call(document.querySelectorAll('#clips .sr-chip'));
+
+  var state = {
+    wasm: null,          // the module's exports, once loaded
+    audio: null,         // Float32Array, mono
+    rate: 16000,
+    result: null,        // what sr_transcribe answered
+    millis: 0,
+    recording: null,     // { context, stream, node, chunks, levels, length }
+    decoder: 'lexicon'
+  };
+
+  function setStatus(text) { statusEl.textContent = text; }
+  function setBusy(busy) {
+    var off = busy || !state.wasm;
+    recordBtn.disabled = !state.wasm || (busy && !state.recording);
+    clipButtons.forEach(function (b) { b.disabled = off; });
+    playBtn.disabled = off || !state.audio;
+  }
+
+  /* ---- The recognizer --------------------------------------------------
+     listen.wasm is web/src/lib.rs: the book's own crate behind five plain
+     functions. We write bytes into the module's memory and read JSON back. */
+
+  function fetchBytes(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + ': ' + r.status);
+      return r.arrayBuffer();
+    });
+  }
+
+  function output(len) {
+    var bytes = new Uint8Array(state.wasm.memory.buffer, state.wasm.sr_output(), len);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function boot() {
+    Promise.all([fetchBytes('listen.wasm'), fetchBytes('recognizer.bin')]).then(function (parts) {
+      return WebAssembly.instantiate(parts[0], {}).then(function (made) {
+        var wasm = made.instance.exports;
+        var model = new Uint8Array(parts[1]);
+        var ptr = wasm.sr_alloc(model.length);
+        new Uint8Array(wasm.memory.buffer, ptr, model.length).set(model);
+        var failed = wasm.sr_load_model(ptr, model.length);
+        wasm.sr_free(ptr, model.length);
+        state.wasm = wasm;
+        if (failed) throw new Error('the model file is not a recognizer');
+        setStatus('Ready. 496,508 weights loaded.');
+        setBusy(false);
+      });
+    }).catch(function () {
+      state.wasm = null;
+      setBusy(false);
+      setStatus('The recognizer is not here.');
+      transcriptEl.dataset.empty = 'true';
+      transcriptEl.textContent = 'This page needs the recognizer compiled to WebAssembly (listen.wasm) and its weights next to it. The website build puts them there; run it with "cargo run --release --manifest-path site/Cargo.toml" and open the page from _site/ through a local web server.';
+    });
+  }
+
+  function transcribe() {
+    var wasm = state.wasm, n = state.audio.length;
+    var ptr = wasm.sr_alloc(n * 4);
+    new Float32Array(wasm.memory.buffer, ptr, n).set(state.audio);
+    var t0 = performance.now();
+    var len = wasm.sr_transcribe(ptr, n, state.rate);
+    state.millis = performance.now() - t0;
+    var text = output(len);
+    wasm.sr_free(ptr, n * 4);
+    try { state.result = JSON.parse(text); } catch (e) { state.result = { error: 'unreadable answer' }; }
+    show();
+  }
+
+  /* ---- Showing the answer ---------------------------------------------- */
+
+  function setStat(id, value) { $(id).querySelector('.sr-stat-value').textContent = value; }
+
+  function show() {
+    var r = state.result, seconds = state.audio ? state.audio.length / state.rate : 0;
+    $('wave-pill').textContent = state.audio ? seconds.toFixed(1) + ' s · ' + SR.fmt.int(state.rate) + ' Hz' : 'no audio yet';
+    var quote = function (s) { return s ? '"' + s + '"' : '(nothing)'; };
+    if (!r) {
+      // nothing yet
+    } else if (r.error) {
+      transcriptEl.dataset.empty = 'true';
+      transcriptEl.textContent = 'Something went wrong: ' + r.error + '.';
+    } else if (r.silent) {
+      transcriptEl.dataset.empty = 'true';
+      transcriptEl.textContent = 'The endpoint detector found no speech in that. Try again a little louder or closer to the microphone.';
+      ['stat-greedy', 'stat-beam', 'stat-lexicon'].forEach(function (id) { setStat(id, '–'); });
+    } else {
+      var best = r[state.decoder];
+      transcriptEl.dataset.empty = best ? 'false' : 'true';
+      transcriptEl.textContent = best || 'It found speech but none of the decoders made a word of it.';
+      setStat('stat-greedy', quote(r.greedy));
+      setStat('stat-beam', quote(r.beam));
+      setStat('stat-lexicon', quote(r.lexicon));
+    }
+    if (r && !r.error) {
+      setStat('stat-time', state.millis < 10 ? state.millis.toFixed(1) + ' ms' : Math.round(state.millis) + ' ms');
+      var speed = seconds * 1000 / Math.max(state.millis, 0.1);
+      $('stat-time').querySelector('.sr-stat-sub').textContent = SR.fmt.int(Math.round(speed)) + ' times faster than the audio';
+    }
+    wave.redraw();
+  }
+
+  var wave = SR.canvas('#wave', function (ctx, w, h) {
+    var tk = SR.tokens();
+    var box = SR.plotBox(w, h, { l: 14, r: 14, t: 14, b: 30 });
+    var lettersH = 34;                       // the strip under the waveform
+    var waveH = box.h - lettersH;
+    var mid = box.y + waveH / 2;
+    var rec = state.recording;
+
+    ctx.strokeStyle = tk.ink15;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(box.x, SR.crisp(mid)); ctx.lineTo(box.x + box.w, SR.crisp(mid));
+    ctx.moveTo(box.x, SR.crisp(box.y + box.h)); ctx.lineTo(box.x + box.w, SR.crisp(box.y + box.h));
+    ctx.stroke();
+
+    if (rec) {
+      // While recording: one bar per block of audio, filling the width over MAX_SECONDS.
+      var total = Math.ceil(MAX_SECONDS * rec.context.sampleRate / rec.blockLen);
+      var bw = box.w / total;
+      ctx.fillStyle = tk.red;
+      for (var b = 0; b < rec.levels.length; b++) {
+        var bh = Math.max(1, Math.min(1, rec.levels[b] * 1.6) * waveH / 2);
+        ctx.fillRect(box.x + b * bw, mid - bh, Math.max(1, bw - 1), bh * 2);
+      }
+      return;
+    }
+    if (!state.audio) return;
+
+    var audio = state.audio, n = audio.length, seconds = n / state.rate;
+    var x = SR.scale.linear([0, seconds], [box.x, box.x + box.w]);
+    var r = state.result;
+    var found = r && !r.error && !r.silent;
+    var t0 = found ? r.start / 16000 : 0, t1 = found ? r.end / 16000 : 0;
+
+    if (found) {
+      ctx.fillStyle = tk.greenWash;
+      ctx.fillRect(x(t0), box.y, x(t1) - x(t0), box.h);
+    }
+
+    // The waveform: for every pixel column, a line from the lowest to the
+    // highest sample that falls in it, scaled so the loudest sample fills the height.
+    var peak = 1e-4;
+    for (var i = 0; i < n; i++) { var a = audio[i] < 0 ? -audio[i] : audio[i]; if (a > peak) peak = a; }
+    var cols = Math.max(1, Math.floor(box.w));
+    ctx.strokeStyle = tk.ink70;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var c = 0; c < cols; c++) {
+      var from = Math.floor(c * n / cols), to = Math.max(from + 1, Math.floor((c + 1) * n / cols));
+      var lo = 1, hi = -1;
+      for (var k = from; k < to && k < n; k++) { var v = audio[k]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      var px = SR.crisp(box.x + c);
+      ctx.moveTo(px, mid - hi / peak * (waveH / 2 - 4));
+      ctx.lineTo(px, mid - lo / peak * (waveH / 2 - 4) + 1);
+    }
+    ctx.stroke();
+
+    // The network's best symbol in every output frame, under the audio it came from.
+    if (found && r.frames) {
+      var frames = r.frames, nf = frames.length;
+      var top = box.y + waveH + 6, base = box.y + box.h;
+      ctx.font = SR.font.mono(13);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      var lastLabelX = -Infinity;
+      for (var f = 0; f < nf; f++) {
+        var ch = frames.charAt(f);
+        var fx = x(t0 + (f + 0.5) / nf * (t1 - t0));
+        var blank = ch === '_';
+        ctx.strokeStyle = blank ? tk.ink15 : (ch === ' ' ? tk.amber : tk.green);
+        ctx.lineWidth = blank ? 1 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(SR.crisp(fx), base - (blank ? 4 : 9));
+        ctx.lineTo(SR.crisp(fx), base);
+        ctx.stroke();
+        // Name a letter where its run starts (repeats collapse, as CTC says).
+        if (!blank && ch !== ' ' && ch !== frames.charAt(f - 1) && fx - lastLabelX >= 7.5) {
+          ctx.fillStyle = tk.ink;
+          ctx.fillText(ch, fx, top + 12);
+          lastLabelX = fx;
+        }
+      }
+    }
+
+    // Time axis.
+    ctx.font = SR.font.mono(10.5);
+    ctx.fillStyle = tk.ink48;
+    ctx.textBaseline = 'top';
+    var ticks = SR.ticks(0, seconds, Math.max(2, Math.min(8, Math.floor(box.w / 90))));
+    for (var j = 0; j < ticks.length; j++) {
+      var tx = x(ticks[j]);
+      ctx.textAlign = j === 0 ? 'left' : 'center';
+      ctx.fillText(ticks[j].toFixed(1) + ' s', tx, box.y + box.h + 8);
+    }
+  });
+
+  /* ---- Recordings to try -----------------------------------------------
+     The same clips as in samples/. They are 16-bit mono WAV files, so the
+     few lines of chapter 1 are enough to read them here. */
+
+  function parseWav(buffer) {
+    var view = new DataView(buffer), pos = 12, rate = 16000, channels = 1, bits = 16;
+    while (pos + 8 <= view.byteLength) {
+      var name = String.fromCharCode(view.getUint8(pos), view.getUint8(pos + 1), view.getUint8(pos + 2), view.getUint8(pos + 3));
+      var size = view.getUint32(pos + 4, true);
+      if (name === 'fmt ') {
+        channels = view.getUint16(pos + 10, true);
+        rate = view.getUint32(pos + 12, true);
+        bits = view.getUint16(pos + 22, true);
+      } else if (name === 'data') {
+        if (bits !== 16) throw new Error('only 16-bit files');
+        var count = Math.floor(Math.min(size, view.byteLength - pos - 8) / (2 * channels));
+        var samples = new Float32Array(count);
+        for (var i = 0; i < count; i++) samples[i] = view.getInt16(pos + 8 + 2 * channels * i, true) / 32768;
+        return { samples: samples, rate: rate };
+      }
+      pos += 8 + size + (size & 1);
+    }
+    throw new Error('no audio in the file');
+  }
+
+  clipButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      setBusy(true);
+      setStatus('Fetching ' + button.dataset.file + '…');
+      fetchBytes('../samples/' + button.dataset.file).then(function (buffer) {
+        var wav = parseWav(buffer);
+        state.audio = wav.samples;
+        state.rate = wav.rate;
+        transcribe();
+        setStatus('A recording from the test speakers: "' + button.textContent + '".');
+      }).catch(function (e) {
+        setStatus('Could not read that recording (' + e.message + ').');
+      }).then(function () { setBusy(false); });
+    });
+  });
+
+  /* ---- The microphone --------------------------------------------------
+     The browser hands us blocks of samples at its own rate (usually 44,100
+     or 48,000 per second). We keep them all and, when you press Stop, pass
+     them to the module, which resamples to 16,000 with the book's resampler. */
+
+  function stopRecording() {
+    var rec = state.recording;
+    if (!rec) return;
+    state.recording = null;
+    window.clearTimeout(rec.timer);
+    try { rec.node.disconnect(); rec.source.disconnect(); } catch (e) { /* already gone */ }
+    rec.stream.getTracks().forEach(function (t) { t.stop(); });
+    var rate = rec.context.sampleRate;
+    rec.context.close();
+    recordBtn.textContent = 'Record';
+    recordBtn.setAttribute('aria-pressed', 'false');
+
+    var audio = new Float32Array(rec.length), at = 0;
+    rec.chunks.forEach(function (c) { audio.set(c, at); at += c.length; });
+    if (audio.length < rate / 4) {
+      setStatus('That was too short. Hold on for a second or two.');
+      setBusy(false);
+      wave.redraw();
+      return;
+    }
+    state.audio = audio;
+    state.rate = rate;
+    transcribe();
+    setStatus('Your recording, ' + (audio.length / rate).toFixed(1) + ' seconds at ' + SR.fmt.int(rate) + ' Hz.');
+    setBusy(false);
+  }
+
+  function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('This browser does not give pages a microphone here. Try one of the recordings.');
+      return;
+    }
+    SR.audio.stop();
+    setStatus('Asking for the microphone…');
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } }).then(function (stream) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      var context = new Ctx();
+      var source = context.createMediaStreamSource(stream);
+      var blockLen = 2048;
+      var node = context.createScriptProcessor(blockLen, 1, 1);
+      var mute = context.createGain();
+      mute.gain.value = 0;                   // we listen, we do not play back
+      var rec = { context: context, stream: stream, source: source, node: node, blockLen: blockLen, chunks: [], levels: [], length: 0, timer: 0 };
+      node.onaudioprocess = function (e) {
+        if (state.recording !== rec) return;
+        var block = new Float32Array(e.inputBuffer.getChannelData(0));
+        var loudest = 0;
+        for (var i = 0; i < block.length; i++) { var a = block[i] < 0 ? -block[i] : block[i]; if (a > loudest) loudest = a; }
+        rec.chunks.push(block);
+        rec.levels.push(loudest);
+        rec.length += block.length;
+        wave.redraw();
+      };
+      source.connect(node);
+      node.connect(mute);
+      mute.connect(context.destination);
+      state.recording = rec;
+      rec.timer = window.setTimeout(stopRecording, MAX_SECONDS * 1000);
+      recordBtn.textContent = 'Stop';
+      recordBtn.setAttribute('aria-pressed', 'true');
+      setBusy(true);
+      setStatus('Listening. Say a few of the words, then press Stop.');
+      wave.redraw();
+    }).catch(function (e) {
+      var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      setStatus(denied
+        ? 'The microphone was not allowed. You can still try the recordings.'
+        : 'No microphone could be opened. You can still try the recordings.');
+    });
+  }
+
+  recordBtn.addEventListener('click', function () {
+    if (state.recording) stopRecording(); else startRecording();
+  });
+
+  /* ---- The rest --------------------------------------------------------- */
+
+  SR.bindRadios('decoder', function (value) { state.decoder = value; show(); });
+  SR.audio.button('#play', function () { return { samples: state.audio || new Float32Array(1), sampleRate: state.rate }; }, { gain: 0.9 });
+
+  boot();
+})();
+</script>
+</body>
+</html>

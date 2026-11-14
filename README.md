@@ -91,6 +91,7 @@ The samples are enough to follow Part I. From chapter 5 on, we need real data, a
 | [`interactive/`](interactive/) | The interactive pages |
 | [`models/`](models/) | The weights we trained, and the logs of the training runs the chapters quote |
 | [`samples/`](samples/) | Short recordings to experiment with |
+| [`web/`](web/) | A few lines that compile the recognizer to WebAssembly, so the website can run it in the page |
 | [`site/`](site/) | The program that turns the chapters into the book's website, with the interactive pages embedded where the chapters link to them. It has no dependencies either |
 
 ### The Website
@@ -101,7 +102,7 @@ The chapters are plain Markdown and read fine here on GitHub, but GitHub cannot 
 cargo run --release --manifest-path site/Cargo.toml
 ```
 
-That writes the whole site to `_site/`; open `_site/index.html` in a browser. The workflow in `.github/workflows/pages.yml` does the same on every push and publishes the result with GitHub Pages.
+That writes the whole site to `_site/`; open `_site/index.html` in a browser. One page, the recognizer running in the browser from chapter 11, also needs `rustup target add wasm32-unknown-unknown` before the build and a local web server to view it (for example `python3 -m http.server` inside `_site/`), because browsers do not load WebAssembly or open the microphone from a file on disk. The workflow in `.github/workflows/pages.yml` does the same on every push and publishes the result with GitHub Pages.
 
 ### Credits
 

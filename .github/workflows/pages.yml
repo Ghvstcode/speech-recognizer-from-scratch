@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Add the WebAssembly target (for the listening page)
+        run: rustup target add wasm32-unknown-unknown
       - name: Test the site generator
         run: cargo test --release --manifest-path site/Cargo.toml
       - name: Build the site

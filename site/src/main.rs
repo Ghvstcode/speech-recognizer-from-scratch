@@ -235,6 +235,19 @@ fn main() -> io::Result<()> {
         }
     }
 
+    // The listening page runs the recognizer itself, compiled to WebAssembly.
+    // It needs the module and the trained weights next to it.
+    match build_wasm(&root) {
+        Ok(wasm) => {
+            fs::copy(wasm, out.join("interactive/listen.wasm"))?;
+            fs::copy(root.join("models/recognizer.bin"), out.join("interactive/recognizer.bin"))?;
+        }
+        Err(why) => {
+            println!("the listening page will say the recognizer is missing: {why}");
+            println!("  (to fix: rustup target add wasm32-unknown-unknown)");
+        }
+    }
+
     // GitHub Pages runs Jekyll over the files unless this file is present.
     fs::write(out.join(".nojekyll"), "")?;
 
@@ -243,6 +256,27 @@ fn main() -> io::Result<()> {
         println!("SITE_REPO_URL is not set: links to source files are plain text");
     }
     Ok(())
+}
+
+/// Compiles `web/` (the recognizer behind a few plain functions) for the
+/// browser and returns the path of the module.
+fn build_wasm(root: &Path) -> Result<PathBuf, String> {
+    let target = "wasm32-unknown-unknown";
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = std::process::Command::new(cargo)
+        .args(["build", "--release", "--target", target, "--manifest-path"])
+        .arg(root.join("web/Cargo.toml"))
+        .status()
+        .map_err(|e| format!("could not run cargo: {e}"))?;
+    if !status.success() {
+        return Err(format!("building web/ for {target} failed"));
+    }
+    let wasm = root.join("web/target").join(target).join("release/speech_web.wasm");
+    if wasm.exists() {
+        Ok(wasm)
+    } else {
+        Err(format!("{} was not produced", wasm.display()))
+    }
 }
 
 fn pager_link(class: &str, label: &str, href: &str, chapter: &Chapter) -> String {

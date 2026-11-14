@@ -535,8 +535,11 @@ impl<'a> Markdown<'a> {
              <div class=\"play-head\"><span class=\"overline\">Play with it</span>\
              <span class=\"play-title\">{title_html}</span>\
              <a class=\"play-open\" href=\"{href}\">Open full page<span aria-hidden=\"true\"> ↗</span></a></div>\
-             <iframe src=\"{href}?embed=1\" title=\"Interactive: {}\" loading=\"lazy\"></iframe>",
+             <iframe src=\"{href}?embed=1\" title=\"Interactive: {}\" loading=\"lazy\"{allow}></iframe>",
             escape(&plain_text(&title_html)),
+            // The listening page records from the microphone, which a frame
+            // may only do if the page around it says so.
+            allow = if url.contains("listen.html") { " allow=\"microphone\"" } else { "" },
             href = escape(&href),
         );
         if !note.is_empty() {

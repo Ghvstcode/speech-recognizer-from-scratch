@@ -14,6 +14,7 @@ These are the interactive companions to the chapters of *Building a Speech Recog
 | `dtw.html` | 5 | done |
 | `ctc.html` | 8 | done |
 | `beam.html` | 10 | done |
+| `listen.html` | 11 | done (the one exception to "no build step", see below) |
 
 When your page exists, change its card in `index.html` from `data-status="coming"` to `data-status="ready"`. The card already links to your file name.
 
@@ -342,3 +343,7 @@ The book's website (built by `site/`) shows a page inside its chapter, in an `<i
 - The page reports its height to the chapter whenever it changes, so the frame is exactly as tall as the page and never scrolls. Do not size anything from the height of the window (`100vh`).
 - The chapter passes on the reader's theme when they switch it.
 
+
+## The one page with a build step
+
+`listen.html` runs the book's recognizer in the browser. It loads two files that are not in this directory: `listen.wasm`, which is the crate in `web/` compiled for `wasm32-unknown-unknown`, and `recognizer.bin`, the trained weights from `models/`. The website build (`site/`) compiles the first and copies both next to the page. Opened straight from this directory the page says the recognizer is missing, and that is expected. A browser will also not let a page fetch a `.wasm` file or open the microphone from `file://`, so try it through a local web server, from `_site/`.

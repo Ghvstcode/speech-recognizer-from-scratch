@@ -471,6 +471,10 @@ If it does not work:
 * **The star never appears.** Watch the number: speech has to rise 10 dB above the background and above -60 dB. Move closer or raise the input level.
 * **Still stuck?** Record a WAV with any tool and use `--from-file`. That separates "the capture is broken" from "the recognizer is wrong".
 
+There is one more way to try it, and it needs neither ffmpeg nor a terminal. Our crate has no dependencies, so it compiles to WebAssembly without changing a line, and the book's website runs the same recognizer inside a page. The browser supplies the microphone and hands us samples; everything after that is the code from this chapter and the ones before it: the resampler, the endpoint detector, the features, the network and the three decoders. The glue is a small crate, [`web/`](../web/src/lib.rs), and it is the only place in the repository with an `unsafe` block in it, because a pointer and a length coming from JavaScript cannot be turned into a slice any other way.
+
+> **Play with it:** [the recognizer, in your browser](../interactive/listen.html). Say two or three of the 35 words, press Stop, and look at where the endpoint detector cut and which frames the letters came from. The page also has a few recordings to try if you would rather not use the microphone.
+
 ### What It Cannot Do
 
 It listens. Now the fine print, because a demo that only gets shown its favorite inputs teaches nothing.
