@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>The digit network as a chain of computations</title>
+  <desc>Seven vertical bars stand for rows of numbers of size 96, 256, 256, 128, 128, 10 and 10. Between them sit six operations: a linear layer from 96 to 256 with 24,832 weights, a ReLU, a linear layer from 256 to 128 with 32,896 weights, a ReLU, a linear layer from 128 to 10 with 1,290 weights, and a softmax that turns the ten scores into ten probabilities.</desc>
+  <defs>
+    <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.6" fill="rgba(25,22,21,.09)"/>
+    </pattern>
+    <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0.5,0.5 L7.5,4 L0.5,7.5 Z" fill="#191615"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#F5F3EF"/>
+  <rect x="0" y="48" width="800" height="264" fill="url(#dots)"/>
+
+  <text x="24" y="30" font-size="15.5" font-weight="500" fill="#191615">The digit network: three weighted sums with two bends in between</text>
+
+  <!-- overlines -->
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.60)">
+    <text x="47" y="70" text-anchor="middle">96</text>
+    <text x="165" y="70" text-anchor="middle">256</text>
+    <text x="282" y="70" text-anchor="middle">256</text>
+    <text x="400" y="70" text-anchor="middle">128</text>
+    <text x="518" y="70" text-anchor="middle">128</text>
+    <text x="635" y="70" text-anchor="middle">10</text>
+    <text x="753" y="70" text-anchor="middle">10</text>
+  </g>
+
+  <!-- bars: the rows of numbers flowing through -->
+  <g stroke="#191615" stroke-width="1">
+    <rect x="40" y="144" width="14" height="72" rx="2" fill="#9FB8A9"/>
+    <rect x="158" y="84" width="14" height="192" rx="2" fill="#FBFAF7"/>
+    <rect x="275" y="84" width="14" height="192" rx="2" fill="#FBFAF7"/>
+    <rect x="393" y="132" width="14" height="96" rx="2" fill="#FBFAF7"/>
+    <rect x="511" y="132" width="14" height="96" rx="2" fill="#FBFAF7"/>
+    <rect x="628" y="172" width="14" height="16" rx="2" fill="#FBFAF7"/>
+    <rect x="746" y="172" width="14" height="16" rx="2" fill="#047857" stroke="#047857"/>
+  </g>
+
+  <!-- connecting arrows -->
+  <g stroke="#191615" stroke-width="1.1" fill="none" stroke-linecap="round">
+    <line x1="55" y1="180" x2="68" y2="180"/>
+    <line x1="144" y1="180" x2="156" y2="180" marker-end="url(#arr)"/>
+    <line x1="173" y1="180" x2="196" y2="180"/>
+    <line x1="252" y1="180" x2="273" y2="180" marker-end="url(#arr)"/>
+    <line x1="290" y1="180" x2="303" y2="180"/>
+    <line x1="379" y1="180" x2="391" y2="180" marker-end="url(#arr)"/>
+    <line x1="408" y1="180" x2="431" y2="180"/>
+    <line x1="487" y1="180" x2="509" y2="180" marker-end="url(#arr)"/>
+    <line x1="526" y1="180" x2="539" y2="180"/>
+    <line x1="615" y1="180" x2="626" y2="180" marker-end="url(#arr)"/>
+    <line x1="643" y1="180" x2="660" y2="180"/>
+    <line x1="728" y1="180" x2="744" y2="180" marker-end="url(#arr)"/>
+  </g>
+
+  <!-- operations -->
+  <g stroke="rgba(25,22,21,.30)" stroke-width="1" fill="#FBFAF7">
+    <rect x="68" y="156" width="76" height="48" rx="8"/>
+    <rect x="196" y="156" width="56" height="48" rx="8"/>
+    <rect x="303" y="156" width="76" height="48" rx="8"/>
+    <rect x="431" y="156" width="56" height="48" rx="8"/>
+    <rect x="539" y="156" width="76" height="48" rx="8"/>
+    <rect x="660" y="156" width="68" height="48" rx="8"/>
+  </g>
+  <g font-size="13" fill="#191615" text-anchor="middle">
+    <text x="106" y="177">Linear</text>
+    <text x="224" y="177">ReLU</text>
+    <text x="341" y="177">Linear</text>
+    <text x="459" y="177">ReLU</text>
+    <text x="577" y="177">Linear</text>
+    <text x="694" y="185">softmax</text>
+  </g>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,.60)" text-anchor="middle">
+    <text x="106" y="194">x W + b</text>
+    <text x="224" y="194">max(0,·)</text>
+    <text x="341" y="194">x W + b</text>
+    <text x="459" y="194">max(0,·)</text>
+    <text x="577" y="194">x W + b</text>
+  </g>
+
+  <!-- weight counts -->
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#047857" text-anchor="middle">
+    <text x="106" y="224">24,832</text>
+    <text x="106" y="237">WEIGHTS</text>
+    <text x="341" y="224">32,896</text>
+    <text x="341" y="237">WEIGHTS</text>
+    <text x="577" y="224">1,290</text>
+    <text x="577" y="237">WEIGHTS</text>
+  </g>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.48)" text-anchor="middle">
+    <text x="224" y="224">NOTHING</text>
+    <text x="224" y="237">TO LEARN</text>
+    <text x="459" y="224">NOTHING</text>
+    <text x="459" y="237">TO LEARN</text>
+  </g>
+
+  <!-- bar captions -->
+  <g font-size="12" fill="rgba(25,22,21,.70)">
+    <text x="24" y="296">input: 8 slices × 12 MFCCs</text>
+    <text x="635" y="296" text-anchor="middle">logits</text>
+    <text x="776" y="296" text-anchor="end">probabilities</text>
+  </g>
+  <g stroke="rgba(25,22,21,.30)" stroke-width="1" stroke-dasharray="3 3" fill="none">
+    <line x1="47" y1="220" x2="47" y2="282"/>
+    <line x1="635" y1="192" x2="635" y2="282"/>
+    <line x1="753" y1="192" x2="753" y2="282"/>
+  </g>
+
+  <text x="24" y="340" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.60)">ONE CLIP IN, ONE ROW AT EVERY STAGE · BAR HEIGHT = HOW MANY NUMBERS · 59,018 LEARNED NUMBERS IN TOTAL</text>
+</svg>

@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Our First Recognizer: Dynamic Time Warping · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="Dynamic time warping, cell by cell: the grid of local distances, the accumulated cost, the backtrace and the band, on two sequences you can drag.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #seq { --h: 256px; cursor: default; }
+  #grid { --h: 320px; }            /* the script sets the real height: it depends on the number of rows */
+  #steps { --sr-step-lines: 5; }
+  #cell-detail { flex: 1 1 100%; min-height: 2.9em; }
+  #play { min-width: 76px; }
+  @media (max-width: 799px) {
+    #seq { --h: 220px; }
+    #steps { --sr-step-lines: 7; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/05-dynamic-time-warping.md">Chapter 5</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 5 · Interactive</span>
+    <h1 class="sr-title">Our First Recognizer: Dynamic Time Warping</h1>
+    <p class="sr-lede">Say "seven" twice and the two recordings will not have the same number of frames. Dynamic time warping finds the best way to stretch one onto the other, and tells us how different they still are after the stretching.</p>
+    <p class="sr-small">Walk through the six steps on the figure first. Then drag the points of the two curves, try the presets, and watch the grid and the path follow.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Two sequences, one number per frame</span>
+          <span class="sr-pill" id="seq-pill">7 and 10 frames</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="seq" tabindex="0" role="img" aria-label="The two sequences"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend" id="seq-legend">
+            <li><span class="sr-swatch sr-swatch--dot"></span>one frame (drag it)</li>
+            <li data-key="match"><span class="sr-swatch" style="--c: var(--green)"></span><span id="match-label">matched frames</span></li>
+            <li data-key="off"><span class="sr-swatch sr-swatch--dashed" style="--c: var(--amber)"></span><span id="off-label">matched, but not equal</span></li>
+          </ul>
+          <div class="sr-values" id="values"></div>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-cost">
+          <span class="sr-overline">DTW cost</span>
+          <span class="sr-stat-value">2</span>
+          <span class="sr-stat-sub">the corner of the grid</span>
+        </div>
+        <div class="sr-stat" id="stat-norm">
+          <span class="sr-overline">Normalized cost</span>
+          <span class="sr-stat-value">0.1176</span>
+          <span class="sr-stat-sub">2 ÷ (7 + 10)</span>
+        </div>
+        <div class="sr-stat" id="stat-naive">
+          <span class="sr-overline">No warping</span>
+          <span class="sr-stat-value">16</span>
+          <span class="sr-stat-sub">first 7 frames, in step</span>
+        </div>
+        <div class="sr-stat" id="stat-cells">
+          <span class="sr-overline">Cells computed</span>
+          <span class="sr-stat-value">70</span>
+          <span class="sr-stat-sub">7 × 10, no band</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline" id="grid-title">Accumulated cost D(i, j)</span>
+          <span class="sr-pill" id="grid-pill">70 of 70 cells filled</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="grid" tabindex="0" role="img" aria-label="The cost grid"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <p class="sr-hint sr-mono" id="cell-detail" aria-live="polite"></p>
+          <ul class="sr-legend" id="grid-legend">
+            <li><span class="sr-swatch sr-swatch--ramp"></span>low to high</li>
+            <li data-key="path"><span class="sr-swatch" style="--c: var(--green)"></span>the cheapest path</li>
+            <li data-key="won"><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>the neighbor that won</li>
+            <li data-key="band"><span class="sr-swatch sr-swatch--box" style="--c: var(--ink-15)"></span>outside the band</li>
+          </ul>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The two sequences</span>
+      <div class="sr-chip-row" id="presets" role="group" aria-label="Example sequences">
+        <button class="sr-chip" type="button" data-preset="book">the book's example</button>
+        <button class="sr-chip" type="button" data-preset="slower">same word, spoken slower</button>
+        <button class="sr-chip" type="button" data-preset="different">different word</button>
+        <button class="sr-chip" type="button" data-preset="pause">with a pause</button>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="len-a">Frames in a</label>
+          <output class="sr-readout" for="len-a"></output>
+        </div>
+        <input class="sr-range" type="range" id="len-a" min="3" max="14" step="1" value="7">
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="len-b">Frames in b</label>
+          <output class="sr-readout" for="len-b"></output>
+        </div>
+        <input class="sr-range" type="range" id="len-b" min="3" max="16" step="1" value="10">
+        <p class="sr-hint">Changing a length stretches or squeezes the curve, like saying the word slower or faster. To change one frame, drag its dot, or focus the curves and use the arrow keys: left and right pick a dot, up and down move it.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The grid</span>
+      <div class="sr-field">
+        <span class="sr-label" id="mode-label">What each cell holds</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="mode-label">
+          <label><input type="radio" name="mode" value="local"><span>Local distance</span></label>
+          <label><input type="radio" name="mode" value="acc" checked><span>Accumulated cost</span></label>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="fill">Cells filled in</label>
+          <output class="sr-readout" for="fill"></output>
+        </div>
+        <input class="sr-range" type="range" id="fill" min="0" max="70" step="1" value="70">
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="play">Play</button>
+        <label class="sr-check"><input type="checkbox" id="show-path" checked>The cheapest path</label>
+      </div>
+      <p class="sr-hint">Point at a cell, tap it, or focus the grid and move with the arrow keys, to see the three neighbors it was computed from.</p>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The Sakoe-Chiba band</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="band">Band radius</label>
+          <output class="sr-readout" for="band"></output>
+        </div>
+        <input class="sr-range" type="range" id="band" min="0" max="10" step="1" value="10">
+        <p class="sr-hint" id="band-hint">Only cells with |i − j| at most the radius are filled. All the way right turns the band off.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">Between the curves</span>
+      <div class="sr-field">
+        <span class="sr-label" id="connect-label">Which frames we compare</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="connect-label">
+          <label><input type="radio" name="connect" value="warp" checked><span>Warped</span></label>
+          <label><input type="radio" name="connect" value="naive"><span>Frame by frame</span></label>
+          <label><input type="radio" name="connect" value="none"><span>Nothing</span></label>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/05-dynamic-time-warping.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 5.</span>
+  <span>The same recurrence and backtrace as <a href="../code/src/dtw.rs"><code>dtw.rs</code></a>; the default is <a href="../code/examples/ch05_dtw_toy.rs"><code>ch05_dtw_toy</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt;
+
+  /* ---------------------------------------------------------------- state */
+
+  var VMAX = 8;                 // a frame's value goes from 0 to this
+  var MAX_A = 14, MAX_B = 16, MIN_LEN = 3;
+
+  var PRESETS = {
+    // The two sequences `cargo run --example ch05_dtw_toy` prints.
+    book:      { a: [0, 1, 4, 6, 4, 1, 0], b: [0, 0, 1, 5, 4, 6, 6, 3, 1, 0] },
+    // Every frame of a, held for two frames.
+    slower:    { a: [0, 1, 4, 6, 4, 1, 0], b: [0, 0, 1, 1, 4, 4, 6, 6, 4, 4, 1, 1, 0, 0] },
+    // Two bumps instead of one: no amount of stretching makes these alike.
+    different: { a: [0, 1, 4, 6, 4, 1, 0], b: [0, 5, 6, 2, 1, 3, 6, 5, 1, 0] },
+    // The same word, but one speaker waits three frames before starting.
+    pause:     { a: [0, 1, 4, 6, 4, 1, 0, 0, 0, 0], b: [0, 0, 0, 0, 1, 4, 6, 4, 1, 0] }
+  };
+
+  var state = {
+    a: PRESETS.book.a.slice(),
+    b: PRESETS.book.b.slice(),
+    baseA: PRESETS.book.a.slice(),   // the shapes the length sliders stretch
+    baseB: PRESETS.book.b.slice(),
+    mode: 'acc',          // 'local' | 'acc'
+    fill: Infinity,       // how many cells of D are filled in (clamped in compute)
+    path: true,           // draw the cheapest path
+    pathT: 1,             // 0..1, how much of the backtrace has been walked (from the end)
+    band: null,           // asked-for band width, or null for no band
+    connect: 'warp',      // 'warp' | 'naive' | 'none'
+    sel: null,            // { i, j }: the grid cell being inspected
+    pt: null              // { seq: 'a' | 'b', k }: the dot picked with the keyboard
+  };
+
+  /* ---------------------------------------------------------------- maths */
+
+  // Stretch or squeeze a shape to `len` frames (straight lines between frames).
+  function resample(shape, len) {
+    var out = [], last = shape.length - 1;
+    for (var k = 0; k < len; k++) {
+      var pos = len === 1 ? 0 : k * last / (len - 1);
+      var i = Math.min(last - 1, Math.floor(pos)), u = pos - i;
+      out.push(Math.round(last === 0 ? shape[0] : SR.lerp(shape[i], shape[i + 1], u)));
+    }
+    return out;
+  }
+
+  // Everything the page shows, recomputed on every change. This is dtw.rs:
+  // `accumulate` (row by row, inside the band), then `backtrace`.
+  var data = null;
+  function compute() {
+    var a = state.a, b = state.b, n = a.length, m = b.length;
+    var i, j;
+    // band_radius(): a band narrower than |n - m| would cut the end cell off.
+    var radius = state.band == null ? Math.max(n, m) : Math.max(state.band, Math.abs(n - m));
+
+    var local = new Float64Array(n * m), maxLocal = 0;
+    for (i = 0; i < n; i++) for (j = 0; j < m; j++) {
+      local[i * m + j] = Math.abs(a[i] - b[j]);
+      if (local[i * m + j] > maxLocal) maxLocal = local[i * m + j];
+    }
+
+    var D = new Float64Array(n * m).fill(Infinity);
+    var rank = new Int32Array(n * m).fill(-1);    // position of the cell in the fill order
+    var won = new Int8Array(n * m);               // 1 diagonal, 2 up, 3 left
+    var order = [], maxD = 0;
+    for (i = 0; i < n; i++) {
+      for (j = Math.max(0, i - radius); j < Math.min(m, i + radius + 1); j++) {
+        var before = 0;
+        if (i > 0 || j > 0) {
+          var dg = i > 0 && j > 0 ? D[(i - 1) * m + j - 1] : Infinity;
+          var up = i > 0 ? D[(i - 1) * m + j] : Infinity;
+          var lf = j > 0 ? D[i * m + j - 1] : Infinity;
+          before = Math.min(dg, up, lf);
+          // The same tie-breaking as the backtrace: diagonal first, then up.
+          won[i * m + j] = dg <= up && dg <= lf ? 1 : up <= lf ? 2 : 3;
+        }
+        D[i * m + j] = local[i * m + j] + before;
+        if (D[i * m + j] > maxD) maxD = D[i * m + j];
+        rank[i * m + j] = order.length;
+        order.push([i, j]);
+      }
+    }
+
+    // backtrace(): from the end cell, step to the cheapest of the three
+    // neighbors; on a tie prefer the diagonal, then up.
+    var path = [[n - 1, m - 1]];
+    i = n - 1; j = m - 1;
+    while (i > 0 || j > 0) {
+      if (i === 0) j--;
+      else if (j === 0) i--;
+      else {
+        var d2 = D[(i - 1) * m + j - 1], u2 = D[(i - 1) * m + j], l2 = D[i * m + j - 1];
+        if (d2 <= u2 && d2 <= l2) { i--; j--; } else if (u2 <= l2) i--; else j--;
+      }
+      path.push([i, j]);
+    }
+    path.reverse();
+    var onPath = new Int32Array(n * m).fill(-1);
+    path.forEach(function (c, k) { onPath[c[0] * m + c[1]] = k; });
+
+    var naive = 0, shared = Math.min(n, m);
+    for (i = 0; i < shared; i++) naive += Math.abs(a[i] - b[i]);
+
+    var total = order.length;
+    state.fill = SR.clamp(state.fill, 0, total);
+    var cost = D[n * m - 1];
+    data = {
+      n: n, m: m, local: local, D: D, rank: rank, won: won, order: order, total: total,
+      path: path, onPath: onPath, cost: cost, norm: cost / (n + m), naive: naive, shared: shared,
+      radius: radius,
+      widened: state.band != null && radius > state.band,
+      maxLocal: Math.max(1, maxLocal), maxD: Math.max(1, maxD),
+      full: state.fill >= total
+    };
+  }
+
+  // Is the answer on show? In the accumulated view we do not give the cost
+  // away before the grid is full.
+  function solved() { return state.mode === 'local' || data.full; }
+  // How many cells of the path (counted from the end) the backtrace has reached.
+  function pathShown() {
+    if (!state.path || !solved()) return 0;
+    return Math.round(state.pathT * data.path.length);
+  }
+  function num(v) { return v === Infinity ? '∞' : String(+v.toFixed(2)); }
+
+  /* -------------------------------------------------------------- drawing */
+
+  // Dark text on pale cells, pale text on dark ones, in either theme.
+  function inkOn(rgb, t) {
+    var lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+    return (lum > 140) === t.dark ? t.paper : t.ink;
+  }
+
+  /* The curves. a on top, b underneath, on one shared time axis. */
+
+  function seqLayout(w, h) {
+    var left = 30, right = 14, top = 12, bottom = 12, gap = Math.max(26, h * 0.16);
+    var lane = (h - top - bottom - gap) / 2;
+    var span = Math.max(data.n, data.m) - 1;
+    var x = SR.scale.linear([0, span], [left + 8, w - right - 8]);
+    var ya = SR.scale.linear([0, VMAX], [top + lane, top + 6]);
+    var yb = SR.scale.linear([0, VMAX], [h - bottom, h - bottom - lane + 6]);
+    return { x: x, ya: ya, yb: yb, left: left, right: w - right, r: w < 440 ? 3.5 : 4.5 };
+  }
+  function pointOf(L, seq, k) {
+    return seq === 'a' ? [L.x(k), L.ya(state.a[k])] : [L.x(k), L.yb(state.b[k])];
+  }
+
+  var seq = SR.canvas('#seq', function (ctx, w, h, t) {
+    if (!data) return;
+    var L = seqLayout(w, h), k;
+    var a = state.a, b = state.b;
+
+    // Baselines and lane labels.
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = t.ink15;
+    ctx.beginPath();
+    [L.ya(0), L.yb(0)].forEach(function (y) { ctx.moveTo(L.left, SR.crisp(y)); ctx.lineTo(L.right, SR.crisp(y)); });
+    ctx.stroke();
+    ctx.font = SR.font.mono(11);
+    ctx.fillStyle = t.ink60;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('a', 10, L.ya(VMAX / 2));
+    ctx.fillText('b', 10, L.yb(VMAX / 2));
+
+    // Which frames go together.
+    var sel = state.sel;
+    function link(i, j, d, strong) {
+      var p = pointOf(L, 'a', i), q = pointOf(L, 'b', j);
+      ctx.beginPath();
+      ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+      ctx.strokeStyle = d > 0 ? t.amber : t.green;
+      ctx.setLineDash(d > 0 ? [4, 3] : []);
+      ctx.lineWidth = strong ? 2.25 : 1.25;
+      ctx.globalAlpha = strong ? 1 : 0.85;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+    if (state.connect === 'naive') {
+      for (k = 0; k < data.shared; k++) link(k, k, Math.abs(a[k] - b[k]), false);
+    } else if (state.connect === 'warp') {
+      var shown = pathShown(), len = data.path.length;
+      for (k = len - shown; k < len; k++) {
+        var c = data.path[k];
+        link(c[0], c[1], data.local[c[0] * data.m + c[1]], !!sel && sel.i === c[0] && sel.j === c[1]);
+      }
+    }
+
+    // The curves and their frames.
+    SR.line(ctx, a.length, function (i) { return pointOf(L, 'a', i); }, { color: t.ink, width: 1.5 });
+    SR.line(ctx, b.length, function (i) { return pointOf(L, 'b', i); }, { color: t.ink, width: 1.5 });
+    var p;
+    for (k = 0; k < a.length; k++) { p = pointOf(L, 'a', k); SR.dot(ctx, p[0], p[1], L.r, t.ink); }
+    for (k = 0; k < b.length; k++) { p = pointOf(L, 'b', k); SR.dot(ctx, p[0], p[1], L.r, t.ink); }
+
+    // Rings: the pair of frames the selected grid cell compares, and the dot
+    // picked with the keyboard.
+    function ring(pt, color, r) {
+      ctx.beginPath();
+      ctx.arc(pt[0], pt[1], r, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    if (sel) {
+      ring(pointOf(L, 'a', sel.i), t.ink, L.r + 4);
+      ring(pointOf(L, 'b', sel.j), t.ink, L.r + 4);
+    }
+    if (state.pt && document.activeElement === seq.canvas) {
+      var pp = pointOf(L, state.pt.seq, state.pt.k);
+      ring(pp, t.ink, L.r + 6.5);
+      SR.pill(ctx, state.pt.seq + '[' + state.pt.k + '] = ' + state[state.pt.seq][state.pt.k], pp[0], pp[1] - 22 < 10 ? pp[1] + 22 : pp[1] - 22, { min: 2, max: w - 2 });
+    }
+
+    if (state.connect === 'naive') {
+      SR.pill(ctx, 'FRAME BY FRAME · COST ' + num(data.naive), w - 6, 12, { align: 'right', color: t.amber, min: 2 });
+    }
+  });
+
+  /* The grid. a runs down, b runs right, as in the Rust program's printout. */
+
+  function gridLayout(w) {
+    var headL = 46, headT = 40, padR = 8, padB = 8;
+    var cell = Math.floor(SR.clamp((w - headL - padR) / data.m, 10, 46));
+    var gw = cell * data.m, gh = cell * data.n;
+    var x0 = Math.round(headL + Math.max(0, (w - headL - padR - gw) / 2));
+    return { cell: cell, x0: x0, y0: headT, gw: gw, gh: gh, height: headT + gh + padB };
+  }
+
+  // The cell the page explains under the grid: the one the reader picked, or,
+  // while the grid is filling, the one that was filled last.
+  function focusCell() {
+    if (state.sel) return state.sel;
+    if (state.mode === 'acc' && state.fill > 0 && !data.full) {
+      var c = data.order[state.fill - 1];
+      return { i: c[0], j: c[1], auto: true };
+    }
+    return null;
+  }
+
+  var grid = SR.canvas('#grid', function (ctx, w, h, t) {
+    if (!data) return;
+    var L = gridLayout(w), n = data.n, m = data.m, cell = L.cell;
+    if (Math.abs(h - L.height) > 0.5) grid.canvas.style.height = L.height + 'px';
+    var i, j, x, y;
+    var acc = state.mode === 'acc';
+    var showNumbers = cell >= 22;
+    var small = cell < 30;
+
+    // Headers: the frames of b along the top, the frames of a down the side.
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    for (j = 0; j < m; j++) {
+      x = L.x0 + (j + 0.5) * cell;
+      if (cell >= 18) {
+        ctx.font = SR.font.mono(9);
+        ctx.fillStyle = t.ink48;
+        ctx.fillText(String(j), x, 10);
+      }
+      ctx.font = SR.font.mono(cell >= 18 ? 11 : 9);
+      ctx.fillStyle = t.ink;
+      ctx.fillText(num(state.b[j]), x, 26);
+    }
+    for (i = 0; i < n; i++) {
+      y = L.y0 + (i + 0.5) * cell;
+      if (cell >= 14) {
+        ctx.font = SR.font.mono(9);
+        ctx.fillStyle = t.ink48;
+        ctx.textAlign = 'right';
+        ctx.fillText(String(i), L.x0 - 24, y);
+      }
+      ctx.font = SR.font.mono(cell >= 18 ? 11 : 9);
+      ctx.fillStyle = t.ink;
+      ctx.textAlign = 'right';
+      ctx.fillText(num(state.a[i]), L.x0 - 8, y);
+    }
+    ctx.font = SR.font.mono(10);
+    ctx.fillStyle = t.ink60;
+    ctx.textAlign = 'left';
+    SR.spacedText(ctx, 'B →', 6, 26);
+    SR.spacedText(ctx, 'A ↓', 6, 10);
+
+    // Cells: the fills first, then the path, then the numbers on top of it.
+    function center(c) { return [L.x0 + (c[1] + 0.5) * cell, L.y0 + (c[0] + 0.5) * cell]; }
+    function outline(ci, cj, color, width, dash) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(dash || []);
+      ctx.strokeRect(L.x0 + cj * cell + width / 2, L.y0 + ci * cell + width / 2, cell - width, cell - width);
+      ctx.setLineDash([]);
+    }
+    var labels = [];
+    for (i = 0; i < n; i++) {
+      for (j = 0; j < m; j++) {
+        x = L.x0 + j * cell; y = L.y0 + i * cell;
+        var idx = i * m + j;
+        var inBand = data.rank[idx] >= 0;
+        var filled = inBand && (!acc || data.rank[idx] < state.fill);
+        var value = acc ? data.D[idx] : data.local[idx];
+        if (!inBand && acc) {
+          ctx.fillStyle = t.ink10;
+        } else if (filled) {
+          var rgb = SR.heat(0.9 * value / (acc ? data.maxD : data.maxLocal));
+          ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+          labels.push([x + cell / 2, y + cell / 2, num(value), inkOn(rgb, t), idx]);
+        } else {
+          // Not filled in yet: show the local distance waiting there, faintly.
+          ctx.fillStyle = t.ink4;
+          labels.push([x + cell / 2, y + cell / 2, num(data.local[idx]), t.ink30, idx]);
+        }
+        ctx.fillRect(x + 0.5, y + 0.5, cell - 1, cell - 1);
+      }
+    }
+
+    // The cheapest path, walked back from the bottom-right corner.
+    var shown = pathShown(), len = data.path.length;
+    if (shown > 0) {
+      ctx.beginPath();
+      for (var k = len - shown; k < len; k++) {
+        var p = center(data.path[k]);
+        if (k === len - shown) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      }
+      // A pale casing first, so the green line reads on dark cells too.
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = t.panel;
+      ctx.lineWidth = Math.max(4.5, cell * 0.2);
+      ctx.stroke();
+      ctx.strokeStyle = t.green;
+      ctx.lineWidth = Math.max(2, cell * 0.08);
+      ctx.stroke();
+      if (shown === 1 || !showNumbers) {
+        for (k = len - shown; k < len; k++) {
+          p = center(data.path[k]);
+          ctx.beginPath();
+          ctx.arc(p[0], p[1], Math.max(2, cell * 0.14), 0, Math.PI * 2);
+          ctx.fillStyle = t.green;
+          ctx.fill();
+        }
+      }
+    }
+
+    if (showNumbers) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = SR.font.mono(small ? 9.5 : 11);
+      labels.forEach(function (lb) {
+        var k = data.onPath[lb[4]];
+        if (shown > 0 && k >= len - shown) {
+          // On the path: the number sits in a small pill on the line.
+          var tw = Math.max(ctx.measureText(lb[2]).width + 8, small ? 14 : 17), th = small ? 14 : 17;
+          ctx.beginPath();
+          SR.roundRect(ctx, Math.round(lb[0] - tw / 2) + 0.5, Math.round(lb[1] - th / 2) + 0.5, tw, th, th / 2);
+          ctx.fillStyle = t.panel; ctx.fill();
+          ctx.strokeStyle = t.green; ctx.lineWidth = 1.25; ctx.stroke();
+          ctx.fillStyle = t.ink;
+        } else {
+          ctx.fillStyle = lb[3];
+        }
+        ctx.fillText(lb[2], lb[0], lb[1] + 0.5);
+      });
+    }
+
+    // The inspected cell and the three neighbors it was computed from.
+    var f = focusCell();
+    if (f) {
+      var fi = f.i, fj = f.j, fidx = fi * m + fj;
+      var known = acc && data.rank[fidx] >= 0 && data.rank[fidx] < state.fill;
+      if (known && (fi > 0 || fj > 0)) {
+        var preds = [[fi - 1, fj - 1, 1], [fi - 1, fj, 2], [fi, fj - 1, 3]];
+        preds.forEach(function (pr) {
+          if (pr[0] < 0 || pr[1] < 0) return;
+          if (pr[2] !== data.won[fidx]) outline(pr[0], pr[1], t.ink60, 1, [3, 3]);
+        });
+        preds.forEach(function (pr) {
+          if (pr[2] !== data.won[fidx]) return;
+          outline(pr[0], pr[1], t.green, 2);
+          // A short arrow from the winner into the cell.
+          var from = center(pr), to = center([fi, fj]);
+          var dx = to[0] - from[0], dy = to[1] - from[1], dist = Math.sqrt(dx * dx + dy * dy);
+          var ux = dx / dist, uy = dy / dist;
+          var sx = from[0] + ux * cell * 0.36, sy = from[1] + uy * cell * 0.36;
+          var ex = to[0] - ux * cell * 0.36, ey = to[1] - uy * cell * 0.36;
+          if (cell >= 16) {
+            ctx.strokeStyle = t.green; ctx.fillStyle = t.green; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+            var head = Math.min(6, cell * 0.2);
+            ctx.beginPath();
+            ctx.moveTo(ex + ux * head * 0.6, ey + uy * head * 0.6);
+            ctx.lineTo(ex - ux * head - uy * head * 0.7, ey - uy * head + ux * head * 0.7);
+            ctx.lineTo(ex - ux * head + uy * head * 0.7, ey - uy * head - ux * head * 0.7);
+            ctx.closePath(); ctx.fill();
+          }
+        });
+      }
+      outline(fi, fj, t.ink, 2);
+    }
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function $(id) { return document.getElementById(id); }
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+
+  function describeCell() {
+    var f = focusCell();
+    var acc = state.mode === 'acc';
+    if (!f) {
+      return acc ? (state.fill === 0 ? 'Nothing is filled in yet. The faint numbers are the local distances waiting in each cell.'
+                                     : 'Pick a cell to see where its number came from.')
+                 : 'Pick a cell to see which two frames it compares.';
+    }
+    var i = f.i, j = f.j, m = data.m, idx = i * m + j;
+    var d = data.local[idx];
+    var cellName = '(' + i + ', ' + j + ')';
+    var localText = 'd' + cellName + ' = |a[' + i + '] − b[' + j + ']| = |' + num(state.a[i]) + ' − ' + num(state.b[j]) + '| = ' + num(d);
+    if (!acc) return localText;
+    if (data.rank[idx] < 0) {
+      return cellName + ' is outside the band: |' + i + ' − ' + j + '| = ' + Math.abs(i - j) + ' is more than the radius, ' + data.radius + '. It is never computed.';
+    }
+    if (data.rank[idx] >= state.fill) return 'D' + cellName + ' is not filled in yet. Waiting there: ' + localText + '.';
+    if (i === 0 && j === 0) return 'D(0, 0) = d(0, 0) = ' + num(d) + '. The start cell: nothing came before it.';
+    var dg = i > 0 && j > 0 ? data.D[(i - 1) * m + j - 1] : Infinity;
+    var up = i > 0 ? data.D[(i - 1) * m + j] : Infinity;
+    var lf = j > 0 ? data.D[i * m + j - 1] : Infinity;
+    var who = ['', 'the diagonal neighbor', 'the neighbor above', 'the neighbor to the left'][data.won[idx]];
+    var best = Math.min(dg, up, lf);
+    var tied = (dg === best) + (up === best) + (lf === best) > 1;
+    return 'D' + cellName + ' = d' + cellName + ' + min(diagonal ' + num(dg) + ', up ' + num(up) + ', left ' + num(lf) + ') = ' +
+      num(d) + ' + ' + num(best) + ' = ' + num(data.D[idx]) + '. Came from ' + who + (tied ? ' (a tie: diagonal first, then up).' : '.');
+  }
+
+  function updateReadouts() {
+    var n = data.n, m = data.m, done = solved();
+
+    setStat('stat-cost', done ? num(data.cost) : '?', done ? 'the corner of the grid' : 'fill in the grid first', done ? 'green' : 'muted');
+    setStat('stat-norm', done ? fmt.fixed(data.norm, 4) : '?', done ? num(data.cost) + ' ÷ (' + n + ' + ' + m + ')' : 'cost ÷ (n + m)', done ? null : 'muted');
+    setStat('stat-naive', num(data.naive), (n === m ? 'all ' : 'first ') + data.shared + ' frames, in step',
+      data.naive > data.cost ? 'amber' : null);
+    setStat('stat-cells', fmt.int(data.total),
+      data.total < n * m ? 'of ' + (n * m) + ', inside the band' : n + ' × ' + m + ', no band');
+
+    $('seq-pill').textContent = n + ' and ' + m + ' frames';
+    $('values').innerHTML = '<b>a =</b> ' + state.a.join(' ') + ' <b>· b =</b> ' + state.b.join(' ');
+    $('grid-title').textContent = state.mode === 'acc' ? 'Accumulated cost D(i, j): the cheapest way to get this far' : 'Local distance d(i, j) = |a[i] − b[j]|';
+    $('grid-pill').textContent = state.mode === 'acc' ? fmt.int(state.fill) + ' of ' + fmt.int(data.total) + ' cells filled' : n + ' × ' + m + ' cells';
+    $('cell-detail').textContent = describeCell();
+
+    // Legends follow what is drawn.
+    var shown = pathShown() > 0;
+    var gl = $('grid-legend');
+    gl.querySelector('[data-key="path"]').hidden = !shown;
+    gl.querySelector('[data-key="won"]').hidden = state.mode !== 'acc';
+    gl.querySelector('[data-key="band"]').hidden = !(state.mode === 'acc' && data.total < n * m);
+    var sl = $('seq-legend');
+    sl.querySelector('[data-key="match"]').hidden = state.connect === 'none' || (state.connect === 'warp' && !shown);
+    sl.querySelector('[data-key="off"]').hidden = state.connect === 'none' || (state.connect === 'warp' && !shown);
+    $('match-label').textContent = state.connect === 'naive' ? 'compared, and equal' : 'matched frames';
+    $('off-label').textContent = state.connect === 'naive' ? 'compared, but not equal' : 'matched, but not equal';
+
+    // Band hint.
+    $('band-hint').textContent = state.band == null
+      ? 'Only cells with |i − j| at most the radius are filled. All the way right turns the band off.'
+      : data.widened
+        ? 'We asked for ' + state.band + ', but the end cell is ' + Math.abs(n - m) + ' off the diagonal, so the band is widened to ' + data.radius + ', as band_radius() does in the Rust code.'
+        : 'Cells with |i − j| more than ' + data.radius + ' are grey and never computed: ' + data.total + ' cells instead of ' + (n * m) + '.';
+
+    // Text versions of the pictures.
+    $('seq').setAttribute('aria-label', 'Sequence a: ' + state.a.join(', ') + '. Sequence b: ' + state.b.join(', ') + '. ' +
+      (state.connect === 'naive' ? 'Compared frame by frame, the differences add up to ' + num(data.naive) + '.'
+        : state.connect === 'warp' && shown ? 'Warping lines join ' + data.path.length + ' pairs of frames.' : '') +
+      ' Focus and use the arrow keys to edit: left and right pick a frame, up and down change it.');
+    $('grid').setAttribute('aria-label', (state.mode === 'acc' ? 'Accumulated cost grid' : 'Local distance grid') + ', ' + n + ' rows for a and ' + m + ' columns for b. ' +
+      (done ? 'DTW cost ' + num(data.cost) + ', normalized ' + fmt.fixed(data.norm, 4) + '. Path: ' + data.path.map(function (c) { return '(' + c[0] + ',' + c[1] + ')'; }).join(' ') + '. ' : '') +
+      'Arrow keys move over the cells; the line under the grid explains the selected one.');
+
+    Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+      var p = PRESETS[chip.getAttribute('data-preset')];
+      chip.setAttribute('aria-pressed', String(p.a.join() === state.a.join() && p.b.join() === state.b.join()));
+    });
+  }
+
+  function update() {
+    compute();
+    syncRanges();
+    updateReadouts();
+    seq.redraw();
+    grid.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var stopAnim = function () {};
+  var playing = false;
+  function touched() {
+    stopAnim(); stopAnim = function () {};
+    if (playing) { playing = false; $('play').textContent = 'Play'; }
+  }
+
+  var lenA = SR.bindSlider('#len-a', {
+    format: function (v) { return v + ' frames'; },
+    onInput: function (v) { touched(); state.a = resample(state.baseA, v); state.sel = null; state.pt = null; state.fill = Infinity; update(); }
+  });
+  var lenB = SR.bindSlider('#len-b', {
+    format: function (v) { return v + ' frames'; },
+    onInput: function (v) { touched(); state.b = resample(state.baseB, v); state.sel = null; state.pt = null; state.fill = Infinity; update(); }
+  });
+  var fill = SR.bindSlider('#fill', {
+    format: function (v) { return fmt.int(v) + ' of ' + fmt.int(data ? data.total : 70); },
+    onInput: function (v) {
+      touched();
+      state.fill = v; state.sel = null; state.pathT = 1;
+      if (state.mode !== 'acc') { state.mode = 'acc'; mode.set('acc'); }
+      update();
+    }
+  });
+  var band = SR.bindSlider('#band', {
+    format: function (v) {
+      if (!data || state.band == null) return 'off';
+      return 'radius ' + data.radius + (data.widened ? ' (asked for ' + state.band + ')' : '');
+    },
+    onInput: function (v) {
+      touched();
+      state.band = v >= +band.input.max ? null : v;
+      state.fill = Infinity; state.pathT = 1;
+      update();
+    }
+  });
+  var mode = SR.bindRadios('mode', function (v) { touched(); state.mode = v; state.pathT = 1; update(); });
+  var connect = SR.bindRadios('connect', function (v) { touched(); state.connect = v; update(); });
+  var showPath = SR.bindCheck('#show-path', function (on) {
+    touched();
+    state.path = on;
+    if (on && solved()) revealPath(700); else { state.pathT = 1; update(); }
+  });
+
+  // The sliders whose range depends on the sequences.
+  function syncRanges() {
+    var bandMax = Math.max(data.n, data.m) - 1;       // a radius this large allows every cell
+    band.input.max = bandMax;
+    band.set(state.band == null ? bandMax : Math.min(state.band, bandMax - 1));
+    fill.input.max = data.total;
+    fill.set(state.fill);
+    lenA.set(data.n);
+    lenB.set(data.m);
+  }
+  function syncControls() {
+    mode.set(state.mode);
+    connect.set(state.connect);
+    showPath.set(state.path);
+  }
+
+  function loadPreset(name) {
+    var p = PRESETS[name];
+    state.a = p.a.slice(); state.b = p.b.slice();
+    state.baseA = p.a.slice(); state.baseB = p.b.slice();
+    state.sel = null; state.pt = null;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      touched();
+      loadPreset(chip.getAttribute('data-preset'));
+      state.fill = Infinity; state.pathT = 1;
+      update();
+    });
+  });
+
+  /* Animation: filling the grid, and walking the path back. Both only move
+     numbers in `state`; if no frame is ever drawn the state is still right. */
+
+  function revealPath(ms) {
+    stopAnim();
+    state.pathT = 0;
+    stopAnim = SR.tween(ms, function (u) { state.pathT = u; update(); });
+  }
+
+  function playFill(fromStart) {
+    stopAnim();
+    if (fromStart || state.fill >= data.total) state.fill = 0;
+    state.mode = 'acc'; mode.set('acc');
+    state.sel = null;
+    var from = state.fill, to = data.total;
+    if (SR.reducedMotion()) { state.fill = to; update(); return; }
+    var ms = SR.clamp((to - from) * 60, 600, 6500);
+    var start = Date.now(), timer = 0, dead = false;
+    playing = true;
+    $('play').textContent = 'Pause';
+    // A timer, not requestAnimationFrame: a tab in the background gets no
+    // frames, and the count must keep moving anyway.
+    function tick() {
+      if (dead) return;
+      var u = (Date.now() - start) / ms;
+      if (u >= 1) {
+        dead = true;
+        playing = false; $('play').textContent = 'Play';
+        state.fill = to; update();
+        return;
+      }
+      var f = Math.round(SR.lerp(from, to, u));
+      if (f !== state.fill) { state.fill = f; update(); }
+      timer = window.setTimeout(tick, 30);
+    }
+    update();
+    timer = window.setTimeout(tick, 30);
+    stopAnim = function () { dead = true; window.clearTimeout(timer); };
+  }
+
+  $('play').addEventListener('click', function () {
+    if (playing) { touched(); update(); return; }
+    playFill(false);
+  });
+
+  /* Editing the curves: drag a dot, or pick one with the keyboard. */
+
+  function nearestPoint(pos) {
+    var L = seqLayout(seq.width, seq.height), best = null, bestDist = 22 * 22;
+    ['a', 'b'].forEach(function (name) {
+      for (var k = 0; k < state[name].length; k++) {
+        var p = pointOf(L, name, k);
+        var d = (p[0] - pos.x) * (p[0] - pos.x) + (p[1] - pos.y) * (p[1] - pos.y);
+        if (d < bestDist) { bestDist = d; best = { seq: name, k: k }; }
+      }
+    });
+    return best;
+  }
+  function setValue(pt, v) {
+    v = SR.clamp(Math.round(v), 0, VMAX);
+    if (state[pt.seq][pt.k] === v) return;
+    state[pt.seq][pt.k] = v;
+    // What the reader drew is the new shape for the length sliders to stretch.
+    state.baseA = state.a.slice(); state.baseB = state.b.slice();
+    state.fill = Infinity; state.pathT = 1;
+    update();
+  }
+
+  var dragging = null;
+  seq.canvas.addEventListener('pointerdown', function (e) {
+    var hit = nearestPoint(seq.point(e));
+    if (!hit) return;
+    touched();
+    dragging = hit; state.pt = hit;
+    try { seq.canvas.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+    seq.canvas.style.cursor = 'grabbing';
+    update();
+  });
+  seq.canvas.addEventListener('pointermove', function (e) {
+    var pos = seq.point(e);
+    if (!dragging) { seq.canvas.style.cursor = nearestPoint(pos) ? 'grab' : 'default'; return; }
+    var L = seqLayout(seq.width, seq.height);
+    setValue(dragging, (dragging.seq === 'a' ? L.ya : L.yb).invert(pos.y));
+  });
+  function endDrag() { dragging = null; seq.canvas.style.cursor = 'default'; }
+  seq.canvas.addEventListener('pointerup', endDrag);
+  seq.canvas.addEventListener('pointercancel', endDrag);
+  // A finger that lands on a dot drags the dot; anywhere else it scrolls the page.
+  seq.canvas.addEventListener('touchstart', function (e) {
+    var touch = e.touches[0];
+    if (touch && nearestPoint(seq.point(touch))) e.preventDefault();
+  }, { passive: false });
+
+  seq.canvas.addEventListener('keydown', function (e) {
+    var pt = state.pt || { seq: 'a', k: 0 };
+    var order = state.a.map(function (v, k) { return { seq: 'a', k: k }; }).concat(state.b.map(function (v, k) { return { seq: 'b', k: k }; }));
+    var at = pt.seq === 'a' ? pt.k : state.a.length + pt.k;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      at = (at + (e.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length;
+      state.pt = state.pt ? order[at] : pt;
+      e.preventDefault(); update();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      touched();
+      state.pt = pt;
+      e.preventDefault();
+      setValue(pt, state[pt.seq][pt.k] + (e.key === 'ArrowUp' ? 1 : -1));
+      update();
+    }
+  });
+  seq.canvas.addEventListener('focus', function () { if (!state.pt) state.pt = { seq: 'a', k: 0 }; seq.redraw(); });
+  seq.canvas.addEventListener('blur', function () { seq.redraw(); });
+
+  /* Inspecting the grid. */
+
+  function cellAt(pos) {
+    var L = gridLayout(grid.width);
+    var j = Math.floor((pos.x - L.x0) / L.cell), i = Math.floor((pos.y - L.y0) / L.cell);
+    return i >= 0 && i < data.n && j >= 0 && j < data.m ? { i: i, j: j } : null;
+  }
+  function select(c) {
+    if (!c || (state.sel && state.sel.i === c.i && state.sel.j === c.j)) return;
+    state.sel = c;
+    updateReadouts(); seq.redraw(); grid.redraw();
+  }
+  grid.canvas.addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse' && !playing) select(cellAt(grid.point(e))); });
+  grid.canvas.addEventListener('pointerdown', function (e) { if (playing) touched(); select(cellAt(grid.point(e))); });
+  grid.canvas.addEventListener('keydown', function (e) {
+    var move = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    if (e.key === 'Escape') { state.sel = null; update(); return; }
+    if (!move) return;
+    e.preventDefault();
+    if (playing) touched();
+    var f = focusCell() || { i: 0, j: 0 };
+    var from = state.sel ? f : { i: f.i - move[0], j: f.j - move[1] };
+    select({ i: SR.clamp(from.i + move[0], 0, data.n - 1), j: SR.clamp(from.j + move[1], 0, data.m - 1) });
+  });
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  // Put the whole page into the state a step describes. `anim` says what, if
+  // anything, moves on the way there.
+  function show(target, animate, anim) {
+    touched();
+    loadPreset('book');
+    state.mode = target.mode;
+    state.path = target.path;
+    state.band = target.band;
+    state.connect = target.connect;
+    state.sel = target.sel || null;
+    state.fill = target.fill == null ? Infinity : target.fill;
+    state.pathT = 1;
+    syncControls();
+    update();
+    if (animate && anim === 'fill') playFill(true);
+    if (animate && anim === 'path') revealPath(1400);
+  }
+
+  SR.stepper('#steps', {
+    label: 'Dynamic time warping, step by step',
+    steps: [
+      {
+        title: 'The same word at two speeds',
+        body: 'Here are two recordings of one word, boiled down to a single number per frame. Sequence <b>a</b> lasts 7 frames and <b>b</b> lasts 10, because nobody says a word at the same speed twice. If we compare frame 0 with frame 0, frame 1 with frame 1 and so on, the bumps do not line up, and the differences add up to 16. The two curves have the same shape. It is our way of comparing them that is wrong.',
+        enter: function (animate) {
+          show({ mode: 'local', path: false, band: null, connect: 'naive' }, animate);
+        }
+      },
+      {
+        title: 'Every frame against every frame',
+        body: 'So we stop assuming that frame i goes with frame i. We put a down the side and b along the top, and in every cell we write the <b>local distance</b> between the two frames that meet there: d(i, j) = |a[i] − b[j]|. The outlined cell compares a[2] = 4 with b[3] = 5 and holds 1. Pale cells are pairs of frames that look alike, and there is already a pale valley running from the top left to the bottom right.',
+        enter: function (animate) {
+          show({ mode: 'local', path: false, band: null, connect: 'none', sel: { i: 2, j: 3 } }, animate);
+        }
+      },
+      {
+        title: 'One cell of the recurrence',
+        body: 'A <b>warping path</b> walks from the top-left cell to the bottom-right one, stepping right, down, or diagonally. Its cost is the sum of the cells it visits. The cheapest way to arrive at a cell must come through one of three neighbors, so D(i, j) = d(i, j) + min(diagonal, up, left). For the outlined cell that is 1 + min(0, 4, 3) = 1, and the diagonal neighbor wins. Point at any filled cell to see its three.',
+        enter: function (animate) {
+          show({ mode: 'acc', path: false, band: null, connect: 'none', sel: { i: 2, j: 3 }, fill: 24 }, animate);
+        }
+      },
+      {
+        title: 'Fill the grid',
+        body: 'Every cell only needs cells above it and to its left, so one sweep, row by row, fills the whole grid. That is 70 small sums, for a grid that contains 75,517 different paths. Press Play, or drag "Cells filled in", to watch it happen. When the sweep is done, the bottom-right corner holds the cost of the cheapest path from start to end: 2.',
+        enter: function (animate) {
+          show({ mode: 'acc', path: false, band: null, connect: 'none' }, animate, 'fill');
+        }
+      },
+      {
+        title: 'Trace the path back',
+        body: 'The corner tells us what the cheapest path costs, not where it goes. To find it we start at the corner and keep stepping to the cheapest of the three neighbors, taking the diagonal on a tie, until we are back at the start. Each cell on the path pairs a frame of a with a frame of b: those are the lines between the curves. Dividing by n + m = 17 gives 0.1176, a number we can compare between words of different lengths.',
+        enter: function (animate) {
+          show({ mode: 'acc', path: true, band: null, connect: 'warp' }, animate, 'path');
+        }
+      },
+      {
+        title: 'The band',
+        body: 'A path that strays far from the diagonal claims that one frame of a lasts for half of b. People do not talk like that. A <b>Sakoe-Chiba band</b> only fills cells with |i − j| at most some radius and never looks at the grey ones. With radius 3 we fill 43 cells instead of 70 and get the same path. Now try "with a pause" and narrow the band until the cost goes up.',
+        enter: function (animate) {
+          show({ mode: 'acc', path: true, band: 3, connect: 'warp' }, animate);
+        }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

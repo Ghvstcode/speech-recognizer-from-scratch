@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Is Just Numbers · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="Sampling, aliasing and bit depth: how a smooth sound wave becomes the list of integers in a WAV file.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #wave { --h: 264px; }
+  #error { --h: 104px; }
+  #spectrum { --h: 132px; }
+  #steps { --sr-step-lines: 4; }
+  @media (max-width: 799px) {
+    #wave { --h: 220px; }
+    #error { --h: 96px; }
+    #spectrum { --h: 124px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/01-sound-is-just-numbers.md">Chapter 1</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 1 · Interactive</span>
+    <h1 class="sr-title">Sound Is Just Numbers</h1>
+    <p class="sr-lede">A microphone gives us a smoothly wiggling voltage. A WAV file is a list of integers. Two decisions get us from one to the other: how often we measure the wave, and how many bits we spend on each measurement.</p>
+    <p class="sr-small">Walk through the five steps on the figure first, then move the sliders yourself. The play buttons let you hear what each choice does.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline" id="wave-title">The wave and its samples</span>
+          <span class="sr-pill" id="wave-pill">16,000 samples per second</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="wave" role="img" aria-label="Waveform"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend" id="legend">
+            <li data-key="original"><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-48)"></span>the real wave</li>
+            <li data-key="samples"><span class="sr-swatch sr-swatch--dot"></span>samples</li>
+            <li data-key="recon"><span class="sr-swatch" id="recon-swatch" style="--c: var(--green)"></span><span id="recon-label">the wave the samples describe</span></li>
+          </ul>
+          <div class="sr-values" id="values" aria-live="off"></div>
+        </div>
+      </figure>
+
+      <div class="sr-stats" id="stats">
+        <div class="sr-stat" id="stat-spc">
+          <span class="sr-overline">Samples per cycle</span>
+          <span class="sr-stat-value">36.4</span>
+          <span class="sr-stat-sub">at 440 Hz</span>
+        </div>
+        <div class="sr-stat" id="stat-nyq">
+          <span class="sr-overline">Nyquist frequency</span>
+          <span class="sr-stat-value">8,000 Hz</span>
+          <span class="sr-stat-sub">half the sample rate</span>
+        </div>
+        <div class="sr-stat" id="stat-alias">
+          <span class="sr-overline">Alias frequency</span>
+          <span class="sr-stat-value">none</span>
+          <span class="sr-stat-sub">everything fits</span>
+        </div>
+        <div class="sr-stat" id="stat-bytes">
+          <span class="sr-overline">Bytes per second</span>
+          <span class="sr-stat-value">32,000</span>
+          <span class="sr-stat-sub">16,000 × 2 bytes</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Quantization error: stored height minus true height</span>
+          <span class="sr-pill" id="error-pill">1 step = 1/32,768 of full height</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="error" role="img" aria-label="Quantization error of each sample"></canvas>
+        </div>
+      </figure>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Where the tone sits, and where it ends up</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="spectrum" role="img" aria-label="Frequency axis"></canvas>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The sound</span>
+      <div class="sr-field">
+        <span class="sr-label" id="signal-label">Signal</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="signal-label">
+          <label><input type="radio" name="signal" value="tone" checked><span>One tone</span></label>
+          <label><input type="radio" name="signal" value="two"><span>Two tones</span></label>
+          <label><input type="radio" name="signal" value="chirp"><span>Sweep</span></label>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="freq" id="freq-label">Tone frequency</label>
+          <output class="sr-readout" for="freq"></output>
+        </div>
+        <input class="sr-range" type="range" id="freq">
+        <p class="sr-hint" id="freq-hint">How many times the wave repeats each second.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">How we measure it</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="rate">Sample rate</label>
+          <output class="sr-readout" for="rate"></output>
+        </div>
+        <input class="sr-range" type="range" id="rate">
+        <div class="sr-chip-row" id="rate-chips" role="group" aria-label="Common sample rates">
+          <button class="sr-chip" type="button" data-rate="8000" title="Telephone quality">8,000 phone</button>
+          <button class="sr-chip" type="button" data-rate="16000" title="What our recognizer uses">16,000 this book</button>
+          <button class="sr-chip" type="button" data-rate="44100" title="Compact disc">44,100 CD</button>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="bits">Bit depth</label>
+          <output class="sr-readout" for="bits"></output>
+        </div>
+        <input class="sr-range" type="range" id="bits" min="2" max="16" step="1" value="16">
+        <p class="sr-hint">Every extra bit doubles the number of heights a sample can take.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">Listen</span>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="play-original">Original</button>
+        <button class="sr-btn" type="button" id="play-sampled">Sampled</button>
+      </div>
+      <p class="sr-hint" id="listen-hint">About a second each. The sampled version is played back from the numbers alone, so if they describe an alias, the alias is what we hear.</p>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The picture</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="window">Time shown</label>
+          <output class="sr-readout" for="window"></output>
+        </div>
+        <input class="sr-range" type="range" id="window">
+      </div>
+      <div class="sr-check-row">
+        <label class="sr-check"><input type="checkbox" id="show-original" checked>The real wave</label>
+        <label class="sr-check"><input type="checkbox" id="show-samples" checked>Samples</label>
+      </div>
+      <div class="sr-field">
+        <span class="sr-label" id="through-label">Through the dots</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="through-label">
+          <label><input type="radio" name="through" value="smooth" checked><span>Smooth</span></label>
+          <label><input type="radio" name="through" value="stairs"><span>Staircase</span></label>
+          <label><input type="radio" name="through" value="none"><span>Nothing</span></label>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/01-sound-is-just-numbers.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 1.</span>
+  <span>The rounding here is the rounding in <a href="../code/src/wav.rs"><code>wav.rs</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, dsp = SR.dsp;
+
+  /* ---------------------------------------------------------------- state */
+
+  var AMP = 0.7;          // peak height of the wave; leaves headroom so 2 bits do not clip
+  var SWEEP_FROM = 100;   // Hz, where the sweep starts
+  var PAD = 24;           // extra samples on each side of the picture, for the sinc
+  var LISTEN_SECONDS = 1.2;
+
+  var state = {
+    mode: 'tone',         // 'tone' | 'two' | 'chirp'
+    f: 440,               // Hz
+    fs: 16000,            // samples per second
+    bits: 16,
+    win: 10,              // milliseconds of time shown
+    original: true,
+    samples: false,
+    through: 'smooth'     // 'smooth' | 'stairs' | 'none'
+  };
+
+  /* ---------------------------------------------------------------- maths */
+
+  // The continuous signal. `span` is how long a sweep takes, in seconds.
+  function signal(t, span) {
+    var w = 2 * Math.PI;
+    if (state.mode === 'two') {
+      return 0.45 * Math.sin(w * state.f * t) + 0.25 * Math.sin(w * 3 * state.f * t);
+    }
+    if (state.mode === 'chirp') {
+      // Frequency climbs in a straight line from SWEEP_FROM to f, so the
+      // phase (its running total) is a parabola.
+      var rate = (state.f - SWEEP_FROM) / span;
+      return AMP * Math.sin(w * (SWEEP_FROM * t + 0.5 * rate * t * t));
+    }
+    return AMP * Math.sin(w * state.f * t);
+  }
+
+  // The frequencies in the signal, for the readouts and the frequency axis.
+  function components() {
+    if (state.mode === 'two') return [{ f: state.f, amp: 0.45 }, { f: 3 * state.f, amp: 0.25 }];
+    return [{ f: state.f, amp: AMP }];
+  }
+
+  // Sampled at fs, a tone at f is indistinguishable from one at this frequency.
+  function aliasOf(f, fs) {
+    return Math.abs(f - fs * Math.round(f / fs));
+  }
+
+  // Everything the three plots share, recomputed on every change.
+  var data = null;
+  function compute() {
+    var T = state.win / 1000, fs = state.fs;
+    var n0 = -PAD, n1 = Math.ceil(T * fs) + PAD;
+    var count = n1 - n0 + 1;
+    var truth = new Float64Array(count), codes = new Int32Array(count), stored = new Float64Array(count);
+    for (var i = 0; i < count; i++) {
+      var x = signal((n0 + i) / fs, T);
+      truth[i] = x;
+      codes[i] = dsp.quantize(x, state.bits);            // what the file holds
+      stored[i] = dsp.dequantize(codes[i], state.bits);  // what we get back when we read it
+    }
+    var comps = components();
+    var top = comps[comps.length - 1].f;
+    data = {
+      T: T, n0: n0, count: count, truth: truth, codes: codes, stored: stored,
+      comps: comps, top: top,
+      nyquist: fs / 2,
+      aliased: top > fs / 2,
+      step: 1 / Math.pow(2, state.bits - 1)
+    };
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  var MARGIN = { l: 40, r: 14, t: 24, b: 36 };
+
+  function timeTicks(w) {
+    return SR.ticks(0, state.win, w < 440 ? 4 : 7);
+  }
+  function fmtMs(v) { return String(+v.toFixed(2)); }
+
+  var wave = SR.canvas('#wave', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, MARGIN);
+    var T = data.T, fs = state.fs;
+    var x = SR.scale.linear([0, T], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([-1, 1], [box.y + box.h, box.y]);
+    var i, n;
+
+    // The heights a sample is allowed to take, while there are few enough to see.
+    if (state.samples && state.bits <= 5) {
+      var levels = Math.pow(2, state.bits - 1);
+      ctx.strokeStyle = t.ink15;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      for (var k = -levels; k < levels; k++) {
+        var ly = SR.crisp(y(k / levels));
+        ctx.moveTo(box.x, ly); ctx.lineTo(box.x + box.w, ly);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: timeTicks(w).map(function (ms) { return ms / 1000; }),
+      xFormat: function (s) { return fmtMs(s * 1000); },
+      yTicks: [-1, -0.5, 0, 0.5, 1],
+      yFormat: function (v) { return fmt.fixed(v, 1); },
+      xLabel: 'time (ms)', yLabel: 'amplitude',
+      grid: !(state.samples && state.bits <= 5), zero: true
+    });
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x, box.y - 2, box.w, box.h + 4);
+    ctx.clip();
+
+    var accent = data.aliased ? t.amber : t.green;
+    var px = Math.max(2, Math.floor(box.w * 2));
+
+    // The real wave.
+    if (state.original) {
+      var cycles = data.top * T;
+      var pts = Math.max(px, Math.min(8000, Math.ceil(cycles * 24)));
+      SR.line(ctx, pts + 1, function (j) {
+        var tt = T * j / pts;
+        return [x(tt), y(signal(tt, T))];
+      }, { color: state.samples ? t.ink30 : t.ink, width: state.samples ? 1.25 : 1.75 });
+    }
+
+    if (state.samples) {
+      var first = Math.max(0, -data.n0), last = Math.min(data.count - 1, Math.floor(T * fs) - data.n0);
+
+      if (state.through === 'smooth') {
+        // An ideal playback device: the smoothest curve through the stored samples.
+        SR.line(ctx, px + 1, function (j) {
+          var tt = T * j / px;
+          return [x(tt), y(dsp.sincInterp(data.stored, tt * fs - data.n0, PAD))];
+        }, { color: accent, width: 1.75 });
+      } else if (state.through === 'stairs') {
+        // Sample and hold: each stored height lasts until the next one arrives.
+        ctx.beginPath();
+        for (i = first; i <= last; i++) {
+          var x0 = x((data.n0 + i) / fs), x1 = x((data.n0 + i + 1) / fs), yy = y(data.stored[i]);
+          if (i === first) ctx.moveTo(x0, yy); else ctx.lineTo(x0, yy);
+          ctx.lineTo(x1, yy);
+        }
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'miter';
+        ctx.stroke();
+        ctx.lineJoin = 'round';
+      }
+
+      // The samples themselves.
+      var spacing = box.w / (T * fs);
+      if (spacing >= 3.4) {
+        var r = spacing >= 12 ? 3 : spacing >= 7 ? 2.5 : spacing >= 4.5 ? 1.75 : 1.25;
+        for (i = first; i <= last; i++) {
+          SR.dot(ctx, x((data.n0 + i) / fs), y(data.stored[i]), r, t.ink);
+        }
+      }
+    }
+    ctx.restore();
+
+    // Name the impostor where it peaks.
+    if (state.samples && state.through !== 'none' && data.aliased && state.mode === 'tone') {
+      var signed = state.f - fs * Math.round(state.f / fs);  // negative means the alias is upside down
+      var fa = Math.abs(signed);
+      if (fa > 0) {
+        var crest = (signed > 0 ? 0.25 : 0.75) / fa;
+        if (crest > T) crest = T * 0.5;
+        SR.pill(ctx, 'ALIAS · ' + fmt.hz(fa).toUpperCase(), x(crest), y(AMP) - 15,
+          { color: t.amber, min: box.x + 2, max: box.x + box.w - 2 });
+      }
+    }
+    if (state.samples && box.w / (T * fs) < 3.4) {
+      SR.pill(ctx, fmt.int(T * fs) + ' SAMPLES IN VIEW, TOO CLOSE TO DRAW AS DOTS', box.x + box.w - 4, box.y + box.h - 14,
+        { align: 'right', min: box.x + 2 });
+    }
+  });
+
+  var error = SR.canvas('#error', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, { l: MARGIN.l, r: MARGIN.r, t: 10, b: 22 });
+    var T = data.T, fs = state.fs;
+    var x = SR.scale.linear([0, T], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([-0.62, 0.62], [box.y + box.h, box.y]);   // in steps
+
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: timeTicks(w).map(function (ms) { return ms / 1000; }),
+      xFormat: function (s) { return fmtMs(s * 1000); },
+      yTicks: [-0.5, 0, 0.5],
+      yFormat: function (v) { return v === 0 ? '0' : (v > 0 ? '+' : '−') + '½'; },
+      zero: true
+    });
+
+    if (!state.samples) {
+      ctx.fillStyle = t.ink48;
+      ctx.font = SR.font.mono(10);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      SR.spacedText(ctx, 'NO SAMPLES YET, SO NOTHING TO GET WRONG', box.x + box.w / 2, box.y + box.h * 0.28);
+      return;
+    }
+
+    var first = Math.max(0, -data.n0), last = Math.min(data.count - 1, Math.floor(T * fs) - data.n0);
+    var spacing = box.w / (T * fs);
+    var y0 = y(0), i;
+    var err = function (j) { return (data.stored[j] - data.truth[j]) / data.step; };
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(box.x, box.y, box.w, box.h);
+    ctx.clip();
+    if (spacing >= 3) {
+      ctx.strokeStyle = t.ink48;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (i = first; i <= last; i++) {
+        var sx = SR.crisp(x((data.n0 + i) / fs));
+        ctx.moveTo(sx, y0); ctx.lineTo(sx, y(err(i)));
+      }
+      ctx.stroke();
+      if (spacing >= 4.5) {
+        ctx.fillStyle = t.ink;
+        for (i = first; i <= last; i++) {
+          ctx.beginPath();
+          ctx.arc(x((data.n0 + i) / fs), y(err(i)), spacing >= 7 ? 2 : 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else {
+      SR.line(ctx, last - first + 1, function (j) {
+        return [x((data.n0 + first + j) / fs), y(err(first + j))];
+      }, { color: t.ink70, width: 1 });
+    }
+    ctx.restore();
+  });
+
+  var F_MIN = 50, F_MAX = 30000;
+
+  var spectrum = SR.canvas('#spectrum', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, { l: 14, r: 14, t: 34, b: 36 });
+    var x = SR.scale.log([F_MIN, F_MAX], [box.x, box.x + box.w]);
+    var base = box.y + box.h;
+    var nyq = data.nyquist, fs = state.fs;
+    var xn = x(nyq);
+
+    // Everything to the right of the Nyquist frequency cannot be stored.
+    ctx.fillStyle = t.ink7;
+    ctx.fillRect(xn, box.y, box.x + box.w - xn, box.h);
+
+    var ticks = SR.logTicks(F_MIN, F_MAX).filter(function (v) {
+      return w >= 560 ? true : /^1/.test(String(v)) || v === F_MIN;
+    });
+    SR.axes(ctx, {
+      box: box, x: x, xTicks: ticks, xFormat: fmt.hzShort,
+      xLabel: 'frequency (Hz, log scale)', grid: false
+    });
+
+    ctx.strokeStyle = t.ink70;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(SR.crisp(xn), box.y - 12); ctx.lineTo(SR.crisp(xn), base);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    SR.pill(ctx, 'NYQUIST · ' + fmt.hz(nyq).toUpperCase(), xn, 11, { min: 2, max: w - 2 });
+    if (box.x + box.w - xn > 130) {
+      ctx.fillStyle = t.ink48;
+      ctx.font = SR.font.mono(10);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      SR.spacedText(ctx, 'OUT OF REACH', box.x + box.w - 6, box.y + 5);
+    }
+
+    function label(text, px, py, align, color) {
+      ctx.font = SR.font.mono(10);
+      ctx.fillStyle = color;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = align;
+      var tw = ctx.measureText(text).width;
+      // Keep the text inside the canvas.
+      if (align === 'left' && px + tw > w - 2) { ctx.textAlign = 'right'; px -= 12; }
+      if (align === 'right' && px - tw < 2) { ctx.textAlign = 'left'; px += 12; }
+      ctx.fillText(text, px, py);
+    }
+
+    function stem(px, top, color, dashed, hollow) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = dashed ? 1 : 1.75;
+      ctx.setLineDash(dashed ? [3, 3] : []);
+      ctx.beginPath();
+      ctx.moveTo(SR.crisp(px), base); ctx.lineTo(SR.crisp(px), top);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(SR.crisp(px), top, 3, 0, Math.PI * 2);
+      ctx.fillStyle = hollow ? t.panel : color;
+      ctx.fill();
+      if (hollow) { ctx.lineWidth = 1; ctx.stroke(); }
+    }
+
+    // A thin arrow that hops from where the tone is to where it lands.
+    function hop(fromX, toX, yy) {
+      var lift = Math.min(9, (fromX - toX) / 6);
+      var mx = (fromX + toX) / 2;
+      ctx.strokeStyle = t.amber;
+      ctx.fillStyle = t.amber;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(fromX - 5, yy - 5);
+      ctx.quadraticCurveTo(mx, yy - 5 - lift * 1.6, toX + 6, yy - 6);
+      ctx.stroke();
+      var ang = Math.atan2(lift * 1.6 - 1, (toX + 6) - mx);
+      ctx.save();
+      ctx.translate(toX + 6, yy - 6);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(7, -3); ctx.lineTo(7, 3); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (state.mode === 'chirp') {
+      var yy = box.y + box.h * 0.42;
+      var hi = Math.min(state.f, nyq);
+      var good = data.aliased ? t.ink70 : t.green;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = good;
+      ctx.beginPath(); ctx.moveTo(x(SWEEP_FROM), yy); ctx.lineTo(x(hi), yy); ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(SR.crisp(x(SWEEP_FROM)), yy - 4); ctx.lineTo(SR.crisp(x(SWEEP_FROM)), yy + 4); ctx.stroke();
+      if (data.aliased) {
+        ctx.strokeStyle = t.ink48;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(xn, yy); ctx.lineTo(x(state.f), yy); ctx.stroke();
+        ctx.setLineDash([]);
+        var lo = state.f >= fs ? F_MIN : Math.max(F_MIN, aliasOf(state.f, fs));
+        var y2 = yy + 12;
+        ctx.strokeStyle = t.amber;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(xn, y2); ctx.lineTo(x(lo), y2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x(lo), y2, 3, 0, Math.PI * 2); ctx.fillStyle = t.amber; ctx.fill();
+        ctx.beginPath(); ctx.arc(x(state.f), yy, 3, 0, Math.PI * 2); ctx.fillStyle = t.panel; ctx.fill();
+        ctx.strokeStyle = t.ink48; ctx.lineWidth = 1; ctx.stroke();
+        label('COMES BACK DOWN TO ' + fmt.hz(aliasOf(state.f, fs)).toUpperCase(), x(lo) - 9, y2 + 1, 'right', t.amber);
+      } else {
+        ctx.beginPath(); ctx.arc(x(hi), yy, 3, 0, Math.PI * 2); ctx.fillStyle = good; ctx.fill();
+        label('SWEEP ' + fmt.int(SWEEP_FROM) + ' TO ' + fmt.hz(state.f).toUpperCase(), x(hi) + 9, yy + 1, 'left', t.ink70);
+      }
+      return;
+    }
+
+    data.comps.forEach(function (c) {
+      var top = base - (box.h - 16) * (c.amp / data.comps[0].amp);
+      var px = x(c.f);
+      if (c.f <= nyq) {
+        stem(px, top, t.green, false, false);
+        label(fmt.hz(c.f).toUpperCase(), px + 9, top + 1, 'left', t.ink70);
+      } else {
+        var fa = aliasOf(c.f, fs);
+        var pa = x(Math.max(F_MIN, fa));
+        stem(px, top, t.ink48, true, true);
+        label(fmt.hz(c.f).toUpperCase(), px + 9, top + 1, 'left', t.ink48);
+        stem(pa, top, t.amber, false, false);
+        label((fa < F_MIN ? '← ' : '') + fmt.hz(fa).toUpperCase(), pa - 9, top + 1, 'right', t.amber);
+        if (px - pa > 30) hop(px, pa, top);
+      }
+    });
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function $(id) { return document.getElementById(id); }
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+
+  function describeAliases() {
+    // The list of "f shows up as fa" for the parts that do not fit.
+    return data.comps.filter(function (c) { return c.f > data.nyquist; }).map(function (c) {
+      return { f: c.f, fa: aliasOf(c.f, state.fs) };
+    });
+  }
+
+  function updateReadouts() {
+    var fs = state.fs, top = data.top;
+    var spc = fs / top;
+    var spcSub = state.mode === 'two' ? 'for the ' + fmt.hz(top) + ' tone'
+      : state.mode === 'chirp' ? 'at the top, ' + fmt.hz(top)
+      : 'at ' + fmt.hz(top);
+    setStat('stat-spc', spc >= 100 ? fmt.int(spc) : fmt.fixed(spc, spc >= 10 ? 1 : 2), spcSub, spc < 2 ? 'amber' : null);
+    setStat('stat-nyq', fmt.hz(fs / 2), 'half of ' + fmt.int(fs));
+
+    var al = describeAliases();
+    if (!al.length) {
+      setStat('stat-alias', 'none', 'everything fits under Nyquist', 'muted');
+    } else if (state.mode === 'chirp') {
+      setStat('stat-alias', fmt.hz(al[0].fa), 'where the sweep ends up', 'amber');
+    } else {
+      setStat('stat-alias', al.map(function (a) { return fmt.hz(a.fa); }).join(', '),
+        al.map(function (a) { return fmt.hz(a.f); }).join(' and ') + (al.length > 1 ? ' land here' : ' lands here'), 'amber');
+    }
+
+    var bytes = Math.ceil(state.bits / 8);
+    setStat('stat-bytes', fmt.int(fs * bytes), fmt.int(fs) + ' × ' + bytes + (bytes === 1 ? ' byte' : ' bytes'));
+
+    $('wave-pill').textContent = state.samples ? fmt.int(fs) + ' samples per second' : 'not sampled yet';
+    $('error-pill').textContent = '1 step = 1/' + fmt.int(1 / data.step) + ' of full height';
+
+    // Legend follows what is drawn.
+    var legend = $('legend');
+    legend.querySelector('[data-key="original"]').hidden = !state.original;
+    legend.querySelector('[data-key="samples"]').hidden = !state.samples;
+    var recon = legend.querySelector('[data-key="recon"]');
+    recon.hidden = !state.samples || state.through === 'none';
+    $('recon-swatch').style.setProperty('--c', data.aliased ? 'var(--amber)' : 'var(--green)');
+    $('recon-label').textContent = state.through === 'stairs' ? 'each sample held until the next'
+      : data.aliased ? 'the wave the samples describe: an alias' : 'the wave the samples describe';
+
+    // The numbers themselves, as the file would hold them.
+    var values = $('values');
+    if (state.samples) {
+      var list = [];
+      for (var i = 0; i < 10; i++) list.push(String(data.codes[i - data.n0]).replace('-', '−'));
+      values.innerHTML = '<b>first samples as ' + state.bits + '-bit integers:</b> ' + list.join(', ') + ', …';
+    } else {
+      values.innerHTML = '<b>no numbers yet: this is still a continuous wave</b>';
+    }
+
+    // A text version of the picture for screen readers.
+    var what = state.mode === 'two' ? 'Two tones at ' + fmt.hz(state.f) + ' and ' + fmt.hz(3 * state.f)
+      : state.mode === 'chirp' ? 'A sweep from ' + fmt.hz(SWEEP_FROM) + ' to ' + fmt.hz(state.f)
+      : 'A ' + fmt.hz(state.f) + ' tone';
+    var summary = what + (state.samples ? ', sampled ' + fmt.int(fs) + ' times a second at ' + state.bits + ' bits. ' : ', not sampled yet. ');
+    if (state.samples) {
+      summary += al.length ? 'The sample rate is too low: ' + al.map(function (a) { return fmt.hz(a.f) + ' appears as ' + fmt.hz(a.fa); }).join(', ') + '.'
+        : 'The samples describe the wave correctly.';
+    }
+    $('wave').setAttribute('aria-label', summary);
+    $('spectrum').setAttribute('aria-label', 'Frequency axis. Nyquist frequency ' + fmt.hz(fs / 2) + '. ' +
+      (al.length ? al.map(function (a) { return fmt.hz(a.f) + ' folds to ' + fmt.hz(a.fa); }).join(', ') + '.' : 'All of the signal is below it.'));
+
+    // Preset chips light up when the slider sits on them.
+    Array.prototype.forEach.call(document.querySelectorAll('#rate-chips .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(+chip.getAttribute('data-rate') === fs));
+    });
+  }
+
+  function update() {
+    compute();
+    updateReadouts();
+    wave.redraw();
+    error.redraw();
+    spectrum.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var cancelTween = function () {};
+  function touched() { cancelTween(); cancelTween = function () {}; }
+
+  var freq = SR.bindSlider('#freq', {
+    map: SR.logMap(100, 10000, { steps: 400, sig: 3, snap: [440, 1000, 5000] }),
+    format: fmt.hz,
+    onInput: function (v) { touched(); state.f = v; syncLabels(); update(); }
+  });
+  var rate = SR.bindSlider('#rate', {
+    map: SR.logMap(1000, 48000, { steps: 400, sig: 3, snap: [2000, 4000, 8000, 16000, 22050, 44100] }),
+    format: fmt.hz,
+    onInput: function (v) { touched(); state.fs = v; update(); }
+  });
+  var bits = SR.bindSlider('#bits', {
+    format: function (v) { return v + ' bits · ' + fmt.int(Math.pow(2, v)) + ' levels'; },
+    onInput: function (v) { touched(); state.bits = v; update(); }
+  });
+  var win = SR.bindSlider('#window', {
+    map: SR.logMap(1, 50, { steps: 200, sig: 2, snap: [2, 2.5, 4, 5, 10, 20] }),
+    format: function (v) { return fmtMs(v) + ' ms'; },
+    onInput: function (v) { touched(); state.win = v; update(); }
+  });
+  var mode = SR.bindRadios('signal', function (v) { touched(); state.mode = v; syncLabels(); update(); });
+  var through = SR.bindRadios('through', function (v) { touched(); state.through = v; update(); });
+  var showOriginal = SR.bindCheck('#show-original', function (on) { touched(); state.original = on; update(); });
+  var showSamples = SR.bindCheck('#show-samples', function (on) { touched(); state.samples = on; update(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#rate-chips .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      touched();
+      state.fs = +chip.getAttribute('data-rate');
+      if (!state.samples) state.samples = true;
+      syncControls();
+      update();
+    });
+  });
+
+  function syncLabels() {
+    $('freq-label').textContent = state.mode === 'two' ? 'Lower tone' : state.mode === 'chirp' ? 'Sweep up to' : 'Tone frequency';
+    $('freq-hint').textContent = state.mode === 'two' ? 'The second tone is three times as high: ' + fmt.hz(3 * state.f) + '.'
+      : state.mode === 'chirp' ? 'The pitch climbs from ' + fmt.hz(SWEEP_FROM) + ' to here, across the picture and across the second of sound.'
+      : 'How many times the wave repeats each second.';
+  }
+
+  // Push the state into every control (after a step or a preset changed it).
+  function syncControls() {
+    freq.set(state.f);
+    rate.set(state.fs);
+    bits.set(state.bits);
+    win.set(state.win);
+    mode.set(state.mode);
+    through.set(state.through);
+    showOriginal.set(state.original);
+    showSamples.set(state.samples);
+    syncLabels();
+  }
+
+  /* ---------------------------------------------------------------- sound */
+
+  function clip() {
+    var rateOut = 48000, n = Math.round(rateOut * LISTEN_SECONDS);
+    var out = new Float32Array(n);
+    for (var i = 0; i < n; i++) out[i] = signal(i / rateOut, LISTEN_SECONDS);
+    return { samples: out, sampleRate: rateOut };
+  }
+
+  function sampledClip() {
+    // Exactly what a WAV file at this rate and bit depth would contain.
+    var fs = state.fs, n = Math.round(fs * LISTEN_SECONDS);
+    var out = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = dsp.dequantize(dsp.quantize(signal(i / fs, LISTEN_SECONDS), state.bits), state.bits);
+    }
+    return { samples: out, sampleRate: fs };
+  }
+
+  SR.audio.button('#play-original', clip, { gain: 0.22 });
+  SR.audio.button('#play-sampled', sampledClip, { gain: 0.22 });
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  // Glide the sliders to a step's settings instead of jumping, so the reader
+  // sees the dots move. Discrete settings switch at once.
+  function show(target, animate) {
+    touched();
+    var from = { f: state.f, fs: state.fs, win: state.win, bits: state.bits };
+    ['mode', 'original', 'samples', 'through'].forEach(function (k) { state[k] = target[k]; });
+    var glide = function (a, b, u) { return Math.exp(SR.lerp(Math.log(a), Math.log(b), u)); };
+    cancelTween = SR.tween(animate ? 520 : 0, function (u) {
+      state.f = u === 1 ? target.f : glide(from.f, target.f, u);
+      state.fs = u === 1 ? target.fs : glide(from.fs, target.fs, u);
+      state.win = u === 1 ? target.win : glide(from.win, target.win, u);
+      state.bits = Math.round(SR.lerp(from.bits, target.bits, u));
+      syncControls();
+      update();
+    });
+  }
+
+  SR.stepper('#steps', {
+    label: 'Sampling, step by step',
+    steps: [
+      {
+        title: 'A wave',
+        body: 'Sound is air pressure going up and down, and a microphone turns it into a voltage that wiggles the same way. This one wiggles 440 times a second: 440 Hz, the note an orchestra tunes to. The curve is smooth, so between any two moments there are infinitely many heights. We cannot store that.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 440, fs: 16000, bits: 16, win: 10, original: true, samples: false, through: 'smooth' }, animate);
+        }
+      },
+      {
+        title: 'Measure it 16,000 times a second',
+        body: 'So we measure the height of the wave at regular ticks and keep only the measurements. Each dot is one <b>sample</b>, and 16,000 of them a second is the <b>sample rate</b> of the recordings in this book. At 440 Hz that is about 36 dots per cycle, and the smooth curve through the dots lands right on top of the original.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 440, fs: 16000, bits: 16, win: 4, original: true, samples: true, through: 'smooth' }, animate);
+        }
+      },
+      {
+        title: 'Too slow: aliasing',
+        body: 'Now the tone is 5,000 Hz and we measure 8,000 times a second, which is fewer than two dots per cycle. The dots still sit on the wave, but the smoothest curve through them is a slower wave at 3,000 Hz: an <b>alias</b>. A sample rate can only hold frequencies below half of itself, the <b>Nyquist frequency</b>. Play both and listen.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 5000, fs: 8000, bits: 16, win: 2, original: true, samples: true, through: 'smooth' }, animate);
+        }
+      },
+      {
+        title: 'How many bits',
+        body: 'Each sample also has to fit in a fixed number of bits. With 3 bits there are only 8 heights to choose from, so every sample snaps to the nearest one. The gap between the true height and the stored one is the <b>quantization error</b>, plotted in the second panel. Slide the bit depth up to 16 and the staircase melts back into the wave.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 440, fs: 16000, bits: 3, win: 2.5, original: true, samples: true, through: 'stairs' }, animate);
+        }
+      },
+      {
+        title: 'This is a WAV file',
+        body: '16,000 samples a second, 16 bits each: 32,000 bytes for every second of sound, one integer after another. The first few are printed under the plot. Put a short header in front that says how to read them and we have a WAV file, which is what we parse by hand in chapter 1. Now move things around yourself.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 440, fs: 16000, bits: 16, win: 4, original: true, samples: true, through: 'smooth' }, animate);
+        }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

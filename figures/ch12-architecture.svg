@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>Whisper tiny.en, top to bottom</title>
+  <desc>Two columns. On the left the encoder: 30 seconds of audio become a 3000 by 80 log-mel spectrogram, pass through two convolutions that halve the frame rate, get positions added, go through four transformer blocks and a layer norm, and come out as 1500 by 384 audio features. On the right the decoder: the tokens written so far are embedded, pass through four blocks of causal self-attention, cross-attention to the audio features and an MLP, and are scored against all 51864 tokens. The best token is appended to the tokens so far and the decoder runs again, until it picks end of text.</desc>
+  <defs>
+    <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.6" fill="rgba(25,22,21,.09)"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#191615"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#047857"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#B45309"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#F5F3EF"/>
+  <rect width="100%" height="100%" fill="url(#dots)"/>
+
+  <!-- group boxes -->
+  <rect x="28" y="44" width="312" height="432" rx="10" fill="#F5F3EF" stroke="rgba(25,22,21,.30)" stroke-dasharray="3 3"/>
+  <rect x="436" y="44" width="340" height="432" rx="10" fill="#F5F3EF" stroke="rgba(25,22,21,.30)" stroke-dasharray="3 3"/>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,.70)">
+    <text x="44" y="34">ENCODER · RUNS ONCE PER 30 S WINDOW</text>
+    <text x="452" y="34">DECODER · RUNS ONCE PER TOKEN</text>
+  </g>
+
+  <!-- encoder cards -->
+  <g fill="#FBFAF7" stroke="rgba(25,22,21,.15)">
+    <rect x="44" y="62" width="280" height="34" rx="8"/>
+    <rect x="44" y="114" width="280" height="34" rx="8"/>
+    <rect x="44" y="166" width="280" height="34" rx="8"/>
+    <rect x="44" y="218" width="280" height="34" rx="8"/>
+    <rect x="44" y="270" width="280" height="34" rx="8"/>
+    <rect x="44" y="322" width="280" height="64" rx="8"/>
+  </g>
+  <rect x="44" y="418" width="280" height="40" rx="8" fill="#FBFAF7" stroke="#047857" stroke-width="1.25"/>
+
+  <g font-size="13" fill="#191615">
+    <text x="58" y="84">30 s of audio at 16 kHz</text>
+    <text x="58" y="136">log-mel spectrogram</text>
+    <text x="58" y="188">conv1, kernel 3 + GELU</text>
+    <text x="58" y="240">conv2, stride 2 + GELU</text>
+    <text x="58" y="292">+ position rows</text>
+    <text x="58" y="348">self-attention</text>
+    <text x="58" y="372">MLP</text>
+    <text x="58" y="443" fill="#047857" font-weight="500">layer norm → audio features</text>
+  </g>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,.48)" text-anchor="end">
+    <text x="312" y="84">480,000</text>
+    <text x="312" y="136">3000 × 80</text>
+    <text x="312" y="188">3000 × 384</text>
+    <text x="312" y="240">1500 × 384</text>
+    <text x="312" y="292">1500 × 384</text>
+    <text x="312" y="360" fill="#191615">block × 4</text>
+    <text x="312" y="443" fill="#047857">1500 × 384</text>
+  </g>
+  <g stroke="#191615" stroke-width="1.1" fill="none" marker-end="url(#arrow)">
+    <path d="M184 96 V112"/>
+    <path d="M184 148 V164"/>
+    <path d="M184 200 V216"/>
+    <path d="M184 252 V268"/>
+    <path d="M184 304 V320"/>
+    <path d="M184 386 V416"/>
+  </g>
+
+  <!-- decoder cards -->
+  <g fill="#FBFAF7" stroke="rgba(25,22,21,.15)">
+    <rect x="452" y="62" width="264" height="34" rx="8"/>
+    <rect x="452" y="114" width="264" height="34" rx="8"/>
+    <rect x="452" y="166" width="264" height="92" rx="8"/>
+    <rect x="452" y="276" width="264" height="34" rx="8"/>
+    <rect x="452" y="328" width="264" height="52" rx="8"/>
+  </g>
+  <rect x="452" y="418" width="264" height="40" rx="8" fill="#FBFAF7" stroke="#B45309" stroke-width="1.25"/>
+  <g font-size="13" fill="#191615">
+    <text x="466" y="136">token row + position row</text>
+    <text x="466" y="190">causal self-attention</text>
+    <text x="466" y="217" fill="#047857" font-weight="500">cross-attention</text>
+    <text x="466" y="244">MLP</text>
+    <text x="466" y="298">layer norm</text>
+    <text x="466" y="350">dot product with every</text>
+    <text x="466" y="368">token row: one score each</text>
+    <text x="466" y="443" fill="#B45309" font-weight="500">argmax → next token</text>
+  </g>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="rgba(25,22,21,.48)" text-anchor="end">
+    <text x="704" y="136">n × 384</text>
+    <text x="704" y="217" fill="#191615">block × 4</text>
+    <text x="704" y="298">n × 384</text>
+    <text x="704" y="359">51,864</text>
+    <text x="704" y="443" fill="#B45309">" brown"</text>
+  </g>
+  <text x="466" y="84" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#191615">&lt;|sot|&gt; &lt;|notimestamps|&gt; the quick</text>
+  <g stroke="#191615" stroke-width="1.1" fill="none" marker-end="url(#arrow)">
+    <path d="M584 96 V112"/>
+    <path d="M584 148 V164"/>
+    <path d="M584 258 V274"/>
+    <path d="M584 310 V326"/>
+    <path d="M584 380 V416"/>
+  </g>
+
+  <!-- encoder output to cross-attention -->
+  <path d="M324 438 H388 V212 H450" fill="none" stroke="#047857" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#arrow-green)"/>
+  <rect x="352" y="300" width="72" height="34" rx="8" fill="#F5F3EF" stroke="rgba(25,22,21,.15)"/>
+  <g font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#047857" text-anchor="middle">
+    <text x="388" y="314">the text</text>
+    <text x="388" y="327">listens</text>
+  </g>
+
+  <!-- the loop -->
+  <path d="M716 438 H746 V79 H718" fill="none" stroke="#B45309" stroke-width="1.5" stroke-linejoin="round" marker-end="url(#arrow-amber)"/>
+  <g transform="translate(761 258) rotate(90)">
+    <text text-anchor="middle" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="#B45309">APPEND, RUN AGAIN, UNTIL &lt;|ENDOFTEXT|&gt;</text>
+  </g>
+</svg>

@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Fourier Transform, By Hand · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="The discrete Fourier transform as multiply and add: probe a signal with a cosine and a sine, one frequency at a time, and build its spectrum bar by bar.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #mult { --h: 318px; }
+  #wind { --h: 292px; }
+  #spectrum { --h: 292px; cursor: pointer; touch-action: pan-y; }
+  #steps { --sr-step-lines: 5; }
+  /* The multiply-and-add figure shows its cosine and sine halves side by side
+     when it has the room and stacked when it does not, so its height follows
+     its own width. Same for the pair of figures under it. */
+  #mult-body, #pair-wrap { container-type: inline-size; }
+  #pair { display: grid; grid-template-columns: minmax(0, 330px) minmax(0, 1fr); gap: 14px; align-items: start; }
+  @container (max-width: 559px) { #mult { --h: 520px; } }
+  @container (max-width: 639px) {
+    #pair { grid-template-columns: minmax(0, 1fr); }
+    #spectrum { --h: 232px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/03-the-fourier-transform-by-hand.md">Chapter 3</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 3 · Interactive</span>
+    <h1 class="sr-title">The Fourier Transform, By Hand</h1>
+    <p class="sr-lede">How much of one frequency is in a signal? Multiply the signal by a wave of that frequency, sample by sample, and add up the products. Do that for every frequency and we have the spectrum. That is the whole discrete Fourier transform.</p>
+    <p class="sr-small">Walk through the six steps on the figure first. Then build your own signal and pick the probe frequency yourself.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Multiply, then add</span>
+          <span class="sr-pill" id="mult-pill">probe k = 3</span>
+        </div>
+        <div class="sr-figure-body" id="mult-body">
+          <canvas class="sr-canvas" id="mult" role="img" aria-label="The signal, the two probe waves and their products"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch" style="--c: var(--ink)"></span>the signal</li>
+            <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--ink-48)"></span>the probe wave</li>
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>products above zero</li>
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--amber)"></span>products below zero</li>
+          </ul>
+          <div class="sr-values" id="values-cos" aria-live="off"></div>
+          <div class="sr-values" id="values-sin" aria-live="off"></div>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-re">
+          <span class="sr-overline">Real part</span>
+          <span class="sr-stat-value">16.00</span>
+          <span class="sr-stat-sub">the cosine sum</span>
+        </div>
+        <div class="sr-stat" id="stat-im">
+          <span class="sr-overline">Imaginary part</span>
+          <span class="sr-stat-value">0.00</span>
+          <span class="sr-stat-sub">minus the sine sum</span>
+        </div>
+        <div class="sr-stat" id="stat-mag">
+          <span class="sr-overline">Magnitude |X[k]|</span>
+          <span class="sr-stat-value">16.00</span>
+          <span class="sr-stat-sub">√(re² + im²)</span>
+        </div>
+        <div class="sr-stat" id="stat-naive">
+          <span class="sr-overline">Multiplications, naive</span>
+          <span class="sr-stat-value">1,024</span>
+          <span class="sr-stat-sub">N² multiplications</span>
+        </div>
+        <div class="sr-stat" id="stat-fft">
+          <span class="sr-overline">With the FFT</span>
+          <span class="sr-stat-value">160</span>
+          <span class="sr-stat-sub">N · log₂ N</span>
+        </div>
+      </div>
+
+      <div id="pair-wrap">
+        <div id="pair">
+          <figure class="sr-figure">
+            <div class="sr-figure-head">
+              <span class="sr-overline">The signal wound around a circle</span>
+            </div>
+            <div class="sr-figure-body">
+              <canvas class="sr-canvas" id="wind" role="img" aria-label="The signal wrapped around the complex plane"></canvas>
+            </div>
+            <div class="sr-figure-foot">
+              <ul class="sr-legend">
+                <li><span class="sr-swatch sr-swatch--dot"></span>one sample</li>
+                <li><span class="sr-swatch sr-swatch--dot" style="--c: var(--green)"></span>their center of mass</li>
+              </ul>
+            </div>
+          </figure>
+
+          <figure class="sr-figure">
+            <div class="sr-figure-head">
+              <span class="sr-overline">The spectrum, one bar per probe</span>
+              <span class="sr-pill" id="spectrum-pill">1 of 17 bars</span>
+            </div>
+            <div class="sr-figure-body">
+              <canvas class="sr-canvas" id="spectrum" role="img" aria-label="Magnitude spectrum"></canvas>
+            </div>
+            <div class="sr-figure-foot">
+              <ul class="sr-legend">
+                <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>the probe we are on</li>
+                <li><span class="sr-swatch sr-swatch--box" style="--c: var(--ink-48)"></span>already computed</li>
+                <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--ink-48)"></span>not asked yet</li>
+              </ul>
+            </div>
+          </figure>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The probe</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="k">Probe frequency k</label>
+          <output class="sr-readout" for="k"></output>
+        </div>
+        <input class="sr-range" type="range" id="k" min="0" max="16" step="1" value="3">
+        <p class="sr-hint" id="k-hint">Or click a bar in the spectrum.</p>
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="run">Run the DFT</button>
+        <button class="sr-btn" type="button" id="clear">Clear the bars</button>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The signal</span>
+      <div class="sr-chip-row" id="presets" role="group" aria-label="Signals to try">
+        <button class="sr-chip" type="button" data-preset="cosine">one cosine</button>
+        <button class="sr-chip" type="button" data-preset="sine">one sine</button>
+        <button class="sr-chip" type="button" data-preset="two">two tones</button>
+        <button class="sr-chip" type="button" data-preset="three">three tones</button>
+        <button class="sr-chip" type="button" data-preset="between">between bins</button>
+        <button class="sr-chip" type="button" data-preset="noisy">tone in noise</button>
+      </div>
+      <div class="sr-field">
+        <span class="sr-label" id="edit-label">Sinusoid to adjust</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="edit-label">
+          <label><input type="radio" name="edit" value="0" checked><span>First</span></label>
+          <label><input type="radio" name="edit" value="1"><span>Second</span></label>
+          <label><input type="radio" name="edit" value="2"><span>Third</span></label>
+        </div>
+        <p class="sr-hint" id="comp-summary"></p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="freq">Frequency</label>
+          <output class="sr-readout" for="freq"></output>
+        </div>
+        <input class="sr-range" type="range" id="freq" min="0" max="16" step="0.5" value="3">
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="amp">Amplitude</label>
+          <output class="sr-readout" for="amp"></output>
+        </div>
+        <input class="sr-range" type="range" id="amp" min="0" max="1" step="0.05" value="1">
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="phase">Phase</label>
+          <output class="sr-readout" for="phase"></output>
+        </div>
+        <input class="sr-range" type="range" id="phase" min="-180" max="180" step="15" value="0">
+        <p class="sr-hint">Where in its cycle the wave starts. At 0° it is a cosine, at −90° a sine.</p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="noise">Noise</label>
+          <output class="sr-readout" for="noise"></output>
+        </div>
+        <input class="sr-range" type="range" id="noise" min="0" max="0.5" step="0.05" value="0">
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The size</span>
+      <div class="sr-field">
+        <span class="sr-label" id="n-label">Samples in the frame, N</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="n-label">
+          <label><input type="radio" name="n" value="16"><span>16</span></label>
+          <label><input type="radio" name="n" value="32" checked><span>32</span></label>
+          <label><input type="radio" name="n" value="64"><span>64</span></label>
+        </div>
+        <p class="sr-hint" id="n-hint"></p>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/03-the-fourier-transform-by-hand.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 3.</span>
+  <span>The sums here are the two loops of <code>dft</code> in <a href="../code/src/dsp/fft.rs"><code>fft.rs</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, dsp = SR.dsp;
+  var TAU = 2 * Math.PI;
+
+  /* ---------------------------------------------------------------- state */
+
+  var state = {
+    n: 32,                 // samples in the frame
+    comps: [               // x[t] = sum of a * cos(2 pi f t / N + phase)
+      { f: 3, a: 1, ph: 0 },
+      { f: 7, a: 0, ph: 0 },
+      { f: 11, a: 0, ph: 0 }
+    ],
+    noise: 0,
+    edit: 0,               // which sinusoid the three sliders adjust
+    k: 3,                  // the probe: k cycles per frame
+    seen: []               // seen[k] is true once bar k has been computed
+  };
+
+  var PRESETS = {
+    cosine:  { comps: [[3, 1, 0], [7, 0, 0], [11, 0, 0]], noise: 0 },
+    sine:    { comps: [[3, 1, -90], [7, 0, 0], [11, 0, 0]], noise: 0 },
+    two:     { comps: [[3, 1, 0], [7, 0.5, 60], [11, 0, 0]], noise: 0 },
+    three:   { comps: [[2, 0.8, 0], [5, 0.5, -90], [7, 0.3, 45]], noise: 0 },
+    between: { comps: [[3.5, 1, 0], [7, 0, 0], [11, 0, 0]], noise: 0 },
+    noisy:   { comps: [[3, 0.6, 0], [7, 0, 0], [11, 0, 0]], noise: 0.5 }
+  };
+  function fromPreset(name) {
+    var p = PRESETS[name];
+    return { comps: p.comps.map(function (c) { return { f: c[0], a: c[1], ph: c[2] }; }), noise: p.noise };
+  }
+
+  // The same "random" numbers on every visit, so the page is reproducible.
+  var NOISE = (function () {
+    var out = new Float64Array(64), s = 12345;
+    for (var i = 0; i < 64; i++) { s = (s * 1103515245 + 12345) % 2147483648; out[i] = s / 1073741824 - 1; }
+    return out;
+  })();
+
+  /* ---------------------------------------------------------------- maths */
+
+  function bins() { return state.n / 2 + 1; }   // k = 0 ..= N/2; the rest are mirror images
+
+  // The signal without its noise, at any (not only whole) sample position.
+  function smooth(t) {
+    var s = 0;
+    for (var i = 0; i < 3; i++) {
+      var c = state.comps[i];
+      if (c.a) s += c.a * Math.cos(TAU * c.f * t / state.n + c.ph * Math.PI / 180);
+    }
+    return s;
+  }
+
+  var data = null;
+  function compute() {
+    var n = state.n, x = new Float64Array(n), i, peak = 0;
+    for (i = 0; i < n; i++) { x[i] = smooth(i) + state.noise * NOISE[i]; peak = Math.max(peak, Math.abs(x[i])); }
+    for (i = 0; i <= n * 8; i++) peak = Math.max(peak, Math.abs(smooth(i / 8)));
+
+    // The probe, sample by sample, and the two columns of products. This is
+    // the inner loop of dft() in fft.rs for one k:
+    //   X[k] = sum of x[t] * (cos(a) - i sin(a)),  a = 2 pi k t / N
+    var cos = new Float64Array(n), sin = new Float64Array(n);
+    var pc = new Float64Array(n), ps = new Float64Array(n);
+    var sumC = 0, sumS = 0, posC = 0, negC = 0, posS = 0, negS = 0;
+    for (i = 0; i < n; i++) {
+      var a = TAU * state.k * i / n;
+      cos[i] = Math.cos(a); sin[i] = Math.sin(a);
+      pc[i] = x[i] * cos[i]; ps[i] = x[i] * sin[i];
+      sumC += pc[i]; sumS += ps[i];
+      if (pc[i] > 0) posC += pc[i]; else negC += pc[i];
+      if (ps[i] > 0) posS += ps[i]; else negS += ps[i];
+    }
+    // All the bars, from the definition (the O(N^2) loop).
+    var X = dsp.dft(x), mag = new Float64Array(bins()), top = 0;
+    for (i = 0; i < mag.length; i++) { mag[i] = Math.sqrt(X.re[i] * X.re[i] + X.im[i] * X.im[i]); top = Math.max(top, mag[i]); }
+
+    data = {
+      x: x, peak: Math.max(1, peak), cos: cos, sin: sin, pc: pc, ps: ps,
+      sumC: sumC, sumS: sumS, posC: posC, negC: negC, posS: posS, negS: negS,
+      re: sumC, im: -sumS, mag: mag, top: top,
+      magK: Math.sqrt(sumC * sumC + sumS * sumS)
+    };
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  function signed(v, digits) {
+    var s = fmt.fixed(v, digits == null ? 2 : digits);
+    return (s.charAt(0) === '−' || +s.replace('−', '-') === 0) ? s : '+' + s;
+  }
+  function clipTo(ctx, box, pad) {
+    ctx.beginPath();
+    ctx.rect(box.x - 1, box.y - (pad || 0), box.w + 2, box.h + 2 * (pad || 0));
+    ctx.clip();
+  }
+
+  var mult = SR.canvas('#mult', function (ctx, w, h, t) {
+    if (!data) return;
+    var n = state.n, k = state.k;
+    var side = w >= 560;
+    var L = 38, R = 12, T = 24, B = 34, GAPX = 30, GAPY = 30, BLOCK = 46;
+    var colW = side ? (w - L - R - GAPX) / 2 : w - L - R;
+    var blockH = side ? h - T - B : (h - T - B - BLOCK) / 2;
+    var rowA = Math.round((blockH - GAPY) * 0.42), rowB = blockH - GAPY - rowA;
+    var range = data.peak * 1.12;
+
+    function column(x0, y0, probe, product, sum, name, showX) {
+      var top = { x: x0, y: y0, w: colW, h: rowA };
+      var bot = { x: x0, y: y0 + rowA + GAPY, w: colW, h: rowB };
+      var x = SR.scale.linear([0, n], [x0, x0 + colW]);
+      var ya = SR.scale.linear([-range, range], [top.y + top.h, top.y]);
+      var yb = SR.scale.linear([-range, range], [bot.y + bot.h, bot.y]);
+      var yt = [-1, 0, 1];
+
+      // Row one: the signal and the probe laid over each other.
+      SR.axes(ctx, { box: top, x: x, y: ya, yTicks: yt, yLabel: 'signal and ' + name + ' probe', zero: true });
+      ctx.save();
+      clipTo(ctx, top, 3);
+      var fine = Math.max(64, Math.round(colW));
+      var fn = name === 'cosine' ? Math.cos : Math.sin;
+      SR.line(ctx, fine + 1, function (j) {
+        var tt = n * j / fine;
+        return [x(tt), ya(fn(TAU * k * tt / n))];
+      }, { color: t.ink48, width: 1.25, dash: [3, 3] });
+      if (state.noise === 0) {
+        SR.line(ctx, fine + 1, function (j) { var tt = n * j / fine; return [x(tt), ya(smooth(tt))]; }, { color: t.ink, width: 1.6 });
+      } else {
+        SR.line(ctx, n, function (i) { return [x(i), ya(data.x[i])]; }, { color: t.ink, width: 1.4 });
+      }
+      var spacing = colW / n, i;
+      if (spacing >= 5) for (i = 0; i < n; i++) SR.dot(ctx, x(i), ya(data.x[i]), spacing >= 9 ? 2.25 : 1.6, t.ink);
+      ctx.restore();
+
+      // Row two: one bar per sample, signal times probe.
+      SR.axes(ctx, {
+        box: bot, x: x, y: yb, yTicks: yt, yLabel: 'signal × ' + name, zero: true,
+        xTicks: SR.ticks(0, n, n <= 16 ? 4 : 8), xLabel: showX ? 'sample t' : null
+      });
+      ctx.save();
+      clipTo(ctx, bot, 1);
+      var bw = Math.max(1.5, Math.min(spacing * 0.62, 12)), y0px = yb(0);
+      for (i = 0; i < n; i++) {
+        var v = product[i];
+        if (Math.abs(v) < 1e-12) continue;
+        ctx.fillStyle = v > 0 ? t.green : t.amber;
+        var top2 = Math.min(y0px, yb(v)), hgt = Math.max(1, Math.abs(yb(v) - y0px));
+        ctx.fillRect(x(i) - bw / 2, top2, bw, hgt);
+      }
+      ctx.restore();
+      var zero = Math.abs(sum) < 0.005;
+      SR.pill(ctx, 'SUM ' + (zero ? '0.00' : signed(sum)), bot.x + bot.w, bot.y - 11,
+        { align: 'right', color: zero ? t.ink70 : sum > 0 ? t.green : t.amber });
+    }
+
+    column(L, T, data.cos, data.pc, data.sumC, 'cosine', false);
+    if (side) column(L + colW + GAPX, T, data.sin, data.ps, data.sumS, 'sine', true);
+    else column(L, T + blockH + BLOCK, data.sin, data.ps, data.sumS, 'sine', true);
+  });
+
+  var wind = SR.canvas('#wind', function (ctx, w, h, t) {
+    if (!data) return;
+    var n = state.n, k = state.k;
+    var r = Math.min(w - 36, h - 44) / 2;
+    var cx = Math.round(w / 2), cy = Math.round((h - 8) / 2) + 6;
+    var s = r / (data.peak * 1.08);
+    var px = function (re) { return cx + re * s; }, py = function (im) { return cy - im * s; };
+    // Sample t sits at angle -2 pi k t / N, at a distance equal to its height.
+    var at = function (value, tt) {
+      var a = TAU * k * tt / n;
+      return [px(value * Math.cos(a)), py(-value * Math.sin(a))];
+    };
+
+    ctx.strokeStyle = t.ink10;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, s, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, s / 2, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = t.ink15;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, SR.crisp(cy)); ctx.lineTo(cx + r, SR.crisp(cy));
+    ctx.moveTo(SR.crisp(cx), cy - r); ctx.lineTo(SR.crisp(cx), cy + r);
+    ctx.stroke();
+    ctx.fillStyle = t.ink48;
+    ctx.font = SR.font.mono(10);
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    SR.spacedText(ctx, 'REAL', cx + r, cy - 9);
+    ctx.textAlign = 'left';
+    SR.spacedText(ctx, 'IMAGINARY', cx + 6, cy - r + 4);
+    ctx.textAlign = 'center';
+    ctx.fillText('1', px(1) , cy + 10);
+
+    if (state.noise === 0) {
+      var fine = n * 12;
+      SR.line(ctx, fine + 1, function (j) { var tt = n * j / fine; return at(smooth(tt), tt); }, { color: t.ink48, width: 1.1 });
+    } else {
+      SR.line(ctx, n + 1, function (i) { return at(data.x[i % n], i); }, { color: t.ink30, width: 1 });
+    }
+    for (var i = 0; i < n; i++) {
+      var p = at(data.x[i], i);
+      SR.dot(ctx, p[0], p[1], n > 32 ? 1.75 : 2.25, t.ink);
+    }
+
+    // The average of all the dots. Times N it is X[k].
+    var mx = px(data.re / n), my = py(data.im / n);
+    ctx.strokeStyle = t.green;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(mx, my); ctx.stroke();
+    SR.dot(ctx, mx, my, 4.5, t.green);
+    SR.pill(ctx, 'CENTER ' + signed(data.re / n) + ', ' + signed(data.im / n), cx, h - 12, { color: t.green, min: 2, max: w - 2 });
+  });
+
+  var SPEC = { l: 40, r: 12, t: 24, b: 36 };
+  var spectrum = SR.canvas('#spectrum', function (ctx, w, h, t) {
+    if (!data) return;
+    var n = state.n, count = bins();
+    var box = SR.plotBox(w, h, SPEC);
+    var top = Math.max(n / 2, data.top) * 1.14;
+    var slot = box.w / count;
+    var x = function (k) { return box.x + (k + 0.5) * slot; };
+    var y = SR.scale.linear([0, top], [box.y + box.h, box.y]);
+    var every = slot >= 17 ? 1 : slot >= 9 ? 2 : slot >= 5 ? 4 : 8;
+    var xt = [];
+    for (var k = 0; k < count; k += every) xt.push(k);
+
+    SR.axes(ctx, {
+      box: box, x: x, y: y, xTicks: xt, grid: false,
+      yTicks: SR.ticks(0, top, 4), xLabel: 'k (cycles per frame)', yLabel: '|X[k]|'
+    });
+    // Only the horizontal hairlines: vertical ones would fight with the bars.
+    ctx.strokeStyle = t.ink7;
+    ctx.lineWidth = 1;
+    SR.ticks(0, top, 4).forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(box.x, SR.crisp(y(v))); ctx.lineTo(box.x + box.w, SR.crisp(y(v))); ctx.stroke();
+    });
+
+    var bw = Math.max(2, Math.min(slot * 0.66, 22)), base = box.y + box.h;
+    for (k = 0; k < count; k++) {
+      var on = k === state.k, left = Math.round(x(k) - bw / 2);
+      if (!state.seen[k] && !on) {
+        ctx.strokeStyle = t.ink30;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(SR.crisp(x(k)), base - 3); ctx.lineTo(SR.crisp(x(k)), base - 16); ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+      var hh = Math.max(on ? 2 : 1, base - y(data.mag[k]));
+      ctx.fillStyle = on ? t.green : t.ink48;
+      ctx.fillRect(left, base - hh, Math.round(bw), hh);
+    }
+    SR.pill(ctx, 'K = ' + state.k + ' · ' + fmt.fixed(data.mag[state.k], 2), x(state.k), Math.max(box.y - 2, y(data.mag[state.k]) - 14),
+      { color: t.green, min: box.x + 2, max: box.x + box.w - 2 });
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function $(id) { return document.getElementById(id); }
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+  function cycles(f) { return (+f.toFixed(1)) + (f === 1 ? ' cycle' : ' cycles'); }
+  function tidy(v) { return Math.abs(v) < 0.005 ? '0.00' : fmt.fixed(v, 2); }
+
+  function updateReadouts() {
+    var n = state.n, k = state.k, c = state.comps[state.edit];
+    setStat('stat-re', tidy(data.re), 'the cosine sum', Math.abs(data.re) < 0.005 ? 'muted' : null);
+    setStat('stat-im', tidy(data.im), 'minus the sine sum', Math.abs(data.im) < 0.005 ? 'muted' : null);
+    setStat('stat-mag', tidy(data.magK), '√(' + tidy(data.re) + '² + ' + tidy(data.im) + '²)', 'green');
+    var log = Math.log2(n);
+    setStat('stat-naive', fmt.int(n * n), 'N² = ' + n + ' × ' + n);
+    setStat('stat-fft', fmt.int(n * log), n + ' × log₂ ' + n + ', ' + fmt.fixed(n / log, 1) + '× fewer');
+
+    $('mult-pill').textContent = 'probe k = ' + k + ' · ' + cycles(k) + ' per frame';
+    var seenCount = 0;
+    for (var i = 0; i < bins(); i++) if (state.seen[i] || i === k) seenCount++;
+    $('spectrum-pill').textContent = seenCount + ' of ' + bins() + ' bars';
+    $('values-cos').innerHTML = '<b>× cosine:</b> ' + signed(data.posC) + ' above, ' + tidy(data.negC) + ' below';
+    $('values-sin').innerHTML = '<b>× sine:&nbsp;&nbsp;</b> ' + signed(data.posS) + ' above, ' + tidy(data.negS) + ' below';
+
+    $('comp-summary').textContent = state.comps.map(function (c, i) {
+      return ['First', 'Second', 'Third'][i] + ': ' + (c.a === 0 ? 'off' : cycles(c.f) + ', height ' + fmt.fixed(c.a, 2) + ', ' + fmt.int(c.ph) + '°');
+    }).join('. ') + '.';
+    $('k-hint').textContent = 'A wave with ' + cycles(k) + ' in the ' + n + ' samples. At 16,000 samples a second that would be ' +
+      fmt.hz(k * 16000 / n) + '. Or click a bar in the spectrum.';
+    $('n-hint').textContent = 'A real frame has 512 samples: ' + fmt.int(512 * 512) + ' multiplications the naive way, ' + fmt.int(512 * 9) + ' with the FFT.';
+
+    // Light the preset that matches, if any.
+    Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+      var p = fromPreset(chip.getAttribute('data-preset'));
+      var same = p.noise === state.noise && p.comps.every(function (pc, i) {
+        var sc = state.comps[i];
+        return pc.a === sc.a && (pc.a === 0 || (pc.f === sc.f && pc.ph === sc.ph));
+      });
+      chip.setAttribute('aria-pressed', String(same));
+    });
+
+    var parts = state.comps.filter(function (c) { return c.a > 0; }).map(function (c) { return cycles(c.f) + ' at height ' + fmt.fixed(c.a, 2); });
+    var what = (parts.length ? 'A signal made of ' + parts.join(' plus ') : 'A flat signal') + (state.noise ? ' with noise' : '');
+    $('mult').setAttribute('aria-label', what + ', multiplied by a cosine and a sine with ' + cycles(k) + ' per frame. The cosine products add up to ' +
+      tidy(data.sumC) + ' and the sine products to ' + tidy(data.sumS) + '.');
+    $('wind').setAttribute('aria-label', 'The ' + n + ' samples wrapped ' + k + ' times around a circle. Their center of mass is at ' +
+      tidy(data.re / n) + ', ' + tidy(data.im / n) + '; times ' + n + ' that is the DFT coefficient.');
+    var peaks = [];
+    for (i = 0; i < bins(); i++) if (data.mag[i] > 0.25 * Math.max(data.top, 1e-9) && data.mag[i] > 0.01) peaks.push('k = ' + i + ' (' + fmt.fixed(data.mag[i], 1) + ')');
+    $('spectrum').setAttribute('aria-label', 'Magnitude spectrum, ' + seenCount + ' of ' + bins() + ' bars computed. Tall bars: ' + (peaks.join(', ') || 'none') + '.');
+  }
+
+  function update() {
+    compute();
+    updateReadouts();
+    mult.redraw();
+    wind.redraw();
+    spectrum.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var cancelTween = function () {};
+  var runTimer = 0;
+  var runBtn = $('run');
+  function stopRun() {
+    if (runTimer) { window.clearInterval(runTimer); runTimer = 0; }
+    runBtn.textContent = 'Run the DFT';
+  }
+  function touched() { cancelTween(); cancelTween = function () {}; stopRun(); }
+
+  function revealAll() { for (var i = 0; i < bins(); i++) state.seen[i] = true; }
+  function clearSeen() { state.seen = []; }
+
+  // Ask the question for k = 0, 1, 2, ... and let the bars appear one by one.
+  function run() {
+    if (runTimer) { stopRun(); revealAll(); update(); return; }
+    cancelTween(); cancelTween = function () {};
+    if (SR.reducedMotion() || document.hidden) { revealAll(); update(); return; }
+    clearSeen();
+    var next = 0, count = bins();
+    runBtn.style.minWidth = Math.ceil(runBtn.getBoundingClientRect().width) + 'px';
+    runBtn.textContent = 'Stop';
+    var tick = function () {
+      state.k = next;
+      state.seen[next] = true;
+      next++;
+      kSlider.set(state.k);
+      update();
+      if (next >= count) stopRun();
+    };
+    tick();
+    runTimer = window.setInterval(tick, SR.clamp(Math.round(3200 / count), 70, 260));
+  }
+  runBtn.addEventListener('click', run);
+  $('clear').addEventListener('click', function () { touched(); clearSeen(); update(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && runTimer) { stopRun(); revealAll(); update(); }
+  });
+
+  var kSlider = SR.bindSlider('#k', {
+    format: function (v) { return 'k = ' + v; },
+    onInput: function (v) { touched(); state.k = v; state.seen[v] = true; update(); }
+  });
+  var freq = SR.bindSlider('#freq', {
+    format: function (v) { return cycles(v) + ' per frame'; },
+    onInput: function (v) { touched(); state.comps[state.edit].f = v; update(); }
+  });
+  var amp = SR.bindSlider('#amp', {
+    format: function (v) { return v === 0 ? 'off' : fmt.fixed(v, 2); },
+    onInput: function (v) { touched(); state.comps[state.edit].a = v; update(); }
+  });
+  var phase = SR.bindSlider('#phase', {
+    format: function (v) { return fmt.int(v) + '°' + (v === 0 ? ' · a cosine' : v === -90 ? ' · a sine' : ''); },
+    onInput: function (v) { touched(); state.comps[state.edit].ph = v; update(); }
+  });
+  var noise = SR.bindSlider('#noise', {
+    format: function (v) { return v === 0 ? 'none' : '± ' + fmt.fixed(v, 2); },
+    onInput: function (v) { touched(); state.noise = v; update(); }
+  });
+  var edit = SR.bindRadios('edit', function (v) { touched(); state.edit = +v; syncControls(); update(); });
+  var size = SR.bindRadios('n', function (v) { touched(); setN(+v); clearSeen(); syncControls(); update(); });
+
+  function setN(n) {
+    state.n = n;
+    state.k = Math.min(state.k, n / 2);
+    state.comps.forEach(function (c) { c.f = Math.min(c.f, n / 2); });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      touched();
+      var p = fromPreset(chip.getAttribute('data-preset'));
+      state.comps = p.comps;
+      state.noise = p.noise;
+      setN(state.n);
+      state.edit = 0;
+      syncControls();
+      update();
+    });
+  });
+
+  // Push the state into every control (after a step or a preset changed it).
+  function syncControls() {
+    var c = state.comps[state.edit];
+    kSlider.input.max = state.n / 2;
+    freq.input.max = state.n / 2;
+    kSlider.set(state.k);
+    freq.set(c.f);
+    amp.set(c.a);
+    phase.set(c.ph);
+    noise.set(state.noise);
+    edit.set(state.edit);
+    size.set(state.n);
+  }
+
+  // Clicking (or dragging across) the spectrum picks the probe.
+  (function () {
+    var canvas = spectrum.canvas, dragging = false;
+    function pick(evt) {
+      var p = spectrum.point(evt);
+      var size = canvas.getBoundingClientRect();   // measured now, in case no frame has been drawn since a resize
+      var box = SR.plotBox(size.width, size.height, SPEC);
+      var k = SR.clamp(Math.floor((p.x - box.x) / (box.w / bins())), 0, bins() - 1);
+      if (k === state.k) return;
+      touched();
+      state.k = k;
+      state.seen[k] = true;
+      kSlider.set(k);
+      update();
+    }
+    canvas.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(evt.pointerId);
+      pick(evt);
+    });
+    canvas.addEventListener('pointermove', function (evt) { if (dragging) pick(evt); });
+    ['pointerup', 'pointercancel'].forEach(function (name) {
+      canvas.addEventListener(name, function () { dragging = false; });
+    });
+  })();
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  // Glide the three sinusoids to a step's settings so the reader sees the
+  // wave change shape; N, k and the bars switch at once.
+  function show(target, animate) {
+    touched();
+    var from = state.comps.map(function (c) { return { f: c.f, a: c.a, ph: c.ph }; });
+    var to = fromPreset(target.preset);
+    var noiseFrom = state.noise;
+    setN(target.n);
+    state.k = target.k;
+    state.edit = 0;
+    clearSeen();
+    if (target.bars === 'all') revealAll();
+    cancelTween = SR.tween(animate ? 460 : 0, function (u) {
+      state.comps = to.comps.map(function (c, i) {
+        if (u === 1) return c;
+        // A sinusoid that is switched off has no frequency or phase worth gliding from.
+        var f = from[i].a === 0 ? c.f : from[i].f, ph = from[i].a === 0 ? c.ph : from[i].ph;
+        return { f: SR.lerp(f, c.f, u), a: SR.lerp(from[i].a, c.a, u), ph: SR.lerp(ph, c.ph, u) };
+      });
+      state.noise = u === 1 ? to.noise : SR.lerp(noiseFrom, to.noise, u);
+      syncControls();
+      update();
+    }, function () {
+      if (target.run && animate) run();
+      else if (target.run) { revealAll(); update(); }
+    });
+  }
+
+  SR.stepper('#steps', {
+    label: 'The DFT, step by step',
+    steps: [
+      {
+        title: 'A wave matches itself',
+        body: 'The signal is a cosine that fits 3 cycles into our 32 samples. We hold a <b>probe</b> next to it, another cosine with 3 cycles, and multiply the two sample by sample. Where the signal is up the probe is up, where it is down the probe is down, and a negative times a negative is positive. Every bar lands above zero and the sum is large: 16, which is the height of the wave times N/2.',
+        enter: function (animate) { show({ preset: 'cosine', n: 32, k: 3 }, animate); }
+      },
+      {
+        title: 'A different frequency cancels',
+        body: 'Same signal, but now the probe has 5 cycles. The two waves drift in and out of step, so the products are positive about as often as they are negative, and they add up to exactly zero. This works for any two different whole numbers of cycles. So the sum is a detector: large when the probe frequency is in the signal, zero when it is not.',
+        enter: function (animate) { show({ preset: 'cosine', n: 32, k: 5 }, animate); }
+      },
+      {
+        title: 'Phase: why we need a sine as well',
+        body: 'Here the signal still has 3 cycles, but it starts a quarter of a cycle later: it is a sine. The cosine probe now gets zero, as if the frequency were missing. The fix is to ask twice, once with a cosine and once with a sine. Whatever the <b>phase</b>, the two sums together always find the wave. Slide the phase and watch them trade places while the magnitude stays 16.',
+        enter: function (animate) { show({ preset: 'sine', n: 32, k: 3 }, animate); }
+      },
+      {
+        title: 'Two sums, one complex number',
+        body: 'We keep the pair of sums as one <b>complex number</b>, X[k]: the cosine sum is its real part and minus the sine sum is its imaginary part. The round plot shows why that is natural. Wrap the signal around a circle k times, each sample as far from the middle as it is tall. If the signal contains frequency k the loop is lopsided, and its center of mass, times N, is X[k]. Try k = 5.',
+        enter: function (animate) { show({ preset: 'two', n: 32, k: 3 }, animate); }
+      },
+      {
+        title: 'Every k in turn: the spectrum',
+        body: 'Now a signal made of three sinusoids of different heights. We ask the same question for k = 0, then 1, then 2, and draw the magnitude of each answer as a bar. The three bars that stand up are the three ingredients, each N/2 times as tall as its wave. That picture is the <b>spectrum</b>, and the procedure is the <b>discrete Fourier transform</b>. Press Run the DFT to see it again.',
+        enter: function (animate) { show({ preset: 'three', n: 32, k: 0, run: true }, animate); }
+      },
+      {
+        title: 'Why this is slow',
+        body: 'Each bar took N multiplications, twice, and there are N bars: about N² in all. For 64 samples that is 4,096. For a real 512-sample frame it is 262,144, a hundred times a second. The <b>fast Fourier transform</b> gets exactly the same numbers in about N · log₂ N steps, 4,608 for that frame, by noticing that the probes share most of their work. We build it in chapter 3.',
+        enter: function (animate) { show({ preset: 'three', n: 64, k: 5, bars: 'all' }, animate); }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

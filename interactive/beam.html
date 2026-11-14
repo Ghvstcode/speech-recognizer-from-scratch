@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoding: From Probabilities To Words · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="Greedy decoding and where it goes wrong, the exact probability of every labelling, and prefix beam search frame by frame, with a beam width dial and a vocabulary.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes, a sideways-scrolling figure body, and the rows of
+     the two lists (labellings, beam candidates). All from the shared tokens. */
+  #steps { --sr-step-lines: 5; }
+  .bm-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+  .bm-scroll canvas { display: block; }
+  #cand-detail { flex: 1 1 100%; min-height: 4.3em; }
+  #play { min-width: 76px; }
+
+  .bm-rows { border-top: 1px solid var(--ink-7); }
+  .bm-row {
+    display: grid; gap: 0 10px; align-items: center;
+    width: 100%; min-height: 27px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--ink-7);
+    background: transparent; color: var(--ink); text-align: left;
+    font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .bm-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .bm-row .n { text-align: right; }
+  .bm-row--head { min-height: 24px; color: var(--ink-60); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+  .bm-row--cut { min-height: 22px; color: var(--ink-60); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; background: var(--ink-4); }
+  button.bm-row { cursor: pointer; }
+  button.bm-row:hover { background: var(--ink-4); }
+  button.bm-row[aria-pressed="true"] { box-shadow: inset 2px 0 0 var(--ink); background: var(--ink-4); }
+  .bm-row[data-pruned] { color: var(--ink-48); }
+  .bm-row[data-pruned] .who { text-decoration: line-through; text-decoration-color: var(--ink-30); }
+  .bm-row[data-best] .who { color: var(--green); }
+
+  #cands .bm-row { grid-template-columns: minmax(4.5em, 1fr) 5.2em 5.2em 5.2em; }
+  #exact .bm-row { grid-template-columns: 5.5em minmax(40px, 1fr) 4.2em auto; cursor: default; }
+  .bm-bar { height: 8px; border-radius: 2px; background: var(--ink-30); min-width: 1px; }
+  .bm-row[data-best] .bm-bar { background: var(--green); }
+  .bm-row[data-wrong] .bm-bar { background: var(--red); }
+  .bm-tags { display: inline-flex; gap: 4px; justify-content: flex-end; min-width: 3.2em; overflow: visible !important; }
+  @media (max-width: 799px) {
+    #steps { --sr-step-lines: 7; }
+    .bm-row { font-size: 11.5px; padding: 0 10px; gap: 0 6px; }
+    #cands .bm-row { grid-template-columns: minmax(3.6em, 1fr) 4.8em 4.8em 4.4em; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/10-decoding.md">Chapter 10</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 10 · Interactive</span>
+    <h1 class="sr-title">Decoding: From Probabilities To Words</h1>
+    <p class="sr-lede">The trained network hands us a table: for every frame, a probability for every character and for the blank. Decoding is the job of turning that table back into text. The obvious way is wrong often enough to matter, and the right way is too slow, so we meet in the middle.</p>
+    <p class="sr-small">Walk through the six steps first. Then change the table and the beam width and see when the answers disagree.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure" id="panel-table">
+        <div class="sr-figure-head">
+          <span class="sr-overline">What the network says: p(class) in every frame</span>
+          <span class="sr-pill" id="table-pill">3 frames · 3 classes</span>
+        </div>
+        <div class="sr-figure-body bm-scroll">
+          <div id="wide"><canvas class="sr-canvas" id="table" tabindex="0" role="img" aria-label="The probability table"></canvas></div>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--ramp"></span>probability, 0 to 1</li>
+            <li><span class="sr-swatch sr-swatch--box" style="--c: transparent; box-shadow: 0 0 0 1.5px var(--ink)"></span>the best class in each frame</li>
+          </ul>
+          <div class="sr-values" id="greedy-line"></div>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-greedy">
+          <span class="sr-overline">Greedy says</span>
+          <span class="sr-stat-value">"b"</span>
+          <span class="sr-stat-sub">true probability 0.2190</span>
+        </div>
+        <div class="sr-stat" id="stat-exact">
+          <span class="sr-overline">Best labelling</span>
+          <span class="sr-stat-value">"ab"</span>
+          <span class="sr-stat-sub">probability 0.3720, exact</span>
+        </div>
+        <div class="sr-stat" id="stat-beam">
+          <span class="sr-overline">Beam search says</span>
+          <span class="sr-stat-value">"ab"</span>
+          <span class="sr-stat-sub">0.3360 with a beam of 3</span>
+        </div>
+        <div class="sr-stat" id="stat-lost">
+          <span class="sr-overline">Lost to pruning</span>
+          <span class="sr-stat-value">0.0360</span>
+          <span class="sr-stat-sub">0.3720 − 0.3360</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure" id="panel-exact">
+        <div class="sr-figure-head">
+          <span class="sr-overline">The truth: every labelling, all its alignments added up</span>
+          <span class="sr-pill" id="exact-pill">27 alignments, 9 labellings</span>
+        </div>
+        <div class="bm-rows" id="exact"></div>
+        <div class="sr-figure-foot">
+          <p class="sr-hint" id="exact-note"></p>
+        </div>
+      </figure>
+
+      <figure class="sr-figure" id="panel-beam">
+        <div class="sr-figure-head">
+          <span class="sr-overline" id="beam-title">Prefix beam search, after frame 2</span>
+          <span class="sr-pill" id="beam-pill">beam width 3</span>
+        </div>
+        <div class="sr-figure-body bm-scroll" id="tree-body">
+          <div id="tree-wide"><canvas class="sr-canvas" id="tree" role="img" aria-label="The beam, frame by frame"></canvas></div>
+        </div>
+        <div class="bm-rows" id="cands"></div>
+        <div class="sr-figure-foot">
+          <p class="sr-hint sr-mono" id="cand-detail" aria-live="polite"></p>
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--box" style="--c: transparent; box-shadow: 0 0 0 1.5px var(--green)"></span>the best prefix so far</li>
+            <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--ink-30)"></span>pruned: fell out of the beam</li>
+          </ul>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The example</span>
+      <div class="sr-chip-row" id="presets" role="group" aria-label="Examples">
+        <button class="sr-chip" type="button" data-preset="toy">greedy fails · 3 frames</button>
+        <button class="sr-chip" type="button" data-preset="ch8">chapter 8's table · 5 frames</button>
+        <button class="sr-chip" type="button" data-preset="words">"stop go left" · 36 frames</button>
+      </div>
+      <p class="sr-hint" id="preset-hint"></p>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The beam</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="width">Beam width</label>
+          <output class="sr-readout" for="width"></output>
+        </div>
+        <input class="sr-range" type="range" id="width" min="1" max="32" step="1" value="3">
+        <div class="sr-chip-row" id="width-chips" role="group" aria-label="Beam widths to try">
+          <button class="sr-chip" type="button" data-width="1">1 greedy-ish</button>
+          <button class="sr-chip" type="button" data-width="3">3</button>
+          <button class="sr-chip" type="button" data-width="10">10</button>
+          <button class="sr-chip" type="button" data-width="32">32 the book's</button>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="frame">Frames read so far</label>
+          <output class="sr-readout" for="frame"></output>
+        </div>
+        <input class="sr-range" type="range" id="frame" min="0" max="3" step="1" value="3">
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="play">Play</button>
+        <button class="sr-btn" type="button" id="frame-back" aria-label="One frame back">← Frame</button>
+        <button class="sr-btn" type="button" id="frame-fwd" aria-label="One frame forward">Frame →</button>
+      </div>
+      <div class="sr-field" id="lexicon-field">
+        <label class="sr-check"><input type="checkbox" id="lexicon">Only spell words from the vocabulary</label>
+        <p class="sr-hint" id="lexicon-hint"></p>
+      </div>
+    </div>
+
+    <div class="sr-control-group" id="edit-group">
+      <span class="sr-overline">The table</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <span class="sr-label" id="edit-label">Frame 0</span>
+          <span class="sr-btn-row">
+            <button class="sr-btn sr-btn--sm" type="button" id="edit-prev" aria-label="Previous frame">←</button>
+            <button class="sr-btn sr-btn--sm" type="button" id="edit-next" aria-label="Next frame">→</button>
+          </span>
+        </div>
+        <div id="edit-sliders"></div>
+        <p class="sr-hint">Move one probability and the others in that frame rescale so the frame still sums to 1. On the table itself: click a cell and drag up or down, or focus it, move with the arrow keys and press + or −.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">Panels</span>
+      <div class="sr-check-row">
+        <label class="sr-check"><input type="checkbox" id="p-exact" checked>Every labelling</label>
+        <label class="sr-check"><input type="checkbox" id="p-beam" checked>The beam</label>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/10-decoding.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 10.</span>
+  <span>The same search as <a href="../code/src/decode.rs"><code>decode.rs</code></a>; the examples are those of <a href="../code/examples/ch10_decode_toy.rs"><code>ch10_decode_toy</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, f32 = Math.fround;
+  function $(id) { return document.getElementById(id); }
+
+  /* ------------------------------------------------- the Rust code, in JS */
+
+  var BLANK = 0, SPACE = 1;      // decode.rs: 0 is the blank, 1 is the space, 2..=27 are a..=z
+
+  // rng.rs: xoshiro256** seeded with SplitMix64. The noisy "stop go left"
+  // table is made exactly the way ch10_decode_toy makes it, seed included.
+  function Rng(seed) {
+    var M = (1n << 64n) - 1n, z = BigInt(seed);
+    function split() {
+      z = (z + 0x9E3779B97F4A7C15n) & M;
+      var x = z;
+      x = ((x ^ (x >> 30n)) * 0xBF58476D1CE4E5B9n) & M;
+      x = ((x ^ (x >> 27n)) * 0x94D049BB133111EBn) & M;
+      return x ^ (x >> 31n);
+    }
+    var s = [split(), split(), split(), split()];
+    function rotl(x, k) { return ((x << k) | (x >> (64n - k))) & M; }
+    function next() {
+      var result = (rotl((s[1] * 5n) & M, 7n) * 9n) & M;
+      var t = (s[1] << 17n) & M;
+      s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3];
+      s[2] ^= t;
+      s[3] = rotl(s[3], 45n);
+      return result;
+    }
+    function uniform() { return Number(next() >> 40n) / 16777216; }
+    return {
+      normal: function () {
+        var u1 = Math.max(uniform(), f32(1e-7)), u2 = uniform();
+        return f32(f32(Math.sqrt(f32(-2 * f32(Math.log(u1))))) * f32(Math.cos(f32(f32(2 * Math.PI) * u2))));
+      }
+    };
+  }
+
+  function logAdd(a, b) {
+    var hi = a >= b ? a : b, lo = a >= b ? b : a;
+    return lo === -Infinity ? hi : f32(hi + Math.log1p(Math.exp(lo - hi)));
+  }
+  function collapse(path) {
+    var out = [], prev = BLANK;
+    for (var i = 0; i < path.length; i++) {
+      if (path[i] !== BLANK && path[i] !== prev) out.push(path[i]);
+      prev = path[i];
+    }
+    return out;
+  }
+  // Dictionary order of two labellings, the order a BTreeMap hands them over in.
+  function byLabels(a, b) {
+    for (var i = 0; i < Math.min(a.labels.length, b.labels.length); i++) {
+      if (a.labels[i] !== b.labels[i]) return a.labels[i] - b.labels[i];
+    }
+    return a.labels.length - b.labels.length;
+  }
+
+  // Lexicon: a trie with one edge per letter. Node 0 is the root.
+  function buildTrie(words) {
+    var nodes = [{ next: {}, word: false }];
+    words.forEach(function (w) {
+      var n = 0;
+      for (var i = 0; i < w.length; i++) {
+        var c = 2 + w.charCodeAt(i) - 97;
+        if (nodes[n].next[c] == null) { nodes.push({ next: {}, word: false }); nodes[n].next[c] = nodes.length - 1; }
+        n = nodes[n].next[c];
+      }
+      nodes[n].word = true;
+    });
+    return nodes;
+  }
+
+  // advance() from decode.rs: one frame of prefix beam search. For a prefix l
+  // with probabilities p_blank and p_non_blank, an alignment can
+  //   1. emit a blank:              l stays l, now ending in a blank
+  //   2. emit l's last label again: l stays l, still ending in that label
+  //   3. emit a label c:            l grows to l+c   (only from the blank-ending
+  //                                 part if c repeats l's last label)
+  // Returns every candidate, best first; the first `width` are the new beam.
+  function advance(beam, frame, width, trie) {
+    var next = new Map();
+    function add(labels, node, ending, lp) {
+      if (lp === -Infinity) return;
+      var key = labels.join(','), e = next.get(key);
+      if (!e) { e = { key: key, labels: labels, pb: -Infinity, pnb: -Infinity, node: node }; next.set(key, e); }
+      if (ending === 0) e.pb = logAdd(e.pb, lp); else e.pnb = logAdd(e.pnb, lp);
+    }
+    beam.forEach(function (e) {
+      var last = e.labels.length ? e.labels[e.labels.length - 1] : -1;
+      add(e.labels, e.node, 0, f32(e.total + frame[BLANK]));
+      if (last >= 0) add(e.labels, e.node, 1, f32(e.pnb + frame[last]));
+      for (var c = 1; c < frame.length; c++) {
+        var node = 0;
+        if (trie) {
+          // A space is only allowed where a word ends; a letter only where
+          // the vocabulary has a word that goes on with it.
+          if (c === SPACE) { if (!trie[e.node].word) continue; }
+          else { node = trie[e.node].next[c]; if (node == null) continue; }
+        }
+        add(e.labels.concat([c]), node, 1, f32((c === last ? e.pb : e.total) + frame[c]));
+      }
+    });
+    var ranked = Array.from(next.values());
+    ranked.forEach(function (e) { e.total = logAdd(e.pb, e.pnb); });
+    ranked.sort(byLabels);
+    ranked.sort(function (a, b) { return b.total - a.total; });      // stable: ties stay in dictionary order
+    ranked.forEach(function (e, i) { e.rank = i; e.kept = i < width; });
+    return ranked;
+  }
+
+  function search(lp, T, C, width, trie) {
+    var first = { key: '', labels: [], pb: 0, pnb: -Infinity, total: 0, node: 0, rank: 0, kept: true };
+    var steps = [[first]];
+    for (var t = 0; t < T; t++) {
+      var beam = steps[t].filter(function (e) { return e.kept; });
+      steps.push(advance(beam, lp.subarray(t * C, (t + 1) * C), width, trie));
+    }
+    return steps;
+  }
+  // With a lexicon, only prefixes that end on a whole word count as answers.
+  function answer(step, trie) {
+    for (var i = 0; i < step.length; i++) {
+      if (!step[i].kept) break;
+      if (!trie || trie[step[i].node].word || step[i].labels.length === 0) return step[i];
+    }
+    return null;
+  }
+
+  /* -------------------------------------------------------------- presets */
+
+  var ALPHABET = ['_', '␣'].concat('abcdefghijklmnopqrstuvwxyz'.split(''));
+  // The 35 words of the Speech Commands dataset.
+  var VOCABULARY = ['backward', 'bed', 'bird', 'cat', 'dog', 'down', 'eight', 'five', 'follow', 'forward', 'four', 'go', 'happy', 'house', 'learn', 'left',
+    'marvin', 'nine', 'no', 'off', 'on', 'one', 'right', 'seven', 'sheila', 'six', 'stop', 'three', 'tree', 'two', 'up', 'visual', 'wow', 'yes', 'zero'];
+  var TRIE = buildTrie(VOCABULARY);
+
+  function fromTable(rows) {
+    var C = rows[0].length, out = new Float32Array(rows.length * C);
+    rows.forEach(function (row, t) { row.forEach(function (p, k) { out[t * C + k] = f32(Math.log(f32(p))); }); });
+    return out;
+  }
+  // synthetic_log_probs() from ch10_decode_toy: every character held for two
+  // frames with a blank frame after it, noise on the logits, and two rigged
+  // confusions.
+  function synthetic(text, confusions, rng) {
+    var labels = text.split('').map(function (ch) { return ch === ' ' ? SPACE : 2 + ch.charCodeAt(0) - 97; });
+    var said = [], C = 28, t, k;
+    labels.forEach(function (l) { said.push(l, l, BLANK); });
+    var T = said.length, logits = new Float32Array(T * C);
+    for (var i = 0; i < T * C; i++) logits[i] = f32(f32(0.8) * rng.normal());
+    for (t = 0; t < T; t++) logits[t * C + said[t]] = f32(logits[t * C + said[t]] + 4);
+    confusions.forEach(function (cf) {
+      var wrong = 2 + cf[1].charCodeAt(0) - 97;
+      [3 * cf[0], 3 * cf[0] + 1].forEach(function (tt) { logits[tt * C + wrong] = f32(logits[tt * C + labels[cf[0]]] + f32(0.4)); });
+    });
+    var out = new Float32Array(T * C);
+    for (t = 0; t < T; t++) {
+      var m = -Infinity, sum = 0;
+      for (k = 0; k < C; k++) if (logits[t * C + k] > m) m = logits[t * C + k];
+      for (k = 0; k < C; k++) sum += Math.exp(logits[t * C + k] - m);
+      for (k = 0; k < C; k++) out[t * C + k] = f32(logits[t * C + k] - (m + Math.log(sum)));
+    }
+    return out;
+  }
+
+  var PRESETS = {
+    toy: {
+      symbols: ['_', 'a', 'b'], T: 3, width: 3,
+      hint: 'Part 1 of the Rust example: three frames over blank, a and b, built so that greedy decoding gets it wrong.',
+      lp: function () { return fromTable([[0.5, 0.4, 0.1], [0.5, 0.4, 0.1], [0.3, 0.1, 0.6]]); }
+    },
+    ch8: {
+      symbols: ['_', 'a', 'b'], T: 5, width: 3,
+      hint: 'The table we ran the forward algorithm on in chapter 8. Here greedy decoding is right, and p("ab") is the 0.450540 we computed there.',
+      lp: function () { return fromTable([[0.3, 0.6, 0.1], [0.2, 0.5, 0.3], [0.5, 0.2, 0.3], [0.2, 0.1, 0.7], [0.6, 0.1, 0.3]]); }
+    },
+    words: {
+      symbols: ALPHABET, T: 36, width: 32, big: true,
+      hint: 'Part 2 of the Rust example: a made-up, noisy output for "stop go left" over all 28 classes, rigged to slightly prefer b over the p of stop and s over the f of left.',
+      lp: function () { return synthetic('stop go left', [[3, 'b'], [10, 's']], Rng(10)); }
+    }
+  };
+
+  /* ---------------------------------------------------------------- state */
+
+  var state = {
+    preset: 'toy',
+    lp: PRESETS.toy.lp(),      // T x C log-probabilities, row-major, f32 like Mat
+    width: 3,                  // beam width
+    frame: 3,                  // how many frames the search has read
+    lexicon: false,            // restrict the search to the vocabulary (the 28-class example only)
+    sel: { t: 0, k: 1 },       // table cell being edited
+    cand: null,                // key of the prefix being inspected
+    panels: { exact: true, beam: true }
+  };
+  var data = null;
+  function P() { return PRESETS[state.preset]; }
+  function sym(k) { return P().symbols[k]; }
+  function text(labels) { return labels.map(sym).join(''); }
+  function quoted(labels) { return labels.length ? '"' + text(labels) + '"' : '(empty)'; }
+  function plain(labels) { return labels.map(function (k) { return k === SPACE && P().big ? ' ' : sym(k); }).join(''); }
+  function prob(logp) { return Math.exp(logp); }
+  function p4(v) { return v.toFixed(4); }
+  // Probabilities in the 36-frame example are astronomically small; show logs there.
+  function show(logp) {
+    if (logp === -Infinity) return P().big ? '−∞' : '0.0000';
+    return P().big ? fmt.fixed(logp, 3) : p4(Math.exp(logp));
+  }
+
+  function compute() {
+    var p = P(), T = p.T, C = p.symbols.length, lp = state.lp, t, k;
+    var y = new Float64Array(T * C);
+    for (t = 0; t < T * C; t++) y[t] = Math.exp(lp[t]);
+
+    // Greedy: best_path() then collapse(). Ties go to the lower class id.
+    var argmax = [], pathLog = 0;
+    for (t = 0; t < T; t++) {
+      var b = 0;
+      for (k = 1; k < C; k++) if (lp[t * C + k] > lp[t * C + b]) b = k;
+      argmax.push(b);
+      pathLog += lp[t * C + b];
+    }
+    var greedy = collapse(argmax);
+
+    // all_labellings(): the exact probability of every labelling, by going
+    // through all C^T alignments. Toy sizes only.
+    var exact = null, paths = Math.pow(C, T);
+    if (paths <= 20000) {
+      var map = new Map(), path = new Array(T).fill(0);
+      for (;;) {
+        var pr = 1;
+        for (t = 0; t < T; t++) pr *= y[t * C + path[t]];
+        var labels = collapse(path), key = labels.join(','), e = map.get(key);
+        if (!e) { e = { key: key, labels: labels, p: 0, n: 0 }; map.set(key, e); }
+        e.p += pr; e.n++;
+        var digit = T - 1;
+        while (digit >= 0 && ++path[digit] === C) { path[digit] = 0; digit--; }
+        if (digit < 0) break;
+      }
+      exact = Array.from(map.values());
+      exact.sort(byLabels);
+      exact.sort(function (a, b2) { return b2.p - a.p; });
+      exact.byKey = map;
+    }
+
+    var trie = p.big && state.lexicon ? TRIE : null;
+    var steps = search(lp, T, C, state.width, trie);
+    var out = {
+      T: T, C: C, y: y, argmax: argmax, greedy: greedy, pathLog: pathLog, paths: paths, exact: exact,
+      trie: trie, steps: steps, final: answer(steps[T], trie)
+    };
+    if (p.big) {
+      // Both searches, so the two answers can stand next to each other.
+      out.finalPlain = trie ? answer(search(lp, T, C, state.width, null)[T], null) : out.final;
+      out.finalLex = trie ? out.final : answer(search(lp, T, C, state.width, TRIE)[T], TRIE);
+    }
+    state.frame = SR.clamp(state.frame, 0, T);
+    data = out;
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  function inkOn(rgb, t) {
+    var lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+    return (lum > 140) === t.dark ? t.paper : t.ink;
+  }
+
+  /* The table: classes down, frames across. */
+
+  var LABEL_W = 48, PAD_R = 8, HEAD_H = 22;
+  function tableLayout(w) {
+    var big = !!P().big;
+    var colW = (w - LABEL_W - PAD_R) / data.T;
+    return { big: big, colW: colW, rowH: big ? 10 : 28, x: function (t) { return LABEL_W + t * colW; } };
+  }
+
+  var table = SR.canvas('#table', function (ctx, w, h, t) {
+    if (!data || w < 80) return;
+    var L = tableLayout(w), T = data.T, C = data.C, tt, k, x, y;
+    var need = HEAD_H + C * L.rowH + 6;
+    if (Math.abs(h - need) > 0.5) table.canvas.style.height = need + 'px';
+
+    ctx.textBaseline = 'middle';
+    ctx.font = SR.font.mono(9.5);
+    ctx.fillStyle = t.ink48;
+    ctx.textAlign = 'left';
+    SR.spacedText(ctx, 'FRAME', 6, HEAD_H / 2);
+    ctx.textAlign = 'center';
+    var every = L.colW >= 16 ? 1 : L.colW >= 9 ? 5 : 10;
+    for (tt = 0; tt < T; tt++) {
+      if (tt % every === 0) {
+        ctx.fillStyle = tt < state.frame ? t.ink : t.ink48;
+        ctx.fillText(String(tt), L.x(tt) + L.colW / 2, HEAD_H / 2);
+      }
+    }
+
+    for (k = 0; k < C; k++) {
+      y = HEAD_H + k * L.rowH;
+      ctx.font = SR.font.mono(L.big ? 8.5 : 12);
+      ctx.fillStyle = L.big ? t.ink60 : t.ink;
+      ctx.textAlign = 'right';
+      ctx.fillText(sym(k), LABEL_W - 10, y + L.rowH / 2 + 0.5);
+      for (tt = 0; tt < T; tt++) {
+        x = L.x(tt);
+        var v = data.y[tt * C + k];
+        var rgb = SR.heat(0.92 * v);
+        ctx.fillStyle = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
+        if (L.big) ctx.fillRect(Math.round(x), y, Math.max(1, Math.round(x + L.colW) - Math.round(x)), L.rowH);
+        else {
+          ctx.fillRect(x + 0.5, y + 0.5, L.colW - 1, L.rowH - 1);
+          ctx.font = SR.font.mono(10.5);
+          ctx.fillStyle = inkOn(rgb, t);
+          ctx.textAlign = 'center';
+          ctx.fillText(v.toFixed(L.colW >= 58 ? 3 : 2), x + L.colW / 2, y + L.rowH / 2 + 0.5);
+        }
+      }
+    }
+
+    // Frames the search has not read yet are veiled.
+    if (state.frame < T) {
+      ctx.fillStyle = t.panel;
+      ctx.globalAlpha = 0.62;
+      ctx.fillRect(L.x(state.frame), HEAD_H, L.x(T) - L.x(state.frame), C * L.rowH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = t.ink;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(SR.crisp(L.x(state.frame)), HEAD_H - 4); ctx.lineTo(SR.crisp(L.x(state.frame)), HEAD_H + C * L.rowH + 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Greedy's pick in each frame.
+    ctx.strokeStyle = t.ink;
+    ctx.lineWidth = L.big ? 1 : 1.5;
+    for (tt = 0; tt < T; tt++) {
+      var inset = ctx.lineWidth / 2;
+      ctx.strokeRect(Math.round(L.x(tt)) + inset, HEAD_H + data.argmax[tt] * L.rowH + inset,
+        Math.round(L.x(tt) + L.colW) - Math.round(L.x(tt)) - 2 * inset, L.rowH - 2 * inset);
+    }
+    // The cell being edited.
+    if (!L.big && state.sel && document.activeElement === table.canvas) {
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(L.x(state.sel.t) + 3, HEAD_H + state.sel.k * L.rowH + 3, L.colW - 6, L.rowH - 6);
+      ctx.setLineDash([]);
+    }
+  });
+
+  /* The beam as a tree: one column per frame read, best prefix on top. */
+
+  var TREE_TOP = 26, TREE_ROW = 28, TREE_MAX = 12, TREE_COL = 104;
+  function treeLayout(w) {
+    var colW = (w - 12) / (data.T + 1);
+    var rows = 1;
+    data.steps.forEach(function (s) { rows = Math.max(rows, Math.min(TREE_MAX, s.length)); });
+    return {
+      colW: colW, nodeW: Math.min(colW - 20, 132), nodeH: 20, rows: rows,
+      cx: function (c) { return 6 + (c + 0.5) * colW; },
+      cy: function (r) { return TREE_TOP + (r + 0.5) * TREE_ROW; },
+      height: TREE_TOP + rows * TREE_ROW + 20
+    };
+  }
+
+  var tree = SR.canvas('#tree', function (ctx, w, h, t) {
+    if (!data || w < 80 || P().big) return;
+    var L = treeLayout(w), T = data.T, c, i;
+    if (Math.abs(h - L.height) > 0.5) tree.canvas.style.height = L.height + 'px';
+    ctx.textBaseline = 'middle';
+
+    for (c = 0; c <= T; c++) {
+      ctx.font = SR.font.mono(9.5);
+      ctx.fillStyle = c === state.frame ? t.ink : t.ink48;
+      ctx.textAlign = 'center';
+      SR.spacedText(ctx, c === 0 ? 'START' : 'AFTER FRAME ' + (c - 1), L.cx(c), 10);
+      if (c === state.frame) {
+        var tw = Math.min(L.colW - 16, 96);
+        ctx.fillRect(L.cx(c) - tw / 2, 19, tw, 1.5);
+      }
+    }
+
+    function rowOf(step, key) {
+      for (var j = 0; j < step.length && j < TREE_MAX; j++) if (step[j].key === key) return j;
+      return -1;
+    }
+    // Where each prefix came from: itself one frame earlier, and the prefix one label shorter.
+    for (c = 1; c <= Math.min(T, state.frame); c++) {
+      var prev = data.steps[c - 1], cur = data.steps[c];
+      for (i = 0; i < cur.length && i < TREE_MAX; i++) {
+        var e = cur[i];
+        var parents = [e.key];
+        if (e.labels.length) parents.push(e.labels.slice(0, -1).join(','));
+        parents.forEach(function (pk) {
+          var r = rowOf(prev, pk);
+          if (r < 0 || !prev[r].kept) return;
+          var x0 = L.cx(c - 1) + L.nodeW / 2, y0 = L.cy(r), x1 = L.cx(c) - L.nodeW / 2, y1 = L.cy(i);
+          var hot = state.cand === e.key && c === state.frame;
+          ctx.strokeStyle = hot ? t.ink : e.kept ? t.ink30 : t.ink15;
+          ctx.lineWidth = hot ? 1.5 : 1;
+          ctx.setLineDash(e.kept ? [] : [3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.bezierCurveTo((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1, y1);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+      }
+    }
+    for (c = 0; c <= Math.min(T, state.frame); c++) {
+      var step = data.steps[c];
+      for (i = 0; i < step.length && i < TREE_MAX; i++) {
+        var en = step[i];
+        var x = Math.round(L.cx(c) - L.nodeW / 2) + 0.5, y = Math.round(L.cy(i) - L.nodeH / 2) + 0.5;
+        var best = i === 0;
+        ctx.beginPath();
+        SR.roundRect(ctx, x, y, L.nodeW, L.nodeH, L.nodeH / 2);
+        ctx.fillStyle = en.kept ? t.panel : 'transparent';
+        if (en.kept) ctx.fill();
+        ctx.lineWidth = best || (state.cand === en.key && c === state.frame) ? 1.75 : 1;
+        ctx.strokeStyle = state.cand === en.key && c === state.frame ? t.ink : best ? t.green : en.kept ? t.ink30 : t.ink30;
+        ctx.setLineDash(en.kept ? [] : [3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        var name = en.labels.length ? text(en.labels) : L.nodeW >= 96 ? '(empty)' : '( )';
+        ctx.font = SR.font.mono(10.5);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = en.kept ? t.ink : t.ink48;
+        ctx.fillText(name, x + 9, L.cy(i) + 0.5);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = en.kept ? t.ink60 : t.ink48;
+        ctx.fillText(prob(en.total).toFixed(L.nodeW >= 96 ? 4 : 3).replace(/^0/, ''), x + L.nodeW - 9, L.cy(i) + 0.5);
+      }
+      if (step.length > TREE_MAX) {
+        ctx.font = SR.font.mono(9.5);
+        ctx.fillStyle = t.ink48;
+        ctx.textAlign = 'center';
+        ctx.fillText('+' + (step.length - TREE_MAX) + ' more', L.cx(c), L.cy(TREE_MAX) - 4);
+      }
+    }
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function setStat(id, label, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-overline').textContent = label;
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+  function tag(label, kind) { return SR.el('span', { class: 'sr-pill' + (kind ? ' sr-pill--' + kind : ''), text: label }); }
+
+  function renderExact() {
+    var host = $('exact'), ex = data.exact, p = P();
+    host.textContent = '';
+    if (!ex) {
+      host.hidden = true;
+      $('exact-pill').textContent = '28^36 alignments';
+      $('exact-note').textContent = 'With 28 classes and 36 frames there are 28^36 alignments, a number with 53 digits. Nobody is going to add those up, which is the whole reason beam search exists. The Rust example falls back on a much wider beam (1,000) as its reference.';
+      return;
+    }
+    host.hidden = false;
+    $('exact-pill').textContent = fmt.int(data.paths) + ' alignments, ' + ex.length + ' labellings';
+    var gKey = data.greedy.join(','), bKey = data.final ? data.final.key : null, top = ex[0].p, SHOW = 10;
+    ex.slice(0, SHOW).forEach(function (e, i) {
+      var tags = SR.el('span', { class: 'bm-tags' });
+      if (e.key === gKey) tags.appendChild(tag('greedy', i === 0 ? 'green' : 'red'));
+      if (e.key === bKey) tags.appendChild(tag('beam', i === 0 ? 'green' : 'red'));
+      host.appendChild(SR.el('div', { class: 'bm-row', 'data-best': i === 0 || null, 'data-wrong': (i > 0 && e.key === gKey) || null }, [
+        SR.el('span', { class: 'who', text: quoted(e.labels) }),
+        SR.el('span', null, SR.el('div', { class: 'bm-bar', style: 'width:' + (100 * e.p / top).toFixed(1) + '%' })),
+        SR.el('span', { class: 'n', text: p4(e.p) }),
+        tags
+      ]));
+    });
+    var rest = ex.slice(SHOW), restSum = rest.reduce(function (s, e) { return s + e.p; }, 0);
+    var gi = ex.findIndex(function (e) { return e.key === gKey; });
+    $('exact-note').textContent = (rest.length ? 'And ' + rest.length + ' more labellings that share the remaining ' + p4(restSum) + '. ' : '') +
+      (gi === 0 ? 'Here greedy decoding happens to pick the most probable labelling.'
+        : 'Greedy picked ' + quoted(data.greedy) + ', which is only number ' + (gi + 1) + '. ' + quoted(ex[0].labels) + ' wins because ' + ex[0].n + ' different alignments spell it, and none of them has to be the single most likely one.');
+  }
+
+  function candAt(frame, key) {
+    var step = data.steps[frame];
+    for (var i = 0; i < step.length; i++) if (step[i].key === key) return step[i];
+    return null;
+  }
+
+  // How one prefix got its two numbers in the frame just read.
+  function describeCand() {
+    var f = state.frame, p = P();
+    if (f === 0) return 'Before any frame there is one prefix, the empty one, with probability 1. We count it as ending in a blank, so that any first letter starts a new run.';
+    var e = state.cand != null ? candAt(f, state.cand) : null;
+    if (!e) return 'Pick a prefix to see how its two numbers were made from the beam one frame earlier.';
+    var t = f - 1, C = data.C, prev = data.steps[f - 1];
+    function kept(key) { for (var i = 0; i < prev.length; i++) if (prev[i].key === key && prev[i].kept) return prev[i]; return null; }
+    function v(logp) { return p.big ? fmt.sig(Math.exp(logp), 3) : p4(Math.exp(logp)); }
+    function y(k) { return fmt.sig(data.y[t * C + k], 3); }
+    var same = kept(e.key), parts = [];
+    var name = quoted(e.labels);
+    parts.push('ends in blank = ' + (same ? v(same.total) + ' (all of ' + name + ' so far) × p(_) ' + y(BLANK) + ' = ' + v(e.pb) : '0: ' + name + ' was not in the beam before this frame'));
+    if (e.labels.length) {
+      var last = e.labels[e.labels.length - 1], parent = kept(e.labels.slice(0, -1).join(',')), terms = [];
+      if (same) terms.push(v(same.pnb) + ' × ' + y(last) + ' (the run of ' + sym(last) + ' goes on)');
+      if (parent) {
+        var plast = parent.labels.length ? parent.labels[parent.labels.length - 1] : -1;
+        terms.push(v(plast === last ? parent.pb : parent.total) + ' × ' + y(last) + ' (' + quoted(parent.labels) + (plast === last ? ', the part ending in a blank,' : '') + ' grows by ' + sym(last) + ')');
+      }
+      parts.push('ends in ' + sym(last) + ' = ' + terms.join(' + ') + ' = ' + v(e.pnb));
+    } else {
+      parts.push('ends in a label = 0: there is no label to end in');
+    }
+    return name + ' after frame ' + t + ': ' + parts.join('. ') + '.' + (e.kept ? '' : ' Rank ' + (e.rank + 1) + ' of ' + data.steps[f].length + ', so it falls out of a beam of ' + state.width + ' and its probability is gone.');
+  }
+
+  function renderCands() {
+    var host = $('cands'), f = state.frame, step = data.steps[f], p = P();
+    host.textContent = '';
+    host.appendChild(SR.el('div', { class: 'bm-row bm-row--head' }, [
+      SR.el('span', { text: p.big ? 'prefix · ln p of its alignments ending in' : 'prefix · p of its alignments ending in' }),
+      SR.el('span', { class: 'n', text: 'blank' }),
+      SR.el('span', { class: 'n', text: 'label' }),
+      SR.el('span', { class: 'n', text: 'total' })
+    ]));
+    var keptCount = step.filter(function (e) { return e.kept; }).length;
+    var limit = p.big ? Math.min(step.length, 12) : Math.min(step.length, 24);
+    var cutDone = false;
+    function cut(n) {
+      host.appendChild(SR.el('div', { class: 'bm-row bm-row--cut' }, [
+        SR.el('span', { style: 'grid-column: 1 / -1', text: 'beam width ' + state.width + ' · ' + n + ' pruned below this line' })
+      ]));
+    }
+    var shown = 0;
+    for (var i = 0; i < step.length && shown < limit; i++) {
+      var e = step[i];
+      // In the big example show the top of the beam and the first few casualties.
+      if (p.big && e.kept && i >= 8) continue;
+      if (!e.kept && !cutDone) { cut(step.length - keptCount); cutDone = true; }
+      (function (e2) {
+        host.appendChild(SR.el('button', {
+          class: 'bm-row', type: 'button', 'data-pruned': !e2.kept || null, 'data-best': e2.rank === 0 || null,
+          'aria-pressed': String(state.cand === e2.key),
+          'aria-label': 'Prefix ' + quoted(e2.labels) + ', total ' + show(e2.total) + (e2.kept ? ', kept' : ', pruned'),
+          onclick: function () { state.cand = state.cand === e2.key ? null : e2.key; renderCands(); $('cand-detail').textContent = describeCand(); tree.redraw(); }
+        }, [
+          SR.el('span', { class: 'who', text: quoted(e2.labels) }),
+          SR.el('span', { class: 'n', text: show(e2.pb) }),
+          SR.el('span', { class: 'n', text: show(e2.pnb) }),
+          SR.el('span', { class: 'n', text: show(e2.total) })
+        ]));
+      })(e);
+      shown++;
+    }
+    if (shown < step.length) {
+      var hiddenKept = step.filter(function (e3, j) { return p.big && e3.kept && j >= 8; }).length;
+      host.appendChild(SR.el('div', { class: 'bm-row bm-row--cut' }, [
+        SR.el('span', { style: 'grid-column: 1 / -1', text: (step.length - shown) + ' more not shown' + (hiddenKept ? ' (' + hiddenKept + ' of them still in the beam)' : '') })
+      ]));
+    }
+  }
+
+  function updateReadouts() {
+    var p = P(), T = data.T, f = state.frame, ex = data.exact;
+    var gKey = data.greedy.join(',');
+
+    if (p.big) {
+      var ref = 'stop go left';
+      var g = plain(data.greedy), bp = data.finalPlain, bl = data.finalLex;
+      setStat('stat-greedy', 'Greedy says', '"' + g + '"', g === ref ? 'what was said' : 'not what was said', g === ref ? 'green' : 'red');
+      setStat('stat-exact', 'What was said', '"' + ref + '"', '12 characters over 36 frames');
+      setStat('stat-beam', 'Beam, any letters', bp ? '"' + plain(bp.labels) + '"' : 'nothing', bp ? 'ln p = ' + fmt.fixed(bp.total, 3) + ', beam ' + state.width : 'the beam is empty',
+        bp && plain(bp.labels) === ref ? 'green' : 'red');
+      setStat('stat-lost', 'Beam, vocabulary only', bl ? '"' + plain(bl.labels) + '"' : 'no whole word', bl ? 'ln p = ' + fmt.fixed(bl.total, 3) + ', beam ' + state.width : 'nothing in the beam ends on a word',
+        bl && plain(bl.labels) === ref ? 'green' : 'red');
+    } else {
+      var gTrue = ex.byKey.get(gKey).p, best = ex[0], fin = data.final, finTrue = ex.byKey.get(fin.key).p;
+      setStat('stat-greedy', 'Greedy says', quoted(data.greedy), 'true probability ' + p4(gTrue), gKey === best.key ? 'green' : 'red');
+      setStat('stat-exact', 'Best labelling', quoted(best.labels), 'probability ' + p4(best.p) + ', exact', 'green');
+      setStat('stat-beam', 'Beam search says', quoted(fin.labels), p4(prob(fin.total)) + ' with a beam of ' + state.width, fin.key === best.key ? 'green' : 'red');
+      var lost = finTrue - prob(fin.total);
+      setStat('stat-lost', 'Lost to pruning', lost < 5e-5 ? 'nothing' : p4(lost), lost < 5e-5 ? 'the beam kept every prefix that mattered' : p4(finTrue) + ' − ' + p4(prob(fin.total)), lost < 5e-5 ? 'muted' : 'amber');
+    }
+
+    $('table-pill').textContent = T + ' frames · ' + data.C + ' classes';
+    $('greedy-line').innerHTML = p.big
+      ? '<b>greedy reads</b> "' + plain(data.greedy) + '" <b>from</b> |' + text(data.argmax) + '|'
+      : '<b>greedy:</b> |' + text(data.argmax) + '| <b>reads</b> ' + quoted(data.greedy) + ' <b>· that path:</b> ' + p4(Math.exp(data.pathLog));
+    $('preset-hint').textContent = p.hint;
+
+    $('beam-title').textContent = 'Prefix beam search, ' + (f === 0 ? 'before any frame' : 'after frame ' + (f - 1)) + (f === T ? ' (the last one)' : '');
+    var step = data.steps[f], keptN = step.filter(function (e) { return e.kept; }).length;
+    $('beam-pill').textContent = 'beam width ' + state.width + ' · ' + keptN + ' kept, ' + (step.length - keptN) + ' pruned';
+    $('cand-detail').textContent = describeCand();
+
+    $('panel-exact').hidden = !state.panels.exact;
+    $('panel-beam').hidden = !state.panels.beam;
+    $('tree-body').hidden = !!p.big;
+    $('lexicon-field').hidden = !p.big;
+    $('edit-group').hidden = !!p.big;
+    $('lexicon-hint').textContent = 'A prefix may only grow by a letter if some word in the list goes on with that letter, and may only take a space where a word ends. The list is the 35 words our recognizer knows: ' + VOCABULARY.join(', ') + '.';
+
+    if (!p.big) {
+      $('edit-label').textContent = 'Frame ' + state.sel.t + ' of 0 to ' + (T - 1);
+      editSliders.forEach(function (es) { es.slider.set(Math.round(data.y[state.sel.t * data.C + es.k] * 1000) / 1000); });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(chip.getAttribute('data-preset') === state.preset));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#width-chips .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(+chip.getAttribute('data-width') === state.width));
+    });
+
+    // Text versions of the pictures.
+    var rowsText = [];
+    for (var t = 0; t < T && !p.big; t++) {
+      rowsText.push('frame ' + t + ': ' + p.symbols.map(function (s, k) { return s + ' ' + data.y[t * data.C + k].toFixed(2); }).join(', '));
+    }
+    $('table').setAttribute('aria-label', 'Probability of each of ' + data.C + ' classes in each of ' + T + ' frames. ' + rowsText.join('; ') + (rowsText.length ? '. ' : '') +
+      'Best class per frame: ' + text(data.argmax) + ', which collapses to ' + (p.big ? plain(data.greedy) : quoted(data.greedy)) + '.' +
+      (p.big ? '' : ' Focus and use the arrow keys to pick a cell, plus and minus to change it.'));
+    $('tree').setAttribute('aria-label', 'The beam after each frame. ' + data.steps.slice(0, f + 1).map(function (s, c) {
+      return (c === 0 ? 'Start: ' : 'After frame ' + (c - 1) + ': ') + s.filter(function (e) { return e.kept; }).map(function (e) { return quoted(e.labels) + ' ' + p4(prob(e.total)); }).join(', ');
+    }).join('. ') + '.');
+  }
+
+  function update() {
+    compute();
+    $('wide').style.minWidth = (LABEL_W + PAD_R + data.T * (P().big ? 7 : 44)) + 'px';
+    $('tree-wide').style.minWidth = P().big ? '' : (12 + (data.T + 1) * TREE_COL) + 'px';
+    frame.input.max = data.T;
+    frame.set(state.frame);
+    width.set(state.width);
+    updateReadouts();
+    renderExact();
+    renderCands();
+    table.redraw(); tree.redraw();
+    // Keep the column for the frame just read in view when the tree scrolls sideways.
+    var body = $('tree-body');
+    if (!P().big && body.scrollWidth > body.clientWidth + 1) {
+      var colW = (body.scrollWidth - 12) / (data.T + 1);
+      body.scrollLeft = Math.max(0, 6 + (state.frame + 1) * colW - body.clientWidth + 10);
+    }
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var stopAnim = function () {}, playing = false;
+  function touched() {
+    stopAnim(); stopAnim = function () {};
+    playing = false;
+    $('play').textContent = 'Play';
+  }
+
+  var width = SR.bindSlider('#width', {
+    format: function (v) { return v === 1 ? '1 prefix' : v + ' prefixes'; },
+    onInput: function (v) { touched(); state.width = v; update(); }
+  });
+  var frame = SR.bindSlider('#frame', {
+    format: function (v) { return v + ' of ' + (data ? data.T : 3); },
+    onInput: function (v) { touched(); state.frame = v; state.cand = null; update(); }
+  });
+  var lexicon = SR.bindCheck('#lexicon', function (on) { touched(); state.lexicon = on; state.cand = null; update(); });
+  var panelChecks = {
+    exact: SR.bindCheck('#p-exact', function (on) { state.panels.exact = on; update(); }),
+    beam: SR.bindCheck('#p-beam', function (on) { state.panels.beam = on; update(); })
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll('#width-chips .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () { touched(); state.width = +chip.getAttribute('data-width'); update(); });
+  });
+  function stepFrame(by) { touched(); state.frame = SR.clamp(state.frame + by, 0, data.T); state.cand = null; update(); }
+  $('frame-back').addEventListener('click', function () { stepFrame(-1); });
+  $('frame-fwd').addEventListener('click', function () { stepFrame(1); });
+
+  function play() {
+    if (playing) { touched(); return; }
+    touched();
+    if (!state.panels.beam) { state.panels.beam = true; panelChecks.beam.set(true); }
+    state.cand = null;
+    if (SR.reducedMotion()) { state.frame = data.T; update(); return; }
+    if (state.frame >= data.T) state.frame = 0;
+    update();
+    playing = true;
+    $('play').textContent = 'Pause';
+    var timer = window.setInterval(function () {
+      state.frame++;
+      if (state.frame >= data.T) touched();
+      update();
+    }, P().big ? 260 : 900);
+    stopAnim = function () { window.clearInterval(timer); };
+  }
+  $('play').addEventListener('click', play);
+
+  // One slider per class, for the selected frame of a small table.
+  var editSliders = [];
+  function buildEditSliders() {
+    var host = $('edit-sliders'), p = P();
+    host.textContent = '';
+    editSliders = [];
+    if (p.big) return;
+    editSliders = p.symbols.map(function (s, k) {
+      var id = 'p-class-' + k;
+      var input = SR.el('input', { class: 'sr-range', type: 'range', id: id, min: 0, max: 1, step: 0.01, value: 0 });
+      host.appendChild(SR.el('div', { class: 'sr-field' }, [
+        SR.el('div', { class: 'sr-field-head' }, [
+          SR.el('label', { for: id, text: k === BLANK ? 'p(_), the blank' : 'p(' + s + ')' }),
+          SR.el('output', { class: 'sr-readout', for: id })
+        ]),
+        input
+      ]));
+      return { k: k, slider: SR.bindSlider(input, {
+        format: function (v) { return v.toFixed(2); },
+        onInput: function (v) { touched(); setProbability(state.sel.t, k, v); }
+      }) };
+    });
+  }
+  function setProbability(t, k, v) {
+    var C = data.C;
+    v = SR.clamp(v, 0, 1);
+    var others = 1 - data.y[t * C + k];
+    for (var i = 0; i < C; i++) {
+      var q = i === k ? v : others > 1e-12 ? data.y[t * C + i] * (1 - v) / others : (1 - v) / (C - 1);
+      state.lp[t * C + i] = f32(Math.log(Math.max(q, 1e-9)));
+    }
+    state.sel = { t: t, k: k };
+    state.cand = null;
+    update();
+  }
+  $('edit-prev').addEventListener('click', function () { state.sel = { t: Math.max(0, state.sel.t - 1), k: state.sel.k }; update(); });
+  $('edit-next').addEventListener('click', function () { state.sel = { t: Math.min(data.T - 1, state.sel.t + 1), k: state.sel.k }; update(); });
+
+  function loadPreset(name) {
+    state.preset = name;
+    state.lp = PRESETS[name].lp();
+    state.width = PRESETS[name].width;
+    state.frame = PRESETS[name].T;
+    state.sel = { t: 0, k: 1 };
+    state.cand = null;
+    buildEditSliders();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      touched();
+      loadPreset(chip.getAttribute('data-preset'));
+      state.lexicon = false; lexicon.set(false);
+      update();
+    });
+  });
+
+  /* Editing the table directly (the small tables only). */
+  function cellAt(pos) {
+    if (P().big) return null;
+    var L = tableLayout(table.width);
+    var t = Math.floor((pos.x - LABEL_W) / L.colW), k = Math.floor((pos.y - HEAD_H) / L.rowH);
+    return t >= 0 && t < data.T && k >= 0 && k < data.C ? { t: t, k: k } : null;
+  }
+  var drag = null;
+  table.canvas.addEventListener('pointerdown', function (e) {
+    var c = cellAt(table.point(e));
+    if (!c) return;
+    touched();
+    state.sel = c;
+    if (e.pointerType !== 'touch') {
+      drag = { y: e.clientY, from: data.y[c.t * data.C + c.k], cell: c };
+      try { table.canvas.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+    }
+    update();
+  });
+  table.canvas.addEventListener('pointermove', function (e) {
+    if (!drag) { table.canvas.style.cursor = cellAt(table.point(e)) ? 'ns-resize' : 'default'; return; }
+    setProbability(drag.cell.t, drag.cell.k, Math.round((drag.from + (drag.y - e.clientY) / 140) * 100) / 100);
+  });
+  function endDrag() { drag = null; }
+  table.canvas.addEventListener('pointerup', endDrag);
+  table.canvas.addEventListener('pointercancel', endDrag);
+  table.canvas.addEventListener('keydown', function (e) {
+    if (P().big) return;
+    var move = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+    if (move) {
+      e.preventDefault();
+      state.sel = { t: SR.clamp(state.sel.t + move[0], 0, data.T - 1), k: SR.clamp(state.sel.k + move[1], 0, data.C - 1) };
+      update();
+    } else if (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      touched();
+      var by = e.key === '+' || e.key === '=' ? 0.05 : -0.05;
+      setProbability(state.sel.t, state.sel.k, Math.round((data.y[state.sel.t * data.C + state.sel.k] + by) * 100) / 100);
+    }
+  });
+  table.canvas.addEventListener('focus', function () { table.redraw(); });
+  table.canvas.addEventListener('blur', function () { table.redraw(); });
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  function goTo(target, animate) {
+    touched();
+    loadPreset(target.preset);
+    state.width = target.width;
+    state.frame = target.frame == null ? PRESETS[target.preset].T : target.frame;
+    state.lexicon = !!target.lexicon;
+    state.cand = target.cand == null ? null : target.cand;
+    state.panels = { exact: !!target.exact, beam: !!target.beam };
+    lexicon.set(state.lexicon);
+    panelChecks.exact.set(state.panels.exact);
+    panelChecks.beam.set(state.panels.beam);
+    update();
+    if (animate && target.play) play();
+  }
+
+  SR.stepper('#steps', {
+    label: 'Decoding, step by step',
+    steps: [
+      {
+        title: 'Greedy: take the best class in every frame',
+        body: 'The simplest decoder picks the most likely class in each frame, then applies the collapse rule from chapter 8: merge repeats, drop blanks. Here the outlined cells are blank, blank, b, which reads "b". That path is the single most probable alignment, with 0.5 × 0.5 × 0.6 = 0.150. But we never wanted the best alignment. We want the best <b>labelling</b>, and a labelling owns many alignments.',
+        enter: function (animate) { goTo({ preset: 'toy', width: 3 }, animate); }
+      },
+      {
+        title: 'What we really want',
+        body: 'With 3 frames and 3 classes there are only 27 alignments, so we can afford the truth: collapse every one of them and add its probability to the labelling it spells. "b" collects 0.219. But "ab" collects 0.372, from five alignments such as ab_, aab and a_b, none of which is the single best path. Greedy looked at one alignment and missed a crowd. In a real utterance we cannot list them all, so we need something in between.',
+        enter: function (animate) { goTo({ preset: 'toy', width: 3, exact: true }, animate); }
+      },
+      {
+        title: 'Keep the best few prefixes',
+        body: '<b>Prefix beam search</b> reads the table one frame at a time and keeps a short list of <b>prefixes</b>: the beginnings of labellings that look most promising so far. The list is the <b>beam</b>. Each frame, every prefix can stay as it is or grow by one label, results that spell the same prefix are merged and their probabilities added, and only the best few survive. After frame 0 there are three: nothing yet, "a", and "b".',
+        enter: function (animate) { goTo({ preset: 'toy', width: 3, beam: true, frame: 1 }, animate); }
+      },
+      {
+        title: 'Two numbers per prefix',
+        body: 'What a prefix does next depends on how its alignments ended. If "a" is followed by another a, the alignments that ended in a (a a) are still spelling the same "a", but the ones that ended in a blank (a _ a) have started a second letter: "aa". So we track both parts: <b>ends in blank</b> and <b>ends in label</b>. The line under the list shows how the two numbers of "a" were built from the beam one frame earlier.',
+        enter: function (animate) { goTo({ preset: 'toy', width: 3, beam: true, frame: 2, cand: '1' }, animate); }
+      },
+      {
+        title: 'The beam width is a dial',
+        body: 'With a beam of 3 the search finds "ab", the right answer, but reports 0.336 instead of 0.372. After frame 1 the prefix "ab" ranked fourth with 0.04, was thrown away, and took its probability with it. Set the width to 1 and the search is as short-sighted as greedy: it says "b". Set it to 10 and nothing is pruned, so the answer is exact. A wider beam is slower and closer to the truth.',
+        enter: function (animate) { goTo({ preset: 'toy', width: 3, beam: true, exact: true, play: true, frame: animate ? 0 : 3 }, animate); }
+      },
+      {
+        title: 'Only spell words we know',
+        body: 'Now a made-up output for "stop go left" over the whole alphabet, with two confusable letters nudged the wrong way. Greedy reads "stob go lest", and so does a beam of 32: no amount of search fixes what the table itself prefers. But our recognizer only knows 35 words. With the <b>lexicon</b> switched on, a prefix may only grow along the spelling of a real word, "stob" can never finish, and "stop go left" wins. Untick the box to compare.',
+        enter: function (animate) { goTo({ preset: 'words', width: 32, beam: true, lexicon: true }, animate); }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

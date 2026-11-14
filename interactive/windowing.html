@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slicing Time · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="Frames, hops and window functions: cut a frame out of a signal, watch its spectrum leak, and fix it by fading the edges.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #wave { --h: 208px; touch-action: pan-y; cursor: ew-resize; }
+  #frame { --h: 212px; }
+  #spectrum { --h: 268px; }
+  #overlap { --h: 172px; }
+  #steps { --sr-step-lines: 5; }
+  /* The frame figure puts its two panels side by side when it has the room
+     and stacks them when it does not, so its height follows its own width. */
+  #frame-body { container-type: inline-size; }
+  @container (max-width: 559px) { #frame { --h: 340px; } }
+  @media (max-width: 799px) {
+    #wave { --h: 184px; }
+    #spectrum { --h: 236px; }
+    #overlap { --h: 156px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/02-slicing-time.md">Chapter 2</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapters 2 and 3 · Interactive</span>
+    <h1 class="sr-title">Slicing Time</h1>
+    <p class="sr-lede">Speech never holds still, so we do not analyze a whole recording at once. We cut it into short overlapping frames and look at each one on its own. The cut itself leaves a mark on the spectrum, and a window function is how we clean it up.</p>
+    <p class="sr-small">Walk through the five steps on the figure first. Then drag the frame along the signal, change the window, and watch what the spectrum does.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">A tenth of a second of signal, and the frame we cut out</span>
+          <span class="sr-pill" id="wave-pill">frame 2 of 8</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="wave" role="img" aria-label="Signal with a frame marked"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>the frame (drag it)</li>
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-48)"></span>every frame, one bar each</li>
+          </ul>
+        </div>
+      </figure>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">What the FFT is handed</span>
+          <span class="sr-pill" id="frame-pill">400 samples + 112 zeros</span>
+        </div>
+        <div class="sr-figure-body" id="frame-body">
+          <canvas class="sr-canvas" id="frame" role="img" aria-label="The frame before and after the window"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink)"></span>the frame as cut</li>
+            <li><span class="sr-swatch" style="--c: var(--green)"></span>after the window</li>
+            <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--ink-48)"></span>the window, and the frame starting over</li>
+            <li id="legend-jump"><span class="sr-swatch" style="--c: var(--amber)"></span>a jump the signal never made</li>
+          </ul>
+        </div>
+      </figure>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Magnitude spectrum of that frame</span>
+          <span class="sr-pill" id="spectrum-pill">512-point FFT</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="spectrum" role="img" aria-label="Spectrum of the frame in decibels"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch" style="--c: var(--green)"></span><span id="legend-window">with the Hann window</span></li>
+            <li id="legend-ghost"><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-48)"></span>with no window (rectangular)</li>
+            <li id="legend-truth"><span class="sr-swatch sr-swatch--dot" style="--c: var(--amber)"></span>what is really in the signal</li>
+            <li id="legend-bins"><span class="sr-swatch sr-swatch--dot" style="--c: var(--green)"></span>one dot per FFT bin</li>
+          </ul>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-frame">
+          <span class="sr-overline">Frame</span>
+          <span class="sr-stat-value">400 samples</span>
+          <span class="sr-stat-sub">25 ms</span>
+        </div>
+        <div class="sr-stat" id="stat-hop">
+          <span class="sr-overline">Hop</span>
+          <span class="sr-stat-value">160 samples</span>
+          <span class="sr-stat-sub">60% overlap</span>
+        </div>
+        <div class="sr-stat" id="stat-count">
+          <span class="sr-overline">Frames per second</span>
+          <span class="sr-stat-value">98</span>
+          <span class="sr-stat-sub">1 + 15,600 / 160</span>
+        </div>
+        <div class="sr-stat" id="stat-lobe">
+          <span class="sr-overline">Main lobe width</span>
+          <span class="sr-stat-value">160 Hz</span>
+          <span class="sr-stat-sub">4 × 16,000 / 400</span>
+        </div>
+        <div class="sr-stat" id="stat-side">
+          <span class="sr-overline">Highest side lobe</span>
+          <span class="sr-stat-value">−31.5 dB</span>
+          <span class="sr-stat-sub">below the peak</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">The windows of all the frames, and what they add up to</span>
+          <span class="sr-pill" id="overlap-pill">sum</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="overlap" role="img" aria-label="Overlapping windows and their sum"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-48)"></span>one window per frame</li>
+            <li><span class="sr-swatch" style="--c: var(--green)"></span>the selected frame</li>
+            <li><span class="sr-swatch" style="--c: var(--ink)"></span>their sum: how much each sample counts</li>
+          </ul>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The signal</span>
+      <div class="sr-field">
+        <span class="sr-label" id="signal-label">Signal</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="signal-label">
+          <label><input type="radio" name="signal" value="tone"><span>One tone</span></label>
+          <label><input type="radio" name="signal" value="two"><span>Two tones</span></label>
+          <label><input type="radio" name="signal" value="vowel" checked><span>Vowel</span></label>
+        </div>
+        <p class="sr-hint" id="signal-hint"></p>
+      </div>
+      <div class="sr-field" id="freq-field">
+        <div class="sr-field-head">
+          <label for="freq" id="freq-label">Tone frequency</label>
+          <output class="sr-readout" for="freq"></output>
+        </div>
+        <input class="sr-range" type="range" id="freq">
+        <div class="sr-chip-row" id="freq-chips" role="group" aria-label="Frequencies to try">
+          <button class="sr-chip" type="button" data-f="1000">1,000 Hz</button>
+          <button class="sr-chip" type="button" data-f="1015.625">1,015.6 Hz</button>
+        </div>
+        <p class="sr-hint" id="freq-hint"></p>
+      </div>
+      <div class="sr-field" id="quiet-field">
+        <div class="sr-field-head">
+          <label for="quiet">Quiet tone level</label>
+          <output class="sr-readout" for="quiet"></output>
+        </div>
+        <input class="sr-range" type="range" id="quiet" min="-80" max="-10" step="1" value="-50">
+        <p class="sr-hint" id="quiet-hint"></p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The frames</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="len">Frame length</label>
+          <output class="sr-readout" for="len"></output>
+        </div>
+        <input class="sr-range" type="range" id="len" min="160" max="800" step="16" value="400">
+        <div class="sr-chip-row" id="len-chips" role="group" aria-label="Frame lengths to try">
+          <button class="sr-chip" type="button" data-len="400">25 ms this book</button>
+          <button class="sr-chip" type="button" data-len="512">32 ms = 512</button>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="hop">Hop</label>
+          <output class="sr-readout" for="hop"></output>
+        </div>
+        <input class="sr-range" type="range" id="hop" min="16" max="640" step="4" value="160">
+        <div class="sr-chip-row" id="hop-chips" role="group" aria-label="Hops to try">
+          <button class="sr-chip" type="button" data-hop="160">10 ms this book</button>
+          <button class="sr-chip" type="button" data-hop="half">50% overlap</button>
+          <button class="sr-chip" type="button" data-hop="quarter">75% overlap</button>
+        </div>
+        <p class="sr-hint">How far we step forward to start the next frame.</p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="index">Which frame</label>
+          <output class="sr-readout" for="index"></output>
+        </div>
+        <input class="sr-range" type="range" id="index" min="0" max="7" step="1" value="2">
+        <p class="sr-hint">Or drag the green band on the first plot.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The window</span>
+      <div class="sr-field">
+        <span class="sr-label" id="window-label">Window function</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="window-label">
+          <label><input type="radio" name="window" value="rect"><span>Rectangular</span></label>
+          <label><input type="radio" name="window" value="hann" checked><span>Hann</span></label>
+          <label><input type="radio" name="window" value="hamming"><span>Hamming</span></label>
+        </div>
+        <p class="sr-hint" id="window-hint"></p>
+      </div>
+      <div class="sr-check-row">
+        <label class="sr-check"><input type="checkbox" id="ghost" checked>Compare with no window</label>
+        <label class="sr-check" id="zoom-label"><input type="checkbox" id="zoom">Zoom in on the peak</label>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/02-slicing-time.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapters 2 and <a href="../chapters/03-the-fourier-transform-by-hand.md">3</a>.</span>
+  <span>The same framing and windows as <a href="../code/src/dsp/frame.rs"><code>frame.rs</code></a> and <a href="../code/src/dsp/window.rs"><code>window.rs</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, dsp = SR.dsp;
+
+  /* ---------------------------------------------------------------- state */
+
+  var FS = 16000;         // samples per second, as everywhere in the book
+  var NS = 1600;          // samples of signal on the page: a tenth of a second
+  var AMP = 0.8;          // height of the loud tone; it is also what we call 0 dB
+  var QUIET_OFFSET = 500; // Hz between the loud tone and the quiet one
+  var F_SHOWN = 4000;     // Hz, right edge of the spectrum plot
+  var DB_FLOOR = -100;
+
+  var state = {
+    mode: 'vowel',        // 'tone' | 'two' | 'vowel'
+    f: 1000,              // Hz
+    quiet: -50,           // dB, level of the second tone
+    len: 400,             // frame length in samples
+    hop: 160,             // hop in samples
+    index: 2,             // which frame
+    window: 'hann',       // 'rect' | 'hann' | 'hamming'
+    ghost: true,          // also draw the rectangular spectrum
+    zoom: false           // show only the neighborhood of the tone in the spectrum
+  };
+
+  var WINDOW_NAMES = { rect: 'rectangular', hann: 'Hann', hamming: 'Hamming' };
+
+  /* ---------------------------------------------------------------- maths */
+
+  // How many whole frames fit, exactly as num_frames() in frame.rs.
+  function numFrames(nSamples, frameLen, hopLen) {
+    return nSamples < frameLen ? 0 : 1 + Math.floor((nSamples - frameLen) / hopLen);
+  }
+
+  function makeWindow(kind, n) {
+    return kind === 'hann' ? dsp.hann(n) : kind === 'hamming' ? dsp.hamming(n) : dsp.rectangular(n);
+  }
+
+  // How much a resonance at F (bandwidth B) lifts a frequency f.
+  function resonance(f, F, B) {
+    var r = f / F, d = 1 - r * r, e = f * B / (F * F);
+    return 1 / Math.sqrt(d * d + e * e);
+  }
+
+  // A vowel that glides from "ah" to "ee" while its pitch rises: a stack of
+  // harmonics, each as loud as the three formants make it at that moment.
+  var vowelCache = null;
+  function vowel() {
+    if (vowelCache) return vowelCache;
+    var SEG = 160;                                  // 10 ms
+    var x = new Float64Array(NS), phase = 0, peaks = new Float64Array(NS / SEG);
+    for (var n = 0; n < NS; n++) {
+      var u = n / (NS - 1);
+      var f0 = SR.lerp(110, 150, u);
+      var F1 = SR.lerp(730, 270, u), F2 = SR.lerp(1090, 2290, u), F3 = SR.lerp(2440, 3010, u);
+      phase += 2 * Math.PI * f0 / FS;
+      var s = 0;
+      for (var h = 1; h * f0 < 5000; h++) {
+        var f = h * f0;
+        s += resonance(f, F1, 90) * resonance(f, F2, 110) * resonance(f, F3, 170) / h * Math.sin(h * phase);
+      }
+      x[n] = s;
+      var seg = Math.floor(n / SEG);
+      peaks[seg] = Math.max(peaks[seg], Math.abs(s));
+    }
+    // "ee" comes out much quieter than "ah". Even the loudness out slowly
+    // (one gain per 10 ms, blended) so the whole glide fills the plot.
+    for (n = 0; n < NS; n++) {
+      var pos = SR.clamp(n / SEG - 0.5, 0, peaks.length - 1);
+      var i0 = Math.floor(pos), i1 = Math.min(peaks.length - 1, i0 + 1);
+      x[n] *= AMP / SR.lerp(peaks[i0], peaks[i1], pos - i0);
+    }
+    vowelCache = x;
+    return x;
+  }
+
+  function quietAmp() { return AMP * Math.pow(10, state.quiet / 20); }
+
+  function buildSignal() {
+    if (state.mode === 'vowel') return vowel();
+    var x = new Float64Array(NS), w = 2 * Math.PI / FS;
+    var a2 = state.mode === 'two' ? quietAmp() : 0;
+    for (var n = 0; n < NS; n++) {
+      x[n] = AMP * Math.sin(w * state.f * n) + a2 * Math.sin(w * (state.f + QUIET_OFFSET) * n);
+    }
+    return x;
+  }
+
+  // Magnitude spectrum in dB of frame * window, zero-padded to nFft. 0 dB is
+  // a tone of height AMP sitting exactly on a bin: we divide by the sum of
+  // the window (its coherent gain times its length) to undo its dimming.
+  function spectrumDb(frame, win, nFft) {
+    var n = frame.length, windowed = new Float64Array(n), sum = 0;
+    for (var i = 0; i < n; i++) { windowed[i] = frame[i] * win[i]; sum += win[i]; }
+    var spec = dsp.fft(windowed, nFft);
+    var bins = nFft / 2 + 1, out = new Float64Array(bins), ref = AMP * sum / 2;
+    for (var k = 0; k < bins; k++) {
+      var mag = Math.sqrt(spec.re[k] * spec.re[k] + spec.im[k] * spec.im[k]);
+      out[k] = Math.max(DB_FLOOR - 40, 20 * Math.log10(mag / ref + 1e-300));
+    }
+    return { db: out, windowed: windowed };
+  }
+
+  // The tallest side lobe of a window, in dB below its main lobe, measured
+  // on a finely sampled transform of the window itself.
+  var sideCache = {};
+  function highestSideLobe(kind, n) {
+    var key = kind + n;
+    if (sideCache[key] != null) return sideCache[key];
+    var spec = dsp.fft(makeWindow(kind, n), dsp.nextPow2(n) * 16);
+    var half = spec.re.length / 2, mag = new Float64Array(half);
+    for (var k = 0; k < half; k++) mag[k] = Math.sqrt(spec.re[k] * spec.re[k] + spec.im[k] * spec.im[k]);
+    var i = 1;
+    while (i < half - 1 && mag[i] <= mag[i - 1]) i++;     // walk down the main lobe to its first dip
+    var best = 0;
+    for (; i < half; i++) if (mag[i] > best) best = mag[i];
+    return (sideCache[key] = 20 * Math.log10(best / mag[0]));
+  }
+
+  // Everything the four plots share, recomputed on every change.
+  var data = null;
+  function compute() {
+    var len = state.len, hop = state.hop;
+    var count = numFrames(NS, len, hop);
+    state.index = SR.clamp(state.index, 0, count - 1);
+    var start = state.index * hop;
+    var signal = buildSignal();
+    var frame = signal.subarray(start, start + len);
+    var nFft = dsp.nextPow2(len);
+    var win = makeWindow(state.window, len);
+    var main = spectrumDb(frame, win, nFft);
+    var rect = spectrumDb(frame, dsp.rectangular(len), nFft);
+
+    // What each sample ends up counting for: the sum of every frame's window.
+    var cover = new Float64Array(NS);
+    for (var i = 0; i < count; i++) for (var j = 0; j < len; j++) cover[i * hop + j] += win[j];
+    // Away from the two ends, where every sample has all its frames.
+    var lo = Math.min(len, NS), hi = (count - 1) * hop, cmin = Infinity, cmax = -Infinity;
+    if (hi - lo < hop) { lo = 0; hi = (count - 1) * hop + len; }
+    for (i = lo; i < hi; i++) { cmin = Math.min(cmin, cover[i]); cmax = Math.max(cmax, cover[i]); }
+
+    data = {
+      signal: signal, frame: frame, start: start, count: count, nFft: nFft, win: win,
+      windowed: main.windowed, db: main.db, rectDb: rect.db,
+      cover: cover, coverMin: cmin, coverMax: cmax, coverPeak: Math.max.apply(null, cover),
+      binHz: FS / nFft,
+      cycles: state.f * len / FS,
+      // The value the signal really takes right after the frame, to compare with what the FFT sees there.
+      next: start + len < NS ? signal[start + len] : null
+    };
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  function ms(samples) { return +(samples * 1000 / FS).toFixed(2); }
+  function clipTo(ctx, box, pad) {
+    ctx.beginPath();
+    ctx.rect(box.x, box.y - (pad || 0), box.w, box.h + 2 * (pad || 0));
+    ctx.clip();
+  }
+
+  var wave = SR.canvas('#wave', function (ctx, w, h, t) {
+    if (!data) return;
+    var rows = Math.min(4, Math.max(1, Math.ceil(state.len / state.hop)));
+    var strip = rows * 5 + 6;                       // room above the wave for one bar per frame
+    var box = SR.plotBox(w, h, { l: 40, r: 14, t: 22 + strip, b: 36 });
+    var x = SR.scale.linear([0, NS], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([-1, 1], [box.y + box.h, box.y]);
+    var x0 = x(data.start), x1 = x(data.start + state.len);
+
+    ctx.fillStyle = t.greenWash;
+    ctx.fillRect(x0, box.y - strip, x1 - x0, box.h + strip);
+
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: SR.ticks(0, 100, w < 440 ? 5 : 10).map(function (v) { return v * FS / 1000; }),
+      xFormat: function (n) { return String(ms(n)); },
+      yTicks: [-1, 0, 1], xLabel: 'time (ms)', zero: true
+    });
+    ctx.fillStyle = t.ink48;
+    ctx.font = SR.font.mono(10);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    SR.spacedText(ctx, 'AMPLITUDE', box.x, box.y - strip - 7);
+
+    // One bar per frame, staggered so that overlapping frames do not hide each other.
+    for (var i = 0; i < data.count; i++) {
+      var by = SR.crisp(box.y - strip + 2 + (i % rows) * 5);
+      var on = i === state.index;
+      ctx.strokeStyle = on ? t.green : t.ink30;
+      ctx.lineWidth = on ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x(i * state.hop) + 1, by); ctx.lineTo(x(i * state.hop + state.len) - 1, by);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(SR.crisp(x(i * state.hop)), by - 2); ctx.lineTo(SR.crisp(x(i * state.hop)), by + 2);
+      ctx.stroke();
+    }
+
+    if (box.w / NS >= 0.45) {
+      ctx.save();
+      clipTo(ctx, box, 2);
+      SR.line(ctx, NS, function (n) { return [x(n), y(data.signal[n])]; }, { color: t.ink70, width: 1.1 });
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, box.y - 2, x1 - x0, box.h + 4);
+      ctx.clip();
+      SR.line(ctx, state.len + 1, function (j) {
+        var n = Math.min(NS - 1, data.start + j);
+        return [x(n), y(data.signal[n])];
+      }, { color: t.green, width: 1.5 });
+      ctx.restore();
+    } else {
+      // Too many samples per pixel for a line: draw, for each pixel column,
+      // the range the wave covers there. A fast tone becomes a solid band.
+      var cols = Math.floor(box.w), per = NS / cols;
+      for (var c = 0; c < cols; c++) {
+        // Look a little to either side, so a column never falls between two crests.
+        var mid = (c + 0.5) * per, reach = Math.max(per / 2, 10);
+        var from = Math.max(0, Math.floor(mid - reach)), to = Math.min(NS - 1, Math.ceil(mid + reach));
+        var lo = Infinity, hi = -Infinity;
+        for (var n = from; n <= to; n++) { lo = Math.min(lo, data.signal[n]); hi = Math.max(hi, data.signal[n]); }
+        var inFrame = mid >= data.start && mid <= data.start + state.len;
+        ctx.fillStyle = inFrame ? t.green : t.ink48;
+        ctx.fillRect(box.x + c, y(hi) - 0.5, 1, Math.max(1, y(lo) - y(hi) + 1));
+      }
+    }
+
+    // The two edges of the frame, with grips.
+    ctx.strokeStyle = t.green;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(SR.crisp(x0), box.y - strip); ctx.lineTo(SR.crisp(x0), box.y + box.h);
+    ctx.moveTo(SR.crisp(x1), box.y - strip); ctx.lineTo(SR.crisp(x1), box.y + box.h);
+    ctx.stroke();
+    SR.pill(ctx, ms(data.start) + ' TO ' + ms(data.start + state.len) + ' MS', (x0 + x1) / 2, box.y + box.h - 12,
+      { color: t.green, min: box.x + 2, max: box.x + box.w - 2 });
+  });
+
+  var frame = SR.canvas('#frame', function (ctx, w, h, t) {
+    if (!data) return;
+    var side = w >= 560;
+    var L = 40, R = 14, T = 24, B = 36, GAP = side ? 22 : 42;
+    var bw = side ? (w - L - R - GAP) / 2 : w - L - R;
+    var bh = side ? h - T - B : (h - T - B - GAP) / 2;
+    var boxA = { x: L, y: T, w: bw, h: bh };
+    var boxB = side ? { x: L + bw + GAP, y: T, w: bw, h: bh } : { x: L, y: T + bh + GAP, w: bw, h: bh };
+    var len = state.len, nFft = data.nFft, tail = Math.round(nFft * 0.13);
+
+    function panel(box, values, color, title, showY, showX, envelope) {
+      var x = SR.scale.linear([0, nFft + tail], [box.x, box.x + box.w]);
+      var y = SR.scale.linear([-1, 1], [box.y + box.h, box.y]);
+      var at = function (i) { return i < len ? values[i] : 0; };   // the zeros we pad with
+
+      if (nFft > len) {
+        ctx.fillStyle = t.ink4;
+        ctx.fillRect(x(len), box.y, x(nFft) - x(len), box.h);
+      }
+      var xt = [0, len];
+      if (nFft > len && x(nFft) - x(len) > 30) xt.push(nFft);
+      SR.axes(ctx, {
+        box: box, x: x, y: y, xTicks: xt, xFormat: fmt.int,
+        yTicks: [-1, 0, 1], yFormat: showY ? String : function () { return ''; },
+        yLabel: title, xLabel: showX ? 'sample in the frame' : null, zero: true
+      });
+      if (nFft > len && x(nFft) - x(len) > 46) {
+        ctx.fillStyle = t.ink48;
+        ctx.font = SR.font.mono(10);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        SR.spacedText(ctx, 'ZEROS', (x(len) + x(nFft)) / 2, box.y + 5);
+      }
+
+      ctx.save();
+      clipTo(ctx, box, 2);
+      if (envelope) {
+        [1, -1].forEach(function (sign) {
+          SR.line(ctx, len, function (i) { return [x(i), y(sign * data.win[i])]; }, { color: t.ink48, width: 1, dash: [3, 3] });
+        });
+      }
+      // The FFT assumes its input repeats forever: here is the start of the next lap.
+      ctx.strokeStyle = t.ink30;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(SR.crisp(x(nFft)), box.y); ctx.lineTo(SR.crisp(x(nFft)), box.y + box.h);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      SR.line(ctx, tail + 1, function (i) { return [x(nFft + i), y(at(i))]; }, { color: t.ink48, width: 1.1, dash: [2, 3] });
+      SR.line(ctx, nFft, function (i) { return [x(i), y(at(i))]; }, { color: color, width: 1.5 });
+
+      // Where what the FFT sees next is not what the signal did next.
+      var jumps = false;
+      if (data.next !== null) {
+        var seen = nFft > len ? 0 : at(0);
+        var truly = envelope ? at(len - 1) : data.next;          // a faded frame should simply carry on from where it is
+        // (The 0.08 that a Hamming window leaves at its ends is a step too, but a small one; we do not flag it.)
+        var big = envelope ? 0.2 : 0.12;
+        if (Math.abs(seen - truly) > big && Math.abs(seen - at(len - 1)) > big) {
+          jumps = true;
+          ctx.strokeStyle = t.amber;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x(len - 1), y(at(len - 1))); ctx.lineTo(x(len), y(seen));
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      if (jumps) {
+        SR.pill(ctx, 'JUMP', x(len), box.y + box.h - 11, { color: t.amber, min: box.x + 2, max: box.x + box.w - 2 });
+      }
+      return jumps;
+    }
+
+    var a = panel(boxA, data.frame, t.ink, 'the frame as cut', true, false, false);
+    var b = panel(boxB, data.windowed, t.green, '× ' + WINDOW_NAMES[state.window] + ' window', !side, true, state.window !== 'rect');
+    frame.jumps = a || b;
+  });
+
+  var spectrum = SR.canvas('#spectrum', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, { l: 44, r: 14, t: 24, b: 36 });
+    var zoomed = state.zoom && state.mode !== 'vowel';
+    var lo = zoomed ? Math.max(0, state.f - 250) : 0, hi = zoomed ? state.f + 650 : F_SHOWN;
+    var x = SR.scale.linear([lo, hi], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([DB_FLOOR, 6], [box.y + box.h, box.y]);
+    var k0 = Math.max(0, Math.floor(lo / data.binHz) - 1);
+    var bins = Math.min(data.db.length - 1, Math.ceil(hi / data.binHz) + 1) - k0 + 1;
+    var yy = function (db) { return y(Math.max(DB_FLOOR, db)); };
+    var at = function (j, values) { return [x((k0 + j) * data.binHz), yy(values[k0 + j])]; };
+
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: SR.ticks(lo, hi, w < 440 ? 4 : 8), xFormat: fmt.hzShort,
+      yTicks: [-100, -80, -60, -40, -20, 0], yFormat: function (v) { return fmt.int(v); },
+      xLabel: 'frequency (Hz)', yLabel: state.mode === 'vowel' ? 'level (dB)' : 'level (dB, 0 = the loud tone)'
+    });
+
+    ctx.save();
+    clipTo(ctx, box, 1);
+    if (state.ghost && state.window !== 'rect') {
+      SR.line(ctx, bins, function (j) { return at(j, data.rectDb); }, { color: t.ink48, width: zoomed ? 1.25 : 1 });
+      if (zoomed) for (var g = 0; g < bins; g++) {
+        if (data.rectDb[k0 + g] > DB_FLOOR) SR.dot(ctx, at(g, data.rectDb)[0], at(g, data.rectDb)[1], 2, t.ink48);
+      }
+    }
+    // Shade under the curve lightly so the skirts read as a shape.
+    ctx.beginPath();
+    ctx.moveTo(at(0, data.db)[0], box.y + box.h);
+    for (var k = 0; k < bins; k++) ctx.lineTo(at(k, data.db)[0], at(k, data.db)[1]);
+    ctx.lineTo(at(bins - 1, data.db)[0], box.y + box.h);
+    ctx.closePath();
+    ctx.fillStyle = t.greenWash;
+    ctx.fill();
+    SR.line(ctx, bins, function (j) { return at(j, data.db); }, { color: t.green, width: 1.75 });
+    if (box.w / bins >= 4.5) {
+      // One dot per FFT bin, once there is room to tell them apart.
+      for (k = 0; k < bins; k++) {
+        if (data.db[k0 + k] <= DB_FLOOR) continue;
+        if (zoomed) { SR.dot(ctx, at(k, data.db)[0], at(k, data.db)[1], 2.75, t.green); continue; }
+        ctx.fillStyle = t.green;
+        ctx.beginPath(); ctx.arc(at(k, data.db)[0], at(k, data.db)[1], 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // Where the tones truly are: a ring at the right frequency and the right height.
+    if (state.mode !== 'vowel') {
+      var ring = function (f, db) {
+        ctx.beginPath();
+        ctx.arc(x(f), y(db), 4.5, 0, Math.PI * 2);
+        ctx.strokeStyle = t.amber;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      };
+      ring(state.f, 0);
+      if (state.mode === 'two') {
+        var f2 = state.f + QUIET_OFFSET;
+        ring(f2, state.quiet);
+        SR.pill(ctx, 'QUIET TONE · ' + fmt.int(state.quiet) + ' DB', x(f2) + 10, y(state.quiet) - 14,
+          { align: 'left', color: t.amber, min: box.x + 2, max: box.x + box.w - 2 });
+      }
+    }
+  });
+
+  var overlap = SR.canvas('#overlap', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, { l: 40, r: 14, t: 24, b: 36 });
+    var top = Math.max(1.25, Math.ceil(data.coverPeak * 1.15 * 2) / 2);
+    var x = SR.scale.linear([0, NS], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([0, top], [box.y + box.h, box.y]);
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: SR.ticks(0, 100, w < 440 ? 5 : 10).map(function (v) { return v * FS / 1000; }),
+      xFormat: function (n) { return String(ms(n)); },
+      yTicks: SR.ticks(0, top, 3), xLabel: 'time (ms)', yLabel: 'weight'
+    });
+    ctx.save();
+    clipTo(ctx, box, 2);
+    var one = function (i, color, width) {
+      var s = i * state.hop;
+      ctx.beginPath();
+      ctx.moveTo(x(s), y(0));
+      for (var j = 0; j < state.len; j++) ctx.lineTo(x(s + j), y(data.win[j]));
+      ctx.lineTo(x(s + state.len), y(0));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    for (var i = 0; i < data.count; i++) if (i !== state.index) one(i, t.ink30, 1);
+    SR.line(ctx, NS, function (n) { return [x(n), y(data.cover[n])]; }, { color: t.ink, width: 1.75 });
+    one(state.index, t.green, 1.75);
+    ctx.restore();
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function $(id) { return document.getElementById(id); }
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+  function hz1(v) { return (v === Math.round(v) ? fmt.int(v) : fmt.int(Math.floor(v)) + '.' + v.toFixed(1).split('.')[1]) + ' Hz'; }
+  function pct(v) { return String(+v.toFixed(1)); }
+
+  function updateReadouts() {
+    var len = state.len, hop = state.hop, name = WINDOW_NAMES[state.window];
+    var perSecond = numFrames(FS, len, hop);
+    var gap = hop > len;
+
+    setStat('stat-frame', fmt.int(len) + ' samples', ms(len) + ' ms' + (data.nFft > len ? ', padded to ' + data.nFft : ', no padding'));
+    setStat('stat-hop', fmt.int(hop) + ' samples',
+      gap ? pct((hop - len) / hop * 100) + '% of the signal skipped' : hop === len ? 'no overlap' : pct((1 - hop / len) * 100) + '% overlap',
+      gap ? 'amber' : null);
+    setStat('stat-count', fmt.int(perSecond), '1 + ' + fmt.int(FS - len) + ' / ' + fmt.int(hop));
+    var lobes = state.window === 'rect' ? 2 : 4;
+    setStat('stat-lobe', hz1(+(lobes * FS / len).toFixed(1)), lobes + ' × 16,000 / ' + fmt.int(len));
+    setStat('stat-side', fmt.fixed(highestSideLobe(state.window, len), 1) + ' dB', 'below the peak', state.window === 'rect' ? 'amber' : null);
+
+    $('wave-pill').textContent = 'frame ' + state.index + ' of 0 to ' + (data.count - 1);
+    $('frame-pill').textContent = data.nFft > len ? fmt.int(len) + ' samples + ' + (data.nFft - len) + ' zeros' : fmt.int(len) + ' samples, no padding';
+    $('spectrum-pill').textContent = data.nFft + '-point FFT · bins ' + (+data.binHz.toFixed(2)) + ' Hz apart';
+    $('legend-window').textContent = state.window === 'rect' ? 'with no window (rectangular)' : 'with the ' + name + ' window';
+    $('legend-ghost').hidden = !state.ghost || state.window === 'rect';
+    $('legend-truth').hidden = state.mode === 'vowel';
+    $('legend-bins').hidden = !state.zoom || state.mode === 'vowel';
+
+    // What the frames add up to.
+    var flat = data.coverMax - data.coverMin < 1e-6;
+    var pill = $('overlap-pill');
+    pill.className = 'sr-pill' + (gap ? ' sr-pill--amber' : flat ? ' sr-pill--green' : '');
+    pill.textContent = gap ? 'gaps: some samples are in no frame'
+      : flat ? 'sum is exactly ' + fmt.fixed(data.coverMax, 2) + ' everywhere'
+      : 'sum wobbles from ' + fmt.fixed(data.coverMin, 2) + ' to ' + fmt.fixed(data.coverMax, 2);
+
+    // Hints that depend on the numbers.
+    $('signal-hint').textContent = state.mode === 'vowel' ? 'A made-up vowel that slides from "ah" to "ee" while its pitch rises, so every frame is a little different.'
+      : state.mode === 'two' ? 'A loud tone and a much quieter one ' + QUIET_OFFSET + ' Hz above it.'
+      : 'A single sine wave. Its true spectrum is one line.';
+    var whole = Math.abs(data.cycles - Math.round(data.cycles)) < 1e-9;
+    $('freq-hint').textContent = data.nFft > len ? 'The frame is ' + fmt.int(len) + ' samples and the FFT wants ' + data.nFft + ', so we pad with zeros. Now there is always an edge, whatever the frequency.'
+      : whole ? 'A whole number of cycles fits the frame, so its end meets its beginning and there is no edge at all.'
+      : 'The frame ends partway through a cycle, so its end does not meet its beginning.';
+    $('quiet-hint').textContent = 'At ' + hz1(state.f + QUIET_OFFSET) + ', ' + fmt.int(Math.round(1 / Math.pow(10, state.quiet / 20))) + ' times smaller than the loud tone.';
+    $('window-hint').textContent = state.window === 'rect' ? 'All ones: the frame exactly as cut.'
+      : state.window === 'hann' ? '0.5 − 0.5 cos(2π i / n). Fades to zero at both ends. Our default.'
+      : '0.54 − 0.46 cos(2π i / n). Like Hann, but the ends stop at 0.08.';
+    $('legend-jump').hidden = !frame.jumps;
+
+    // Which controls make sense for this signal.
+    $('freq-field').hidden = state.mode === 'vowel';
+    $('quiet-field').hidden = state.mode !== 'two';
+    $('zoom-label').hidden = state.mode === 'vowel';
+    $('freq-label').textContent = state.mode === 'two' ? 'Loud tone' : 'Tone frequency';
+
+    chips('#freq-chips', 'data-f', function (v) { return +v === state.f; });
+    chips('#len-chips', 'data-len', function (v) { return +v === len; });
+    chips('#hop-chips', 'data-hop', function (v) { return hopFor(v) === hop; });
+
+    // The pictures in words.
+    var what = state.mode === 'vowel' ? 'a vowel-like sound' : state.mode === 'two'
+      ? 'a ' + hz1(state.f) + ' tone and a quiet one at ' + hz1(state.f + QUIET_OFFSET) : 'a ' + hz1(state.f) + ' tone';
+    $('wave').setAttribute('aria-label', 'A tenth of a second of ' + what + '. Frame ' + state.index + ' covers ' + ms(data.start) + ' to ' + ms(data.start + len) + ' milliseconds.');
+    $('frame').setAttribute('aria-label', 'The ' + len + ' samples of the frame, as cut and after the ' + name + ' window' + (data.nFft > len ? ', followed by ' + (data.nFft - len) + ' zeros.' : '.'));
+    var peak = -Infinity, far = -Infinity, peakK = 0, k;
+    for (k = 0; k < data.db.length; k++) if (data.db[k] > peak) { peak = data.db[k]; peakK = k; }
+    for (k = 0; k < data.db.length; k++) if (Math.abs(k - peakK) * data.binHz >= 1000) far = Math.max(far, data.db[k]);
+    $('spectrum').setAttribute('aria-label', 'Spectrum with the ' + name + ' window. The peak is at ' + hz1(+(peakK * data.binHz).toFixed(1)) +
+      '. More than 1,000 Hz away from it the spectrum stays below ' + fmt.int(Math.max(DB_FLOOR, far)) + ' decibels.');
+    $('overlap').setAttribute('aria-label', data.count + ' ' + name + ' windows, ' + hop + ' samples apart. ' + pill.textContent + '.');
+  }
+
+  function chips(sel, attr, isOn) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel + ' .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(!!isOn(chip.getAttribute(attr))));
+    });
+  }
+  function hopFor(v) { return v === 'half' ? state.len / 2 : v === 'quarter' ? state.len / 4 : +v; }
+
+  function update() {
+    compute();
+    frame.flush();          // sets frame.jumps, which the legend needs
+    updateReadouts();
+    wave.redraw();
+    spectrum.redraw();
+    overlap.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var cancelTween = function () {};
+  function touched() { cancelTween(); cancelTween = function () {}; }
+
+  var F_MIN = 200, F_STEP = 3.125;   // a tenth of a bin of the 512-point FFT
+  var freq = SR.bindSlider('#freq', {
+    map: {
+      steps: 896,
+      toValue: function (p) { return F_MIN + p * F_STEP; },
+      toPos: function (v) { return Math.round((v - F_MIN) / F_STEP); }
+    },
+    format: function (v) { return hz1(+v.toFixed(1)) + ' · ' + (+(v * state.len / FS).toFixed(2)) + ' cycles per frame'; },
+    onInput: function (v) { touched(); state.f = v; update(); }
+  });
+  var quiet = SR.bindSlider('#quiet', {
+    format: function (v) { return fmt.int(v) + ' dB'; },
+    onInput: function (v) { touched(); state.quiet = v; update(); }
+  });
+  var len = SR.bindSlider('#len', {
+    format: function (v) { return ms(v) + ' ms · ' + fmt.int(v) + ' samples'; },
+    onInput: function (v) { touched(); state.len = v; syncControls(); update(); }
+  });
+  var hop = SR.bindSlider('#hop', {
+    format: function (v) { return ms(v) + ' ms · ' + fmt.int(v) + ' samples'; },
+    onInput: function (v) { touched(); state.hop = v; syncControls(); update(); }
+  });
+  var index = SR.bindSlider('#index', {
+    format: function (v) { return 'frame ' + v + ' · starts at ' + ms(v * state.hop) + ' ms'; },
+    onInput: function (v) { touched(); state.index = v; update(); }
+  });
+  var mode = SR.bindRadios('signal', function (v) { touched(); state.mode = v; update(); });
+  var windowKind = SR.bindRadios('window', function (v) { touched(); state.window = v; update(); });
+  var ghost = SR.bindCheck('#ghost', function (on) { touched(); state.ghost = on; update(); });
+  var zoom = SR.bindCheck('#zoom', function (on) { touched(); state.zoom = on; update(); });
+
+  function chipClicks(sel, attr, apply) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel + ' .sr-chip'), function (chip) {
+      chip.addEventListener('click', function () { touched(); apply(chip.getAttribute(attr)); syncControls(); update(); });
+    });
+  }
+  chipClicks('#freq-chips', 'data-f', function (v) { state.f = +v; });
+  chipClicks('#len-chips', 'data-len', function (v) { state.len = +v; });
+  chipClicks('#hop-chips', 'data-hop', function (v) { state.hop = hopFor(v); });
+
+  // Push the state into every control (after a step, a chip or a drag changed it).
+  function syncControls() {
+    var count = numFrames(NS, state.len, state.hop);
+    state.index = SR.clamp(state.index, 0, count - 1);
+    index.input.max = count - 1;
+    index.input.disabled = count < 2;
+    freq.set(state.f);
+    quiet.set(state.quiet);
+    len.set(state.len);
+    hop.set(state.hop);
+    index.set(state.index);
+    mode.set(state.mode);
+    windowKind.set(state.window);
+    ghost.set(state.ghost);
+    zoom.set(state.zoom);
+  }
+
+  // Dragging on the first plot moves the frame, one hop at a time.
+  (function () {
+    var canvas = wave.canvas, dragging = false;
+    function moveTo(evt) {
+      var p = wave.point(evt);
+      var size = canvas.getBoundingClientRect();   // measured now, in case no frame has been drawn since a resize
+      var box = SR.plotBox(size.width, size.height, { l: 40, r: 14 });
+      var sample = (p.x - box.x) / box.w * NS;
+      var i = SR.clamp(Math.round((sample - state.len / 2) / state.hop), 0, numFrames(NS, state.len, state.hop) - 1);
+      if (i === state.index) return;
+      touched();
+      state.index = i;
+      index.set(i);
+      update();
+    }
+    canvas.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(evt.pointerId);
+      moveTo(evt);
+    });
+    canvas.addEventListener('pointermove', function (evt) { if (dragging) moveTo(evt); });
+    ['pointerup', 'pointercancel'].forEach(function (name) {
+      canvas.addEventListener(name, function () { dragging = false; });
+    });
+  })();
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  // Glide the continuous settings to a step's values; switch the rest at once.
+  function show(target, animate) {
+    touched();
+    var from = { f: state.f, quiet: state.quiet };
+    ['mode', 'len', 'hop', 'index', 'window', 'ghost'].forEach(function (k) { state[k] = target[k]; });
+    state.zoom = !!target.zoom;
+    var glide = animate && state.mode !== 'vowel';
+    cancelTween = SR.tween(glide ? 480 : 0, function (u) {
+      state.f = u === 1 ? target.f : SR.lerp(from.f, target.f, u);
+      state.quiet = u === 1 ? target.quiet : Math.round(SR.lerp(from.quiet, target.quiet, u));
+      syncControls();
+      update();
+    });
+  }
+
+  SR.stepper('#steps', {
+    label: 'Framing and windowing, step by step',
+    steps: [
+      {
+        title: 'Why frames',
+        body: 'This sound changes as it goes: the vowel slides from "ah" to "ee" and the pitch climbs. One spectrum of the whole thing would blur all of that together. So we cut out a <b>frame</b> of 25 ms, 400 samples, short enough that the sound barely changes inside it, and step forward 10 ms at a time, the <b>hop</b>. Drag the green band and watch the spectrum follow the sound.',
+        enter: function (animate) {
+          show({ mode: 'vowel', f: 1000, quiet: -50, len: 400, hop: 160, index: 2, window: 'hann', ghost: false }, animate);
+        }
+      },
+      {
+        title: 'The hard edges problem',
+        body: 'Here are two pure tones, one of them 316 times quieter, cut with no window at all. The FFT treats a frame as one lap of a loop, and this frame ends half a cycle in, so the loop has a <b>jump</b> the signal never made. A jump needs every frequency to describe it. The loud tone smears across the whole spectrum, <b>spectral leakage</b>, and the quiet tone drowns in it. Try 1,000 Hz, where the cycles happen to fit.',
+        enter: function (animate) {
+          show({ mode: 'two', f: 1015.625, quiet: -50, len: 512, hop: 160, index: 2, window: 'rect', ghost: false }, animate);
+        }
+      },
+      {
+        title: 'A window fixes it',
+        body: 'Now we multiply the frame by a <b>Hann window</b>, a smooth hump that is zero at both ends. The frame fades in and fades out, the jump is gone, and the skirts of the loud tone fall away: where the quiet tone sits, at 1,515.6 Hz, the leakage is now about 50 dB lower. The quiet tone stands clear. The thin line is the spectrum without the window, for comparison.',
+        enter: function (animate) {
+          show({ mode: 'two', f: 1015.625, quiet: -50, len: 512, hop: 160, index: 2, window: 'hann', ghost: true }, animate);
+        }
+      },
+      {
+        title: 'The price: a wider peak',
+        body: 'Nothing is free. This tone fits the frame exactly, so without a window it is a single line, one bin wide. With the Hann window it spreads over three bins (the plot is zoomed in so we can count them), because fading the edges leaves us less signal to measure with. The <b>main lobe</b> is twice as wide: two tones closer than that melt into one. Hamming makes a different trade; try it.',
+        enter: function (animate) {
+          show({ mode: 'tone', f: 1000, quiet: -50, len: 512, hop: 160, index: 2, window: 'hann', ghost: true, zoom: true }, animate);
+        }
+      },
+      {
+        title: 'Overlap, so nothing is lost',
+        body: 'A window nearly erases the samples at the ends of a frame. That is why frames <b>overlap</b>: a sample at the faded edge of one frame is near the middle of the next. The last plot adds up all the windows. With a hop of half or a quarter of the frame the sum is perfectly flat. Our 25 ms frames every 10 ms wobble a little, which is fine for recognition. Make the hop longer than the frame and gaps open up.',
+        enter: function (animate) {
+          show({ mode: 'vowel', f: 1000, quiet: -50, len: 400, hop: 200, index: 3, window: 'hann', ghost: false }, animate);
+        }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

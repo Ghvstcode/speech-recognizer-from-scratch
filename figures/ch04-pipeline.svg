@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="476" viewBox="0 0 800 476" role="img">
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<title>The log-mel pipeline, stage by stage, with the shape of the data after each stage</title>
+<desc>Eight boxes joined by arrows. Samples: 16000 numbers. Pre-emphasis: 16000. Frames of 25 milliseconds every 10 milliseconds: 98 rows of 400. Hann window: 98 by 400. FFT, zero-padded to 512: 98 by 512 complex numbers. Power, bins 0 to 256: 98 by 257. Mel filterbank of 40 triangles: 98 by 40. Logarithm: 98 by 40, the log-mel spectrogram. An optional ninth box, the DCT keeping 13 coefficients, turns that into 98 by 13 MFCCs.</desc>
+<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.5" fill="rgba(25,22,21,0.1)"/></pattern></defs>
+<rect x="0" y="44" width="800" height="432" fill="url(#dots)"/>
+<text x="24" y="30" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" fill="#191615">From one second of sound to a 98 × 40 picture</text>
+<rect x="34" y="62" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="46" y="84" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">1 · SAMPLES</text>
+<line x1="46" y1="93" x2="190" y2="93" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="46" y="111" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">seven.wav, 1 s at 16 kHz</text>
+<text x="46" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">16000</text>
+<text x="190" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 1</text>
+<text x="46" y="154" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">16,000 numbers</text>
+<line x1="205" y1="114.0" x2="213" y2="114.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M212 110.0 L219 114.0 L212 118.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="222" y="62" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="234" y="84" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">2 · PRE-EMPHASIS</text>
+<line x1="234" y1="93" x2="378" y2="93" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="234" y="111" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">x[t] − 0.97 · x[t−1]</text>
+<text x="234" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">16000</text>
+<text x="378" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 2</text>
+<text x="234" y="154" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">16,000 numbers</text>
+<line x1="393" y1="114.0" x2="401" y2="114.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M400 110.0 L407 114.0 L400 118.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="410" y="62" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="422" y="84" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">3 · FRAMES</text>
+<line x1="422" y1="93" x2="566" y2="93" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="422" y="111" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">25 ms long, every 10 ms</text>
+<text x="422" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 400</text>
+<text x="566" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 2</text>
+<text x="422" y="154" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">39,200 numbers</text>
+<line x1="581" y1="114.0" x2="589" y2="114.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M588 110.0 L595 114.0 L588 118.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="598" y="62" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="610" y="84" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">4 · HANN WINDOW</text>
+<line x1="610" y1="93" x2="754" y2="93" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="610" y="111" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">fade each frame's edges</text>
+<text x="610" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 400</text>
+<text x="754" y="137" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 2</text>
+<text x="610" y="154" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">39,200 numbers</text>
+<rect x="34" y="214" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="46" y="236" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">5 · FFT</text>
+<line x1="46" y1="245" x2="190" y2="245" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="46" y="263" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">pad to 512, transform</text>
+<text x="46" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 512</text>
+<text x="190" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 3</text>
+<text x="46" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">complex numbers</text>
+<line x1="205" y1="266.0" x2="213" y2="266.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M212 262.0 L219 266.0 L212 270.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="222" y="214" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="234" y="236" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">6 · POWER</text>
+<line x1="234" y1="245" x2="378" y2="245" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="234" y="263" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">|X[k]|², bins 0 to 256</text>
+<text x="234" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 257</text>
+<text x="378" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 3</text>
+<text x="234" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">25,186 numbers</text>
+<line x1="393" y1="266.0" x2="401" y2="266.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M400 262.0 L407 266.0 L400 270.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="410" y="214" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="422" y="236" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">7 · MEL FILTERBANK</text>
+<line x1="422" y1="245" x2="566" y2="245" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="422" y="263" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">sum through 40 triangles</text>
+<text x="422" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 40</text>
+<text x="566" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 4</text>
+<text x="422" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">3,920 numbers</text>
+<line x1="581" y1="266.0" x2="589" y2="266.0" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round"/>
+<path d="M588 262.0 L595 266.0 L588 270.0 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="598" y="214" width="168" height="104" rx="8" fill="#FBFAF7" stroke="#047857" stroke-width="1.25"/>
+<text x="610" y="236" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">8 · LOG</text>
+<line x1="610" y1="245" x2="754" y2="245" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="610" y="263" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">ln(energy + 0.000001)</text>
+<text x="610" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#047857">98 × 40</text>
+<text x="754" y="289" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 4</text>
+<text x="610" y="306" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">the log-mel spectrogram</text>
+<path d="M682.0 170 V182 Q682.0 190 674.0 190 H126.0 Q118.0 190 118.0 198 V204" fill="none" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M114.0 203 L118.0 210 L122.0 203 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="294.0" y="180" width="212" height="20" rx="8" fill="#F5F3EF" stroke="rgba(25,22,21,0.15)" stroke-width="1"/>
+<text x="400" y="193.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="middle" fill="rgba(25,22,21,0.7)">ONE ROW PER FRAME, 98 ROWS</text>
+<line x1="682.0" y1="322" x2="682.0" y2="346" stroke="rgba(25,22,21,0.48)" stroke-width="1.25" stroke-linecap="round" stroke-dasharray="3 3"/>
+<path d="M678.0 345 L682.0 352 L686.0 345 Z" fill="rgba(25,22,21,0.48)"/>
+<rect x="598" y="356" width="168" height="104" rx="8" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="610" y="378" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.7)">9 · DCT (OPTIONAL)</text>
+<line x1="610" y1="387" x2="754" y2="387" stroke="rgba(25,22,21,0.1)" stroke-width="1"/>
+<text x="610" y="405" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" fill="rgba(25,22,21,0.7)">keep the first 13 outputs</text>
+<text x="610" y="431" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" font-weight="500" fill="#191615">98 × 13</text>
+<text x="754" y="431" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" text-anchor="end" fill="rgba(25,22,21,0.48)">CH 4</text>
+<text x="610" y="448" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="rgba(25,22,21,0.48)">1,274 numbers: MFCCs</text>
+<text x="34" y="378" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing=".08em" fill="rgba(25,22,21,0.48)">HOW TO READ THE SHAPES</text>
+<text x="34" y="402" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12.5" fill="rgba(25,22,21,0.7)"><tspan font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" fill="#191615">98 × 40</tspan> means 98 rows (one per frame, so 98 moments in time)</text>
+<text x="34" y="420" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12.5" fill="rgba(25,22,21,0.7)">and 40 columns (the numbers we keep to describe each moment).</text>
+<text x="34" y="446" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12.5" fill="rgba(25,22,21,0.7)">Stages 1 to 6 we already have. Stages 7 to 9 are this chapter.</text>
+</svg>

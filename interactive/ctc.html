@@ -1,0 +1,1330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Alignment Problem: CTC · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="Connectionist temporal classification by hand: the blank, the collapse rule, every alignment of a target, the forward-backward lattice, and the gradient that falls out of it.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes and three small things shared.css does not have:
+     a sideways-scrolling figure body, a one-line text input, and the rows of
+     the alignment list. All of them use the shared tokens. */
+  #steps { --sr-step-lines: 5; }
+  #loss { --h: 132px; }
+  .ctc-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+  .ctc-scroll canvas { display: block; }
+  #table { cursor: default; }
+  #node-detail, #table-detail { flex: 1 1 100%; }
+  #node-detail { min-height: 2.9em; }
+
+  .ctc-input {
+    width: 100%; min-height: 36px; padding: 0 12px;
+    border: 1px solid var(--ink-30); border-radius: var(--radius-control);
+    background: var(--panel); color: var(--ink);
+    font-family: var(--mono); font-size: 15px; letter-spacing: .12em;
+  }
+  .ctc-input:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .ctc-collapse { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; align-items: center; padding: 6px 6px 4px; }
+  .ctc-collapse .sr-overline { white-space: nowrap; }
+  .ctc-toks { display: flex; flex-wrap: wrap; gap: 3px; min-height: 26px; align-items: center; }
+  .ctc-tok {
+    display: inline-grid; place-items: center; width: 22px; height: 26px;
+    border: 1px solid var(--ink-30); border-radius: 4px; background: var(--paper);
+    font-family: var(--mono); font-size: 13px; line-height: 1;
+  }
+  .ctc-tok[data-gone] { border-style: dashed; border-color: var(--ink-15); background: transparent; color: var(--ink-30); text-decoration: line-through; }
+  .ctc-tok[data-blank] { color: var(--ink-60); }
+  .ctc-tok[data-blank][data-gone] { color: var(--ink-30); }
+  .ctc-result { font-family: var(--mono); font-size: 15px; }
+
+  .ctc-list { max-height: 264px; overflow-y: auto; border-top: 1px solid var(--ink-7); }
+  .ctc-row {
+    display: grid; grid-template-columns: 5.2em minmax(0, 1fr) 4.6em 5.6em; gap: 0 12px; align-items: center;
+    width: 100%; min-height: 26px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--ink-7);
+    background: transparent; color: var(--ink-70); text-align: left; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .ctc-row:hover { background: var(--ink-4); }
+  .ctc-row[aria-pressed="true"] { background: var(--amber-wash); color: var(--ink); }
+  .ctc-row b { font-weight: 400; color: var(--ink); letter-spacing: .1em; }
+  .ctc-row .f { overflow: hidden; text-overflow: ellipsis; color: var(--ink-60); }
+  .ctc-row .n { text-align: right; }
+  .ctc-row--head { cursor: default; min-height: 24px; color: var(--ink-60); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+  .ctc-row--head:hover { background: transparent; }
+  #train-play { min-width: 76px; }
+  @media (max-width: 799px) {
+    #steps { --sr-step-lines: 7; }
+    .ctc-row { grid-template-columns: 5.2em 4.6em minmax(0, 1fr); }
+    .ctc-row .f { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/08-the-alignment-problem-ctc.md">Chapter 8</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 8 · Interactive</span>
+    <h1 class="sr-title">The Alignment Problem: CTC</h1>
+    <p class="sr-lede">Our network gives one row of probabilities per frame, and our training data gives one short string per clip. Nobody tells us which frame is which letter. CTC gets around that by adding up every way the letters could be laid over the frames.</p>
+    <p class="sr-small">Walk through the seven steps first. Then edit the table, scrub the lattice, and press Train to watch an alignment appear out of nothing.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure" id="panel-table">
+        <div class="sr-figure-head">
+          <span class="sr-overline" id="table-title">What the network says: p(class) in every frame</span>
+          <span class="sr-pill" id="table-pill">target "ab" · 5 frames</span>
+        </div>
+        <div class="sr-figure-body ctc-scroll">
+          <div id="wide">
+            <canvas class="sr-canvas" id="table" tabindex="0" role="img" aria-label="The probability table"></canvas>
+            <canvas class="sr-canvas" id="lattice" tabindex="0" role="img" aria-label="The lattice"></canvas>
+          </div>
+        </div>
+        <div class="sr-figure-foot">
+          <p class="sr-hint sr-mono" id="node-detail" aria-live="polite"></p>
+          <ul class="sr-legend" id="legend">
+            <li data-key="ramp"><span class="sr-swatch sr-swatch--ramp"></span><span id="ramp-label">probability, 0 to 1</span></li>
+            <li data-key="more"><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>should go up</li>
+            <li data-key="less"><span class="sr-swatch sr-swatch--box" style="--c: var(--amber)"></span>should go down</li>
+            <li data-key="best"><span class="sr-swatch" style="--c: var(--green)"></span>the most likely alignment</li>
+            <li data-key="picked"><span class="sr-swatch sr-swatch--dashed" style="--c: var(--amber)"></span>the alignment you picked</li>
+          </ul>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-p" data-tone="green">
+          <span class="sr-overline">p(target)</span>
+          <span class="sr-stat-value">0.450540</span>
+          <span class="sr-stat-sub">all alignments, added up</span>
+        </div>
+        <div class="sr-stat" id="stat-loss">
+          <span class="sr-overline">Loss = −ln p</span>
+          <span class="sr-stat-value">0.797308</span>
+          <span class="sr-stat-sub">what training pushes down</span>
+        </div>
+        <div class="sr-stat" id="stat-count">
+          <span class="sr-overline">Alignments</span>
+          <span class="sr-stat-value">35</span>
+          <span class="sr-stat-sub">out of 3^5 = 243 paths</span>
+        </div>
+        <div class="sr-stat" id="stat-best">
+          <span class="sr-overline">Most likely one</span>
+          <span class="sr-stat-value">aa_b_</span>
+          <span class="sr-stat-sub">p = 0.06300</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure" id="panel-collapse">
+        <div class="sr-figure-head">
+          <span class="sr-overline">The collapse rule: merge repeats, then drop blanks</span>
+          <span class="sr-pill" id="collapse-pill">5 frames</span>
+        </div>
+        <div class="sr-figure-body">
+          <div class="ctc-collapse">
+            <label class="sr-overline" for="path-input">One class per frame</label>
+            <input class="ctc-input" id="path-input" type="text" value="aa_b_" maxlength="24" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="collapse-note">
+            <span class="sr-overline">Merge repeats</span>
+            <div class="ctc-toks" id="toks-merge"></div>
+            <span class="sr-overline">Drop blanks</span>
+            <div class="ctc-toks" id="toks-drop"></div>
+            <span class="sr-overline">We read</span>
+            <div class="ctc-result" id="collapse-result"></div>
+          </div>
+        </div>
+        <div class="sr-figure-foot">
+          <div class="sr-chip-row" id="collapse-examples" role="group" aria-label="Paths to try">
+            <button class="sr-chip" type="button" data-path="aa_b_">aa_b_</button>
+            <button class="sr-chip" type="button" data-path="_abbb">_abbb</button>
+            <button class="sr-chip" type="button" data-path="hheelllloo">hheelllloo</button>
+            <button class="sr-chip" type="button" data-path="hhel_lloo">hhel_lloo</button>
+            <button class="sr-chip" type="button" data-path="__cc___aa___tt__">__cc___aa___tt__</button>
+          </div>
+          <p class="sr-hint" id="collapse-note"></p>
+        </div>
+      </figure>
+
+      <figure class="sr-figure" id="panel-list">
+        <div class="sr-figure-head">
+          <span class="sr-overline" id="list-title">Every alignment that collapses to "ab"</span>
+          <span class="sr-pill" id="list-pill">35 of 243 paths</span>
+        </div>
+        <div class="ctc-list" id="list" tabindex="-1"></div>
+        <div class="sr-figure-foot">
+          <p class="sr-hint" id="list-note"></p>
+        </div>
+      </figure>
+
+      <figure class="sr-figure" id="panel-train">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Gradient descent on the logits: the loss, step by step</span>
+          <span class="sr-pill" id="train-pill">step 0 of 200</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="loss" role="img" aria-label="Loss curve"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <div class="sr-values" id="train-values"></div>
+        </div>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The example</span>
+      <div class="sr-chip-row" id="presets" role="group" aria-label="Examples">
+        <button class="sr-chip" type="button" data-preset="ab">"ab" in 5 frames</button>
+        <button class="sr-chip" type="button" data-preset="cat">"cat" in 12 frames</button>
+        <button class="sr-chip" type="button" data-preset="train">"cat", 16 frames, untrained</button>
+      </div>
+      <p class="sr-hint" id="preset-hint"></p>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The table</span>
+      <div class="sr-field">
+        <span class="sr-label" id="view-label">Show</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="view-label">
+          <label><input type="radio" name="view" value="says" checked><span>Says</span></label>
+          <label><input type="radio" name="view" value="wants"><span>Wants</span></label>
+          <label><input type="radio" name="view" value="grad"><span>Gradient</span></label>
+        </div>
+        <p class="sr-hint" id="view-hint"></p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <span class="sr-label" id="frame-label">Frame 0</span>
+          <span class="sr-btn-row">
+            <button class="sr-btn sr-btn--sm" type="button" id="frame-prev" aria-label="Previous frame">←</button>
+            <button class="sr-btn sr-btn--sm" type="button" id="frame-next" aria-label="Next frame">→</button>
+          </span>
+        </div>
+        <div id="frame-sliders"></div>
+        <p class="sr-hint">Move one probability and the others in that frame shrink or grow so the frame still sums to 1. On the table itself: click a cell and drag up or down, or focus it, move with the arrow keys and press + or −.</p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The lattice</span>
+      <div class="sr-field">
+        <span class="sr-label" id="layer-label">Each node holds</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="layer-label">
+          <label><input type="radio" name="layer" value="none"><span>Symbol</span></label>
+          <label><input type="radio" name="layer" value="alpha"><span>α</span></label>
+          <label><input type="radio" name="layer" value="beta"><span>β</span></label>
+          <label><input type="radio" name="layer" value="gamma" checked><span>αβ / p</span></label>
+        </div>
+      </div>
+      <div class="sr-field" id="cols-field">
+        <div class="sr-field-head">
+          <label for="cols">Frames filled in</label>
+          <output class="sr-readout" for="cols"></output>
+        </div>
+        <input class="sr-range" type="range" id="cols" min="0" max="5" step="1" value="5">
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn" type="button" id="cols-play">Play</button>
+        <label class="sr-check"><input type="checkbox" id="show-best" checked>Most likely alignment</label>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">Gradient descent</span>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="train-play">Train</button>
+        <button class="sr-btn" type="button" id="train-step">One step</button>
+        <button class="sr-btn" type="button" id="train-reset">Forget everything</button>
+      </div>
+      <p class="sr-hint">Each step moves every logit against its gradient, with a learning rate of 0.5, as in part 2 of the Rust example. "Forget everything" sets the logits to small random numbers, so every class is equally likely in every frame.</p>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">Panels</span>
+      <div class="sr-check-row">
+        <label class="sr-check"><input type="checkbox" id="p-lattice" checked>The lattice</label>
+        <label class="sr-check"><input type="checkbox" id="p-collapse" checked>The collapse rule</label>
+        <label class="sr-check"><input type="checkbox" id="p-list" checked>The list of alignments</label>
+        <label class="sr-check"><input type="checkbox" id="p-train" checked>The loss curve</label>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/08-the-alignment-problem-ctc.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 8.</span>
+  <span>The same recurrences as <a href="../code/src/ctc.rs"><code>ctc.rs</code></a>; the numbers are those of <a href="../code/examples/ch08_ctc_toy.rs"><code>ch08_ctc_toy</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, f32 = Math.fround;
+  function $(id) { return document.getElementById(id); }
+
+  /* ------------------------------------------------- the Rust code, in JS */
+
+  var BLANK = 0;   // ctc.rs: the blank is class 0
+
+  // rng.rs: xoshiro256** seeded with SplitMix64, so that "small random
+  // logits" here are the same small random logits as in the Rust example.
+  function Rng(seed) {
+    var M = (1n << 64n) - 1n, z = BigInt(seed);
+    function split() {
+      z = (z + 0x9E3779B97F4A7C15n) & M;
+      var x = z;
+      x = ((x ^ (x >> 30n)) * 0xBF58476D1CE4E5B9n) & M;
+      x = ((x ^ (x >> 27n)) * 0x94D049BB133111EBn) & M;
+      return x ^ (x >> 31n);
+    }
+    var s = [split(), split(), split(), split()];
+    function rotl(x, k) { return ((x << k) | (x >> (64n - k))) & M; }
+    function next() {
+      var result = (rotl((s[1] * 5n) & M, 7n) * 9n) & M;
+      var t = (s[1] << 17n) & M;
+      s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3];
+      s[2] ^= t;
+      s[3] = rotl(s[3], 45n);
+      return result;
+    }
+    function uniform() { return Number(next() >> 40n) / 16777216; }
+    return {
+      normal: function () {          // Box-Muller, in f32 like the original
+        var u1 = Math.max(uniform(), f32(1e-7)), u2 = uniform();
+        return f32(f32(Math.sqrt(f32(-2 * f32(Math.log(u1))))) * f32(Math.cos(f32(f32(2 * Math.PI) * u2))));
+      }
+    };
+  }
+
+  // ln(e^a + e^b) without leaving log space.
+  function logAdd(a, b) {
+    var hi = a >= b ? a : b, lo = a >= b ? b : a;
+    return lo === -Infinity ? hi : hi + Math.log1p(Math.exp(lo - hi));
+  }
+  // Merge repeats, then drop blanks.
+  function collapse(path) {
+    var out = [], prev = BLANK;
+    for (var i = 0; i < path.length; i++) {
+      if (path[i] !== BLANK && path[i] !== prev) out.push(path[i]);
+      prev = path[i];
+    }
+    return out;
+  }
+  // [c, a, t] -> [_, c, _, a, _, t, _]
+  function extendWithBlanks(target) {
+    var ext = [BLANK];
+    target.forEach(function (l) { ext.push(l, BLANK); });
+    return ext;
+  }
+  // May a path jump from position s - 2 straight to s? Only onto a label
+  // that differs from the label two positions back.
+  function canSkipInto(ext, s) { return s >= 2 && ext[s] !== BLANK && ext[s] !== ext[s - 2]; }
+
+  function logSoftmax(logits, T, C) {
+    var lp = new Float64Array(T * C);
+    for (var t = 0; t < T; t++) {
+      var m = -Infinity, k, sum = 0;
+      for (k = 0; k < C; k++) if (logits[t * C + k] > m) m = logits[t * C + k];
+      for (k = 0; k < C; k++) sum += Math.exp(logits[t * C + k] - m);
+      var lz = m + Math.log(sum);
+      for (k = 0; k < C; k++) lp[t * C + k] = logits[t * C + k] - lz;
+    }
+    return lp;
+  }
+  // alpha[t][s]: log of the total probability of every way to emit frames
+  // 0..=t and be at position s of the extended target at frame t.
+  function forward(lp, T, C, ext) {
+    var S = ext.length, a = new Float64Array(T * S).fill(-Infinity);
+    a[0] = lp[BLANK];
+    a[1] = lp[ext[1]];
+    for (var t = 1; t < T; t++) for (var s = 0; s < S; s++) {
+      var v = a[(t - 1) * S + s];                                         // stay
+      if (s >= 1) v = logAdd(v, a[(t - 1) * S + s - 1]);                  // advance
+      if (canSkipInto(ext, s)) v = logAdd(v, a[(t - 1) * S + s - 2]);     // skip a blank
+      a[t * S + s] = v + lp[t * C + ext[s]];
+    }
+    return a;
+  }
+  // beta[t][s]: log of the total probability of every way to finish from
+  // position s at frame t (frame t itself not counted).
+  function backward(lp, T, C, ext) {
+    var S = ext.length, b = new Float64Array(T * S).fill(-Infinity);
+    b[(T - 1) * S + S - 1] = 0;
+    b[(T - 1) * S + S - 2] = 0;
+    for (var t = T - 2; t >= 0; t--) for (var s = 0; s < S; s++) {
+      var v = lp[(t + 1) * C + ext[s]] + b[(t + 1) * S + s];
+      if (s + 1 < S) v = logAdd(v, lp[(t + 1) * C + ext[s + 1]] + b[(t + 1) * S + s + 1]);
+      if (s + 2 < S && canSkipInto(ext, s + 2)) v = logAdd(v, lp[(t + 1) * C + ext[s + 2]] + b[(t + 1) * S + s + 2]);
+      b[t * S + s] = v;
+    }
+    return b;
+  }
+  // best_alignment(): the forward pass with "best of" in place of "sum of",
+  // and a note in every cell of where the best came from.
+  function bestAlignment(lp, T, C, ext) {
+    var S = ext.length, best = new Float64Array(T * S).fill(-Infinity), from = new Int32Array(T * S);
+    best[0] = lp[BLANK];
+    best[1] = lp[ext[1]];
+    for (var t = 1; t < T; t++) for (var s = 0; s < S; s++) {
+      var fr = s;
+      if (s >= 1 && best[(t - 1) * S + s - 1] > best[(t - 1) * S + fr]) fr = s - 1;
+      if (canSkipInto(ext, s) && best[(t - 1) * S + s - 2] > best[(t - 1) * S + fr]) fr = s - 2;
+      from[t * S + s] = fr;
+      best[t * S + s] = best[(t - 1) * S + fr] + lp[t * C + ext[s]];
+    }
+    var end = S - 1;
+    if (best[(T - 1) * S + S - 2] > best[(T - 1) * S + end]) end = S - 2;
+    var logProb = best[(T - 1) * S + end];
+    if (logProb === -Infinity) return null;
+    var positions = new Array(T);
+    for (t = T - 1; t >= 0; t--) { positions[t] = end; end = from[t * S + end]; }
+    return { positions: positions, classes: positions.map(function (s) { return ext[s]; }), logProb: logProb };
+  }
+
+  /* -------------------------------------------------------------- presets */
+
+  var LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+  var ALPHABET = ['_', '␣'].concat(LETTERS.split(''));       // decode.rs: blank, space, a..z
+
+  function fromTable(rows) {
+    var C = rows[0].length, out = new Float32Array(rows.length * C);
+    // The log of a probability table is a perfectly good set of logits.
+    rows.forEach(function (row, t) { row.forEach(function (p, k) { out[t * C + k] = f32(Math.log(f32(p))); }); });
+    return out;
+  }
+  function nearZero(T, C) {
+    var rng = Rng(8), out = new Float32Array(T * C);
+    for (var i = 0; i < T * C; i++) out[i] = f32(f32(0.01) * rng.normal());
+    return out;
+  }
+
+  var PRESETS = {
+    // Part 1 of ch08_ctc_toy.
+    ab: {
+      symbols: ['_', 'a', 'b'], target: [1, 2], T: 5, shown: [0, 1, 2],
+      hint: 'The table from the chapter: 5 frames over blank, a and b. Small enough to list every alignment.',
+      logits: function () { return fromTable([[0.3, 0.6, 0.1], [0.2, 0.5, 0.3], [0.5, 0.2, 0.3], [0.2, 0.1, 0.7], [0.6, 0.1, 0.3]]); }
+    },
+    // A made-up, unsure network output for "cat": too many alignments to list.
+    cat: {
+      symbols: ['_', 'a', 'c', 't'], target: [2, 1, 3], T: 12, shown: [0, 2, 1, 3],
+      hint: 'A made-up, slightly unsure network output over blank, a, c and t. There are 4^12 paths, far too many to list.',
+      logits: function () {
+        var said = [0, 0, 2, 2, 0, 1, 1, 1, 0, 3, 3, 0], rng = Rng(5), C = 4, out = new Float32Array(12 * C);
+        for (var i = 0; i < out.length; i++) out[i] = f32(0.7 * rng.normal());
+        said.forEach(function (k, t) { out[t * C + k] = f32(out[t * C + k] + 1.9); });
+        return out;
+      }
+    },
+    // Part 2 of ch08_ctc_toy: the full alphabet, logits near zero.
+    train: {
+      symbols: ALPHABET, target: [4, 2, 21], T: 16, shown: [0, 4, 2, 21],
+      hint: 'Part 2 of the Rust example: 16 frames over all 28 classes (blank, space, a to z), with logits near zero. The table shows the blank and the three letters we want; everything else is one row.',
+      logits: function () { return nearZero(16, 28); }
+    }
+  };
+
+  /* ---------------------------------------------------------------- state */
+
+  var state = {
+    preset: 'ab',
+    logits: PRESETS.ab.logits(),
+    view: 'says',          // table: 'says' (softmax) | 'wants' (occupancy per class) | 'grad'
+    layer: 'gamma',        // lattice nodes: 'none' | 'alpha' | 'beta' | 'gamma'
+    cols: 5,               // how many frames of alpha (from the left) or beta (from the right) are filled in
+    best: true,            // draw the most likely alignment
+    sel: { t: 0, k: 1 },   // table cell being edited: frame, class
+    node: null,            // lattice node being inspected: { t, s }
+    picked: null,          // an alignment picked from the list or typed: array of classes
+    path: 'aa_b_',         // the text in the collapse box
+    panels: { lattice: true, collapse: true, list: true, train: true },
+    step: 0,               // gradient descent steps taken
+    history: []            // loss after each step, history[0] is before any step
+  };
+
+  var data = null;
+  function P() { return PRESETS[state.preset]; }
+
+  function compute() {
+    var p = P(), T = p.T, C = p.symbols.length, ext = extendWithBlanks(p.target), S = ext.length;
+    var lp = logSoftmax(state.logits, T, C);
+    var alpha = forward(lp, T, C, ext), beta = backward(lp, T, C, ext);
+    var total = logAdd(alpha[(T - 1) * S + S - 1], alpha[(T - 1) * S + S - 2]);
+    var t, s, k;
+
+    var y = new Float64Array(T * C), occ = new Float64Array(T * C), grad = new Float64Array(T * C), gamma = new Float64Array(T * S);
+    for (t = 0; t < T; t++) {
+      for (k = 0; k < C; k++) y[t * C + k] = Math.exp(lp[t * C + k]);
+      for (s = 0; s < S; s++) {
+        gamma[t * S + s] = total === -Infinity ? 0 : Math.exp(alpha[t * S + s] + beta[t * S + s] - total);
+        occ[t * C + ext[s]] += gamma[t * S + s];
+      }
+      // The gradient of the loss with respect to the logits: softmax minus occupancy.
+      for (k = 0; k < C; k++) grad[t * C + k] = y[t * C + k] - occ[t * C + k];
+    }
+
+    // Which nodes lie on some complete path, and how many complete paths there are.
+    var ways = new Float64Array(T * S), back = new Float64Array(T * S);
+    ways[0] = 1; ways[1] = 1;
+    for (t = 1; t < T; t++) for (s = 0; s < S; s++) {
+      ways[t * S + s] = ways[(t - 1) * S + s] + (s >= 1 ? ways[(t - 1) * S + s - 1] : 0) + (canSkipInto(ext, s) ? ways[(t - 1) * S + s - 2] : 0);
+    }
+    back[(T - 1) * S + S - 1] = 1; back[(T - 1) * S + S - 2] = 1;
+    for (t = T - 2; t >= 0; t--) for (s = 0; s < S; s++) {
+      back[t * S + s] = back[(t + 1) * S + s] + (s + 1 < S ? back[(t + 1) * S + s + 1] : 0) + (s + 2 < S && canSkipInto(ext, s + 2) ? back[(t + 1) * S + s + 2] : 0);
+    }
+    var count = ways[(T - 1) * S + S - 1] + ways[(T - 1) * S + S - 2];
+
+    // The brute force the lattice exists to avoid: every path, counted like
+    // an odometer. Only for tables small enough to take it.
+    var alignments = null, paths = Math.pow(C, T);
+    if (paths <= 20000) {
+      alignments = [];
+      var path = new Array(T).fill(0), running = 0;
+      for (;;) {
+        var col = collapse(path);
+        if (col.length === p.target.length && col.every(function (c, i) { return c === p.target[i]; })) {
+          var prob = 1;
+          for (t = 0; t < T; t++) prob *= y[t * C + path[t]];
+          running += prob;
+          alignments.push({ classes: path.slice(), p: prob, sum: running });
+        }
+        var digit = T - 1;
+        while (digit >= 0 && ++path[digit] === C) { path[digit] = 0; digit--; }
+        if (digit < 0) break;
+      }
+    }
+
+    // Greedy decode: the best class in each frame, collapsed.
+    var argmax = [];
+    for (t = 0; t < T; t++) {
+      var b = 0;
+      for (k = 1; k < C; k++) if (lp[t * C + k] > lp[t * C + b]) b = k;
+      argmax.push(b);
+    }
+
+    data = {
+      T: T, C: C, S: S, ext: ext, lp: lp, y: y, occ: occ, grad: grad,
+      alpha: alpha, beta: beta, gamma: gamma, total: total, p: Math.exp(total), loss: -total,
+      live: function (tt, ss) { return ways[tt * S + ss] > 0 && back[tt * S + ss] > 0; },
+      count: count, paths: paths, alignments: alignments,
+      best: bestAlignment(lp, T, C, ext),
+      argmax: argmax, greedy: collapse(argmax)
+    };
+    if (!state.history.length) state.history = [data.loss];
+  }
+
+  function sym(k) { return P().symbols[k]; }
+  function text(classes) { return classes.map(sym).join(''); }
+  // The lattice position of each frame of an alignment that collapses to the target.
+  function positionsOf(classes) {
+    var ext = data.ext, s = classes[0] === BLANK ? 0 : 1, out = [];
+    if (classes.length !== data.T || ext[s] !== classes[0]) return null;
+    out.push(s);
+    for (var t = 1; t < classes.length; t++) {
+      var c = classes[t];
+      if (ext[s] === c) { /* stay */ }
+      else if (s + 1 < ext.length && ext[s + 1] === c) s += 1;
+      else if (s + 2 < ext.length && ext[s + 2] === c && canSkipInto(ext, s + 2)) s += 2;
+      else return null;
+      out.push(s);
+    }
+    return s >= ext.length - 2 ? out : null;
+  }
+
+  /* ------------------------------------------------------------ formatting */
+
+  function p6(v) { return v.toFixed(6); }
+  function short(v, digits) {
+    if (v === 0) return '0';
+    if (v < 0.5 * Math.pow(10, -digits)) return '≈0';
+    return v.toFixed(digits);
+  }
+  function big(base, exp) {
+    var v = Math.pow(base, exp);
+    if (v < 1e7) return base + '^' + exp + ' = ' + fmt.int(v);
+    var e = Math.floor(Math.log10(v));
+    return base + '^' + exp + ' ≈ ' + (v / Math.pow(10, e)).toFixed(1) + ' × 10^' + e;
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  function inkOn(rgb, t) {
+    var lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+    return (lum > 140) === t.dark ? t.paper : t.ink;
+  }
+  function rgbCss(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+  // The table and the lattice share their columns: frame t of one sits
+  // exactly above frame t of the other.
+  var LABEL_W = 48, PAD_R = 8, MIN_COL = 44;
+  function columns(w) {
+    var colW = (w - LABEL_W - PAD_R) / data.T;
+    return { colW: colW, x: function (t) { return LABEL_W + t * colW; }, cx: function (t) { return LABEL_W + (t + 0.5) * colW; } };
+  }
+
+  /* The table: classes down, frames across. */
+
+  var HEAD_H = 22, ROW_H = 28;
+  function tableRows() {
+    var p = P(), rows = p.shown.map(function (k) { return { k: k, label: p.symbols[k] }; });
+    if (p.shown.length < p.symbols.length) rows.push({ k: -1, label: 'rest' });
+    return rows;
+  }
+  function tableValue(t, k) {
+    var src = state.view === 'says' ? data.y : state.view === 'wants' ? data.occ : data.grad;
+    if (k >= 0) return src[t * data.C + k];
+    var sum = 0, shown = P().shown;
+    for (var c = 0; c < data.C; c++) if (shown.indexOf(c) < 0) sum += src[t * data.C + c];
+    return sum;
+  }
+
+  var table = SR.canvas('#table', function (ctx, w, h, t) {
+    if (!data || w < 80) return;
+    var L = columns(w), rows = tableRows(), T = data.T;
+    var need = HEAD_H + rows.length * ROW_H + 6;
+    if (Math.abs(h - need) > 0.5) table.canvas.style.height = need + 'px';
+    var r, tt, x, y;
+
+    ctx.textBaseline = 'middle';
+    ctx.font = SR.font.mono(9.5);
+    ctx.fillStyle = t.ink48;
+    ctx.textAlign = 'left';
+    SR.spacedText(ctx, 'FRAME', 6, HEAD_H / 2);
+    ctx.textAlign = 'center';
+    for (tt = 0; tt < T; tt++) ctx.fillText(String(tt), L.cx(tt), HEAD_H / 2);
+
+    var picked = state.picked;
+    for (r = 0; r < rows.length; r++) {
+      y = HEAD_H + r * ROW_H;
+      ctx.font = SR.font.mono(12);
+      ctx.fillStyle = t.ink;
+      ctx.textAlign = 'right';
+      ctx.fillText(rows[r].label, LABEL_W - 10, y + ROW_H / 2);
+      for (tt = 0; tt < T; tt++) {
+        x = L.x(tt);
+        var v = tableValue(tt, rows[r].k), label, color = t.ink;
+        if (state.view === 'grad') {
+          // Negative gradient: the loss falls if this probability rises.
+          var strength = Math.min(1, Math.abs(v) / 0.25);
+          ctx.fillStyle = t.ink4;
+          ctx.fillRect(x + 0.5, y + 0.5, L.colW - 1, ROW_H - 1);
+          ctx.globalAlpha = 0.1 + 0.5 * strength;
+          ctx.fillStyle = v < 0 ? t.green : t.amber;
+          if (Math.abs(v) >= 0.0005) ctx.fillRect(x + 0.5, y + 0.5, L.colW - 1, ROW_H - 1);
+          ctx.globalAlpha = 1;
+          label = Math.abs(v) < 0.0005 ? '0' : (v < 0 ? '−' : '+') + Math.abs(v).toFixed(3).replace(/^0/, '');
+          color = Math.abs(v) < 0.0005 ? t.ink30 : t.ink;
+        } else {
+          var rgb = SR.heat(0.92 * SR.clamp(v, 0, 1));
+          ctx.fillStyle = rgbCss(rgb);
+          ctx.fillRect(x + 0.5, y + 0.5, L.colW - 1, ROW_H - 1);
+          color = v < 0.005 ? t.ink30 : inkOn(rgb, t);
+          label = short(v, L.colW >= 58 ? 3 : 2);
+        }
+        ctx.font = SR.font.mono(10.5);
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x + L.colW / 2, y + ROW_H / 2 + 0.5);
+      }
+    }
+
+    function rowOf(k) {
+      for (var i = 0; i < rows.length; i++) if (rows[i].k === k) return i;
+      return rows.length - 1;       // a class that only lives in the "rest" row
+    }
+    function outline(tt2, r2, color, width, dash) {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+      ctx.strokeRect(L.x(tt2) + width / 2, HEAD_H + r2 * ROW_H + width / 2, L.colW - width, ROW_H - width);
+      ctx.setLineDash([]);
+    }
+    // The cells an alignment picks, one per frame.
+    if (picked && picked.length === T) {
+      for (tt = 0; tt < T; tt++) outline(tt, rowOf(picked[tt]), t.amber, 2, [4, 3]);
+    }
+    if (state.view === 'says' && state.sel) outline(state.sel.t, rowOf(state.sel.k), t.ink, 2);
+  });
+
+  /* The lattice: positions of the extended target down, frames across. */
+
+  var LAT_TOP = 12;
+  function latticeLayout(w) {
+    var L = columns(w);
+    L.rowH = data.S > 5 ? 34 : 40;
+    L.nodeW = Math.min(L.colW - 12, 62);
+    L.nodeH = 22;
+    L.cy = function (s) { return LAT_TOP + (s + 0.5) * L.rowH; };
+    L.height = LAT_TOP + data.S * L.rowH + 8;
+    return L;
+  }
+  function filled(tt) {
+    if (state.layer === 'alpha') return tt < state.cols;
+    if (state.layer === 'beta') return tt >= data.T - state.cols;
+    return true;
+  }
+  function nodeValue(tt, s) {
+    var i = tt * data.S + s;
+    return state.layer === 'alpha' ? Math.exp(data.alpha[i]) : state.layer === 'beta' ? Math.exp(data.beta[i]) : data.gamma[i];
+  }
+  // The positions a path can arrive from (stay, advance, skip).
+  function sources(s) {
+    var out = [s];
+    if (s >= 1) out.push(s - 1);
+    if (canSkipInto(data.ext, s)) out.push(s - 2);
+    return out;
+  }
+  function targets(s) {
+    var out = [s];
+    if (s + 1 < data.S) out.push(s + 1);
+    if (s + 2 < data.S && canSkipInto(data.ext, s + 2)) out.push(s + 2);
+    return out;
+  }
+
+  var lattice = SR.canvas('#lattice', function (ctx, w, h, t) {
+    if (!data || w < 80) return;         // hidden
+    var L = latticeLayout(w), T = data.T, S = data.S, ext = data.ext;
+    if (Math.abs(h - L.height) > 0.5) lattice.canvas.style.height = L.height + 'px';
+    var tt, s, layer = state.layer;
+
+    // Row labels: the extended target, blanks between the letters.
+    ctx.textBaseline = 'middle';
+    for (s = 0; s < S; s++) {
+      ctx.font = SR.font.mono(9);
+      ctx.fillStyle = t.ink48;
+      ctx.textAlign = 'left';
+      ctx.fillText('s=' + s, 6, L.cy(s));
+      ctx.font = SR.font.mono(12);
+      ctx.fillStyle = ext[s] === BLANK ? t.ink60 : t.ink;
+      ctx.textAlign = 'right';
+      ctx.fillText(sym(ext[s]), LABEL_W - 10, L.cy(s));
+    }
+
+    function edge(t0, s0, s1, color, width) {
+      var x0 = L.cx(t0) + L.nodeW / 2, y0 = L.cy(s0), x1 = L.cx(t0 + 1) - L.nodeW / 2, y1 = L.cy(s1);
+      // Leave from below the middle of the node when stepping down a row.
+      if (s1 !== s0) { y0 += L.nodeH * 0.28; y1 -= L.nodeH * 0.28; }
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      var ang = Math.atan2(y1 - y0, x1 - x0), head = 4;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - head * Math.cos(ang - 0.45), y1 - head * Math.sin(ang - 0.45));
+      ctx.lineTo(x1 - head * Math.cos(ang + 0.45), y1 - head * Math.sin(ang + 0.45));
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Allowed transitions between live nodes.
+    for (tt = 1; tt < T; tt++) for (s = 0; s < S; s++) {
+      if (!data.live(tt, s)) continue;
+      sources(s).forEach(function (s0) { if (data.live(tt - 1, s0)) edge(tt - 1, s0, s, t.ink30, 1); });
+    }
+
+    // Paths drawn under the nodes: the most likely alignment, and the picked one.
+    function trace(positions, color, width, dash) {
+      if (!positions) return;
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      positions.forEach(function (s2, t2) { if (t2 === 0) ctx.moveTo(L.cx(t2), L.cy(s2)); else ctx.lineTo(L.cx(t2), L.cy(s2)); });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    var bestPos = state.best && data.best && layer !== 'alpha' && layer !== 'beta' ? data.best.positions : null;
+    var pickedPos = state.picked ? positionsOf(state.picked) : null;
+    trace(bestPos, t.green, 3);
+    trace(pickedPos, t.amber, 2, [5, 4]);
+
+    // Nodes.
+    var focus = state.node;
+    for (tt = 0; tt < T; tt++) {
+      // Scale each column of alpha and beta by its own largest value, so the
+      // shading shows where the mass is even when the numbers get tiny.
+      var colMax = 0;
+      if (layer === 'alpha' || layer === 'beta') for (s = 0; s < S; s++) colMax = Math.max(colMax, nodeValue(tt, s));
+      for (s = 0; s < S; s++) {
+        var x = Math.round(L.cx(tt) - L.nodeW / 2) + 0.5, y = Math.round(L.cy(s) - L.nodeH / 2) + 0.5;
+        var live = data.live(tt, s);
+        var has = layer !== 'none' && filled(tt);
+        var v = has ? nodeValue(tt, s) : 0;
+        var fill = t.panel, color = t.ink, label = '';
+        if (layer === 'none') {
+          label = sym(ext[s]);
+          color = live ? (ext[s] === BLANK ? t.ink60 : t.ink) : t.ink30;
+        } else if (has) {
+          var rgb = SR.heat(0.92 * (layer === 'gamma' ? v : colMax > 0 ? v / colMax : 0));
+          fill = rgbCss(rgb); color = v < 0.0005 ? t.ink30 : inkOn(rgb, t);
+          label = short(v, L.nodeW >= 50 ? 4 : 3);
+        }
+        ctx.beginPath();
+        SR.roundRect(ctx, x, y, L.nodeW, L.nodeH, 6);
+        ctx.fillStyle = fill;
+        ctx.fill();
+        var onBest = bestPos && bestPos[tt] === s, onPicked = pickedPos && pickedPos[tt] === s;
+        ctx.lineWidth = onBest || onPicked ? 2 : 1;
+        ctx.strokeStyle = onPicked ? t.amber : onBest ? t.green : live ? t.ink30 : t.ink15;
+        ctx.setLineDash(live ? [] : [2, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (label) {
+          ctx.font = SR.font.mono(layer === 'none' ? 12 : 10);
+          ctx.fillStyle = color;
+          ctx.textAlign = 'center';
+          ctx.fillText(label, L.cx(tt), L.cy(s) + 0.5);
+        }
+      }
+    }
+
+    // The inspected node, and the arrows that feed it (or that it feeds).
+    if (focus && focus.t < T && focus.s < S) {
+      var into = layer !== 'beta';
+      if (into && focus.t > 0) sources(focus.s).forEach(function (s0) { if (data.live(focus.t - 1, s0) || layer === 'alpha') edge(focus.t - 1, s0, focus.s, t.ink, 1.5); });
+      if (!into && focus.t < T - 1) targets(focus.s).forEach(function (s1) { edge(focus.t, focus.s, s1, t.ink, 1.5); });
+      ctx.beginPath();
+      SR.roundRect(ctx, Math.round(L.cx(focus.t) - L.nodeW / 2) - 1.5, Math.round(L.cy(focus.s) - L.nodeH / 2) - 1.5, L.nodeW + 4, L.nodeH + 4, 8);
+      ctx.strokeStyle = t.ink; ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  });
+
+  /* The loss curve. */
+
+  var lossPlot = SR.canvas('#loss', function (ctx, w, h, t) {
+    if (!data || w < 80) return;
+    var hist = state.history;
+    var box = SR.plotBox(w, h, { l: 40, r: 14, t: 22, b: 30 });
+    var top = Math.max(1, hist[0] || 1, data.loss);
+    var x = SR.scale.linear([0, 200], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([0, top], [box.y + box.h, box.y]);
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: w < 440 ? [0, 100, 200] : [0, 40, 80, 120, 160, 200],
+      yTicks: SR.ticks(0, top, 3).filter(function (v) { return v <= top; }),
+      yFormat: function (v) { return String(+v.toFixed(2)); },
+      xLabel: 'step', yLabel: 'loss = −ln p(target)'
+    });
+    if (hist.length > 1) {
+      SR.line(ctx, hist.length, function (i) { return [x(i), y(Math.min(top, hist[i]))]; }, { color: t.green, width: 1.75 });
+    }
+    var last = hist.length - 1;
+    SR.dot(ctx, x(last), y(Math.min(top, hist[last])), 3.5, t.green);
+    SR.pill(ctx, 'STEP ' + last + ' · LOSS ' + hist[last].toFixed(4), x(last) + 10, y(Math.min(top, hist[last])) - 14,
+      { align: 'left', color: t.green, min: box.x + 2, max: box.x + box.w });
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+
+  function describeNode() {
+    var layer = state.layer, n = state.node, S = data.S, C = data.C, ext = data.ext;
+    if (!state.panels.lattice) {
+      var sel = state.sel;
+      return state.view === 'says' && sel ? 'p(' + sym(sel.k) + ' at frame ' + sel.t + ') = ' + data.y[sel.t * C + sel.k].toFixed(4) + '. Each frame (each column) sums to 1.' : '';
+    }
+    if (!n) {
+      return layer === 'none' ? 'A path moves one column to the right per frame, along an arrow: stay, step down one, or skip a blank. Pick a node to see its arrows.'
+        : 'Pick a node, with the pointer or the arrow keys, to see the sum it holds.';
+    }
+    var tt = n.t, s = n.s, i = tt * S + s, name = '[' + tt + '][' + s + ']';
+    var y = function (t2, s2) { return data.y[t2 * C + ext[s2]]; };
+    var A = function (t2, s2) { return Math.exp(data.alpha[t2 * S + s2]); };
+    var B = function (t2, s2) { return Math.exp(data.beta[t2 * S + s2]); };
+    if (layer === 'none') {
+      var from = sources(s).map(function (s0) { return 's=' + s0 + (s0 === s ? ' (stay)' : s0 === s - 1 ? ' (advance)' : ' (skip the blank)'); });
+      var why = s >= 2 && ext[s] !== BLANK && !canSkipInto(ext, s) ? ' No skipping here: the letter two rows up is the same, and without a blank between them the two would merge.' : '';
+      return 'Position s=' + s + ' is "' + sym(ext[s]) + '". At frame ' + tt + ' a path can arrive from ' + from.join(', ') + '.' + why +
+        (data.live(tt, s) ? '' : ' No complete path passes through this node.');
+    }
+    if (!filled(tt)) return (layer === 'alpha' ? 'α' : 'β') + name + ' is not filled in yet.';
+    if (layer === 'alpha') {
+      if (tt === 0) {
+        return s <= 1 ? 'α' + name + ' = p(' + sym(ext[s]) + ' at frame 0) = ' + p6(A(0, s)) + '. A path starts on the first blank or on the first letter.'
+                      : 'α' + name + ' = 0. A path cannot start this far down.';
+      }
+      var src = sources(s);
+      return 'α' + name + ' = p(' + sym(ext[s]) + ' at frame ' + tt + ') × (' + src.map(function (s0) { return 'α[' + (tt - 1) + '][' + s0 + ']'; }).join(' + ') + ') = ' +
+        short(y(tt, s), 4) + ' × (' + src.map(function (s0) { return short(A(tt - 1, s0), 4); }).join(' + ') + ') = ' + p6(A(tt, s));
+    }
+    if (layer === 'beta') {
+      if (tt === data.T - 1) {
+        return s >= S - 2 ? 'β' + name + ' = 1. A path may end on the last letter or on the last blank.' : 'β' + name + ' = 0. A path cannot end this far up.';
+      }
+      var dst = targets(s);
+      return 'β' + name + ' = ' + dst.map(function (s1) { return 'p(' + sym(ext[s1]) + ' at ' + (tt + 1) + ') × β[' + (tt + 1) + '][' + s1 + ']'; }).join(' + ') + ' = ' +
+        dst.map(function (s1) { return short(y(tt + 1, s1), 4) + ' × ' + short(B(tt + 1, s1), 4); }).join(' + ') + ' = ' + p6(B(tt, s));
+    }
+    return 'occupancy' + name + ' = α × β ÷ p(target) = ' + short(A(tt, s), 4) + ' × ' + short(B(tt, s), 4) + ' ÷ ' + short(data.p, 4) + ' = ' + data.gamma[i].toFixed(4) +
+      '. The share of the probability that passes through "' + sym(ext[s]) + '" at frame ' + tt + '.';
+  }
+
+  var VIEW_HINTS = {
+    says: 'The softmax output: how likely the network thinks each class is in each frame.',
+    wants: 'The occupancy, added up per class: how likely each class is in each frame if we only count alignments that spell the target.',
+    grad: 'Says minus wants. This is the gradient of the loss with respect to each logit: green cells should go up, amber cells down.'
+  };
+
+  function renderList() {
+    var host = $('list'), p = P(), als = data.alignments;
+    $('list-title').textContent = 'Every alignment that collapses to "' + text(p.target) + '"';
+    host.textContent = '';
+    if (!als) {
+      $('list-pill').textContent = fmt.int(data.count) + ' alignments';
+      host.hidden = true;
+      $('list-note').textContent = 'There are ' + fmt.int(data.count) + ' alignments of "' + text(p.target) + '" among ' + big(data.C, data.T) +
+        ' paths. We are not going to list them, and a real utterance has a hundred frames, not ' + data.T + '. The lattice gets the same total without listing anything.';
+      return;
+    }
+    host.hidden = false;
+    $('list-pill').textContent = als.length + ' of ' + fmt.int(data.paths) + ' paths';
+    host.appendChild(SR.el('div', { class: 'ctc-row ctc-row--head', role: 'presentation' }, [
+      SR.el('span', { text: 'path' }), SR.el('span', { class: 'f', text: 'one factor per frame' }), SR.el('span', { class: 'n', text: 'p' }), SR.el('span', { class: 'n', text: 'running sum' })
+    ]));
+    var pickedText = state.picked ? state.picked.join() : '';
+    als.forEach(function (al) {
+      var factors = al.classes.map(function (k, t) { return short(data.y[t * data.C + k], 2); }).join(' × ');
+      host.appendChild(SR.el('button', {
+        class: 'ctc-row', type: 'button', 'aria-pressed': String(al.classes.join() === pickedText),
+        'aria-label': 'Alignment ' + text(al.classes) + ', probability ' + al.p.toFixed(5),
+        onclick: function () { pick(al.classes); }
+      }, [
+        SR.el('b', { text: text(al.classes) }), SR.el('span', { class: 'f', text: factors }),
+        SR.el('span', { class: 'n', text: al.p.toFixed(5) }), SR.el('span', { class: 'n', text: al.sum.toFixed(5) })
+      ]));
+    });
+    var total = als.length ? als[als.length - 1].sum : 0;
+    $('list-note').textContent = als.length + ' alignments (out of ' + big(data.C, data.T) + ' paths), total probability ' + p6(total) +
+      '. The lattice says ' + p6(data.p) + '. Click a row to see that alignment in the table' + (state.panels.lattice ? ' and in the lattice.' : '.');
+  }
+
+  function renderCollapse() {
+    var p = P();
+    var chars = state.path.toLowerCase().replace(/-/g, '_').replace(/[^a-z_]/g, '').split('');
+    var merge = $('toks-merge'), drop = $('toks-drop');
+    merge.textContent = ''; drop.textContent = '';
+    var kept = [], prev = null;
+    chars.forEach(function (c) {
+      var repeat = c === prev;
+      merge.appendChild(SR.el('span', { class: 'ctc-tok', 'data-gone': repeat || null, 'data-blank': c === '_' || null, text: c }));
+      if (!repeat) kept.push(c);
+      prev = c;
+    });
+    var out = '';
+    kept.forEach(function (c) {
+      drop.appendChild(SR.el('span', { class: 'ctc-tok', 'data-gone': c === '_' || null, 'data-blank': c === '_' || null, text: c }));
+      if (c !== '_') out += c;
+    });
+    $('collapse-result').textContent = chars.length ? '"' + out + '"' : '';
+    $('collapse-pill').textContent = chars.length + (chars.length === 1 ? ' frame' : ' frames') + ' → ' + out.length + (out.length === 1 ? ' letter' : ' letters');
+
+    // If what was typed is a path through the table above, say what it is worth.
+    var classes = chars.map(function (c) { return p.symbols.indexOf(c); });
+    var note;
+    if (chars.length === data.T && classes.every(function (k) { return k >= 0; })) {
+      var prob = 1;
+      classes.forEach(function (k, t) { prob *= data.y[t * data.C + k]; });
+      var hit = out === text(p.target);
+      note = 'In the table above this path has probability ' + (data.T <= 6 ? classes.map(function (k, t) { return short(data.y[t * data.C + k], 2); }).join(' × ') + ' = ' : '') + fmt.sig(prob, 4) +
+        (hit ? ', and it is one of the alignments of "' + text(p.target) + '".' : '. It does not spell "' + text(p.target) + '", so it does not count toward p(target).');
+    } else if (/(.)\1/.test(out) || out.indexOf('ll') >= 0) {
+      note = 'A double letter survives only because a blank sat between the two runs. Without the blank the repeats merge into one.';
+    } else {
+      note = 'Type letters, and _ for the blank. A path of ' + data.T + ' symbols from ' + p.shown.map(function (k) { return p.symbols[k]; }).join(' ') + ' is also looked up in the table above.';
+    }
+    $('collapse-note').textContent = note;
+    Array.prototype.forEach.call(document.querySelectorAll('#collapse-examples .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(chip.getAttribute('data-path') === chars.join('')));
+    });
+  }
+
+  function updateReadouts() {
+    var p = P(), T = data.T;
+    setStat('stat-p', data.p >= 0.0001 || data.p === 0 ? p6(data.p) : fmt.sig(data.p, 3), 'all ' + fmt.int(data.count) + ' alignments, added up', 'green');
+    setStat('stat-loss', isFinite(data.loss) ? (data.loss < 10 ? p6(data.loss) : data.loss.toFixed(4)) : '∞', 'what training pushes down');
+    setStat('stat-count', fmt.int(data.count), 'out of ' + big(data.C, T) + ' paths');
+    setStat('stat-best', data.best ? text(data.best.classes) : 'none', data.best ? 'p = ' + (Math.exp(data.best.logProb) >= 0.0001 ? Math.exp(data.best.logProb).toFixed(5) : fmt.sig(Math.exp(data.best.logProb), 3)) : 'the target does not fit');
+
+    $('table-title').textContent = (state.view === 'says' ? 'What the network says: p(class) in every frame'
+      : state.view === 'wants' ? 'What the alignments want: occupancy per class'
+      : 'The gradient: says minus wants') + (state.panels.lattice ? ', and the lattice under it' : '');
+    $('table-pill').textContent = 'target "' + text(p.target) + '" · ' + T + ' frames';
+    $('view-hint').textContent = VIEW_HINTS[state.view];
+    $('preset-hint').textContent = p.hint;
+    $('node-detail').textContent = describeNode();
+    $('ramp-label').textContent = !state.panels.lattice || state.layer === 'gamma' || state.layer === 'none' ? 'probability, 0 to 1'
+      : 'probability (lattice: each column scaled to its largest)';
+
+    var lg = $('legend');
+    lg.querySelector('[data-key="more"]').hidden = state.view !== 'grad';
+    lg.querySelector('[data-key="less"]').hidden = state.view !== 'grad';
+    lg.querySelector('[data-key="best"]').hidden = !(state.panels.lattice && state.best && state.layer !== 'alpha' && state.layer !== 'beta');
+    lg.querySelector('[data-key="picked"]').hidden = !state.picked;
+
+    // Panels.
+    $('lattice').hidden = !state.panels.lattice;
+    $('panel-collapse').hidden = !state.panels.collapse;
+    $('panel-list').hidden = !state.panels.list;
+    $('panel-train').hidden = !state.panels.train;
+    $('cols-field').hidden = !(state.layer === 'alpha' || state.layer === 'beta');
+    $('cols-play').hidden = !(state.layer === 'alpha' || state.layer === 'beta');
+
+    // Training.
+    $('train-pill').textContent = 'step ' + state.step + ' of 200';
+    $('train-values').innerHTML = '<b>greedy decode:</b> "' + text(data.greedy).replace('␣', ' ') + '" <b>· best class per frame:</b> |' + text(data.argmax) + '|';
+    $('train-play').disabled = state.step >= 200;
+    $('train-step').disabled = state.step >= 200;
+
+    // The sliders for the selected frame.
+    $('frame-label').textContent = 'Frame ' + state.sel.t + ' of 0 to ' + (T - 1);
+    frameSliders.forEach(function (fs) { fs.slider.set(Math.round(data.y[state.sel.t * data.C + fs.k] * 1000) / 1000); });
+
+    Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(chip.getAttribute('data-preset') === state.preset));
+    });
+
+    // Text versions of the pictures.
+    var rowsText = [];
+    for (var t = 0; t < T && T <= 6; t++) {
+      rowsText.push('frame ' + t + ': ' + p.shown.map(function (k) { return p.symbols[k] + ' ' + data.y[t * data.C + k].toFixed(2); }).join(', '));
+    }
+    $('table').setAttribute('aria-label', 'Probability of each class in each of ' + T + ' frames. ' + rowsText.join('; ') +
+      '. Focus and use the arrow keys to pick a cell, plus and minus to change it.');
+    $('lattice').setAttribute('aria-label', 'Lattice with ' + data.S + ' rows for the extended target ' + text(data.ext) + ' and ' + T + ' columns of frames. p(target) = ' + p6(data.p) +
+      ', loss ' + (isFinite(data.loss) ? data.loss.toFixed(6) : 'infinite') + '. Most likely alignment ' + (data.best ? text(data.best.classes) : 'none') + '. Arrow keys move between nodes.');
+    $('loss').setAttribute('aria-label', 'Loss after ' + state.step + ' steps of gradient descent: ' + data.loss.toFixed(4) + '. p(target) = ' + data.p.toFixed(4) + '.');
+  }
+
+  function sizeWide() {
+    // Wide tables scroll inside their own box instead of squeezing the columns.
+    $('wide').style.minWidth = (LABEL_W + PAD_R + data.T * MIN_COL) + 'px';
+  }
+
+  function update(listToo) {
+    compute();
+    sizeWide();
+    updateReadouts();
+    if (listToo !== false) { renderList(); renderCollapse(); }
+    table.redraw(); lattice.redraw(); lossPlot.redraw();
+  }
+  // Cheaper: nothing about the numbers changed, only what is highlighted.
+  function repaint() {
+    updateReadouts();
+    table.redraw(); lattice.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var stopAnim = function () {}, running = null;     // running: 'cols' | 'train' | null
+  function touched() {
+    stopAnim(); stopAnim = function () {};
+    running = null;
+    $('cols-play').textContent = 'Play';
+    $('train-play').textContent = 'Train';
+  }
+  // The table changed by hand: the training history no longer describes it.
+  function edited() { state.step = 0; state.history = []; }
+
+  var view = SR.bindRadios('view', function (v) { touched(); state.view = v; repaint(); });
+  var layer = SR.bindRadios('layer', function (v) {
+    touched();
+    state.layer = v; state.cols = data.T; cols.set(state.cols);
+    repaint();
+  });
+  var cols = SR.bindSlider('#cols', {
+    format: function (v) { return v + ' of ' + (data ? data.T : 5); },
+    onInput: function (v) { touched(); state.cols = v; state.node = null; repaint(); }
+  });
+  var showBest = SR.bindCheck('#show-best', function (on) { touched(); state.best = on; repaint(); });
+  var panelChecks = {};
+  ['lattice', 'collapse', 'list', 'train'].forEach(function (name) {
+    panelChecks[name] = SR.bindCheck('#p-' + name, function (on) { state.panels[name] = on; update(); });
+  });
+
+  // One slider per shown class, for the selected frame.
+  var frameSliders = [];
+  function buildFrameSliders() {
+    var host = $('frame-sliders'), p = P();
+    host.textContent = '';
+    frameSliders = p.shown.map(function (k) {
+      var id = 'p-class-' + k;
+      var input = SR.el('input', { class: 'sr-range', type: 'range', id: id, min: 0, max: 1, step: 0.01, value: 0 });
+      host.appendChild(SR.el('div', { class: 'sr-field' }, [
+        SR.el('div', { class: 'sr-field-head' }, [
+          SR.el('label', { for: id, text: k === BLANK ? 'p(_), the blank' : 'p(' + p.symbols[k] + ')' }),
+          SR.el('output', { class: 'sr-readout', for: id })
+        ]),
+        input
+      ]));
+      var slider = SR.bindSlider(input, {
+        format: function (v) { return v.toFixed(2); },
+        onInput: function (v) { touched(); setProbability(state.sel.t, k, v); }
+      });
+      return { k: k, slider: slider };
+    });
+  }
+
+  // Set one probability; the rest of the frame is rescaled to keep the sum at 1.
+  function setProbability(t, k, v) {
+    var C = data.C, i;
+    v = SR.clamp(v, 0, 1);
+    var others = 1 - data.y[t * C + k];
+    for (i = 0; i < C; i++) {
+      var p = i === k ? v : others > 1e-12 ? data.y[t * C + i] * (1 - v) / others : (1 - v) / (C - 1);
+      state.logits[t * C + i] = f32(Math.log(Math.max(p, 1e-9)));
+    }
+    state.sel = { t: t, k: k };
+    edited();
+    update();
+  }
+
+  function loadPreset(name) {
+    state.preset = name;
+    state.logits = PRESETS[name].logits();
+    state.sel = { t: 0, k: PRESETS[name].shown[1] };
+    state.node = null; state.picked = null;
+    state.cols = PRESETS[name].T;
+    edited();
+    buildFrameSliders();
+    cols.input.max = PRESETS[name].T;
+    cols.set(state.cols);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('#presets .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () { touched(); loadPreset(chip.getAttribute('data-preset')); update(); });
+  });
+  $('frame-prev').addEventListener('click', function () { state.sel = { t: Math.max(0, state.sel.t - 1), k: state.sel.k }; repaint(); });
+  $('frame-next').addEventListener('click', function () { state.sel = { t: Math.min(data.T - 1, state.sel.t + 1), k: state.sel.k }; repaint(); });
+
+  function pick(classes) {
+    touched();
+    var same = state.picked && state.picked.join() === classes.join();
+    state.picked = same ? null : classes.slice();
+    if (!same) { state.path = text(classes); $('path-input').value = state.path; }
+    update();
+  }
+
+  /* The collapse box. */
+  $('path-input').addEventListener('input', function () {
+    state.path = this.value;
+    var p = P(), chars = state.path.toLowerCase().replace(/-/g, '_').replace(/[^a-z_]/g, '').split('');
+    var classes = chars.map(function (c) { return p.symbols.indexOf(c); });
+    state.picked = chars.length === data.T && classes.every(function (k) { return k >= 0; }) ? classes : null;
+    update();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('#collapse-examples .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      $('path-input').value = chip.getAttribute('data-path');
+      $('path-input').dispatchEvent(new Event('input'));
+    });
+  });
+
+  /* Editing the table directly. */
+  function tableCellAt(pos) {
+    var L = columns(table.width), rows = tableRows();
+    var t = Math.floor((pos.x - LABEL_W) / L.colW), r = Math.floor((pos.y - HEAD_H) / ROW_H);
+    return t >= 0 && t < data.T && r >= 0 && r < rows.length && rows[r].k >= 0 ? { t: t, k: rows[r].k } : null;
+  }
+  var drag = null;
+  table.canvas.addEventListener('pointerdown', function (e) {
+    var c = tableCellAt(table.point(e));
+    if (!c) return;
+    touched();
+    state.sel = c;
+    if (state.view === 'says' && e.pointerType !== 'touch') {
+      drag = { y: e.clientY, from: data.y[c.t * data.C + c.k], cell: c };
+      try { table.canvas.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ }
+      table.canvas.style.cursor = 'ns-resize';
+    }
+    repaint();
+  });
+  table.canvas.addEventListener('pointermove', function (e) {
+    if (!drag) { table.canvas.style.cursor = state.view === 'says' && tableCellAt(table.point(e)) ? 'ns-resize' : 'default'; return; }
+    var v = Math.round((drag.from + (drag.y - e.clientY) / 140) * 100) / 100;
+    setProbability(drag.cell.t, drag.cell.k, v);
+  });
+  function endDrag() { drag = null; table.canvas.style.cursor = 'default'; }
+  table.canvas.addEventListener('pointerup', endDrag);
+  table.canvas.addEventListener('pointercancel', endDrag);
+  table.canvas.addEventListener('keydown', function (e) {
+    var shown = P().shown, r = shown.indexOf(state.sel.k), t = state.sel.t;
+    var move = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+    if (move) {
+      e.preventDefault();
+      state.sel = { t: SR.clamp(t + move[0], 0, data.T - 1), k: shown[SR.clamp(r + move[1], 0, shown.length - 1)] };
+      repaint();
+    } else if ((e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_') && state.view === 'says') {
+      e.preventDefault();
+      touched();
+      var step = e.key === '+' || e.key === '=' ? 0.05 : -0.05;
+      setProbability(t, state.sel.k, Math.round((data.y[t * data.C + state.sel.k] + step) * 100) / 100);
+    }
+  });
+
+  /* Inspecting the lattice. */
+  function nodeAt(pos) {
+    var L = latticeLayout(lattice.width);
+    var t = Math.floor((pos.x - LABEL_W) / L.colW), s = Math.floor((pos.y - LAT_TOP) / L.rowH);
+    return t >= 0 && t < data.T && s >= 0 && s < data.S ? { t: t, s: s } : null;
+  }
+  function selectNode(n) {
+    if (!n || (state.node && state.node.t === n.t && state.node.s === n.s)) return;
+    state.node = n;
+    repaint();
+  }
+  lattice.canvas.addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse' && !running) selectNode(nodeAt(lattice.point(e))); });
+  lattice.canvas.addEventListener('pointerdown', function (e) { selectNode(nodeAt(lattice.point(e))); });
+  lattice.canvas.addEventListener('keydown', function (e) {
+    var move = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+    if (e.key === 'Escape') { state.node = null; repaint(); return; }
+    if (!move) return;
+    e.preventDefault();
+    var n = state.node || { t: -move[0], s: -move[1] };
+    selectNode({ t: SR.clamp(n.t + move[0], 0, data.T - 1), s: SR.clamp(n.s + move[1], 0, data.S - 1) });
+  });
+
+  /* Things that move: the columns filling in, and gradient descent. Both run
+     on a timer and only change `state`, so nothing depends on a frame being drawn. */
+
+  function playCols() {
+    if (running === 'cols') { touched(); return; }
+    touched();
+    if (state.layer !== 'alpha' && state.layer !== 'beta') { state.layer = 'alpha'; layer.set('alpha'); }
+    state.node = null;
+    if (SR.reducedMotion()) { state.cols = data.T; cols.set(state.cols); repaint(); return; }
+    if (state.cols >= data.T) state.cols = 0;
+    cols.set(state.cols); repaint();
+    running = 'cols';
+    $('cols-play').textContent = 'Pause';
+    var timer = window.setInterval(function () {
+      state.cols++;
+      cols.set(state.cols);
+      if (state.cols >= data.T) touched();
+      repaint();
+    }, data.T > 8 ? 320 : 620);
+    stopAnim = function () { window.clearInterval(timer); };
+  }
+  $('cols-play').addEventListener('click', playCols);
+
+  // One step of plain gradient descent on the logits, in f32 like the Rust.
+  function descend() {
+    var lr = f32(0.5), g = data.grad;
+    for (var i = 0; i < state.logits.length; i++) state.logits[i] = f32(state.logits[i] - f32(lr * f32(g[i])));
+    state.step++;
+    compute();
+    state.history[state.step] = data.loss;
+  }
+  function train() {
+    if (running === 'train') { touched(); update(); return; }
+    touched();
+    if (state.step >= 200) return;
+    state.picked = null;
+    if (SR.reducedMotion()) { while (state.step < 200) descend(); update(); return; }
+    running = 'train';
+    $('train-play').textContent = 'Pause';
+    var timer = window.setInterval(function () {
+      descend();
+      if (state.step >= 200) touched();
+      // The list of 35 rows is rebuilt only now and then; everything else every step.
+      update(state.step % 10 === 0 || state.step >= 200);
+    }, 40);
+    stopAnim = function () { window.clearInterval(timer); };
+  }
+  $('train-play').addEventListener('click', train);
+  $('train-step').addEventListener('click', function () { touched(); if (state.step < 200) { state.picked = null; descend(); update(); } });
+  $('train-reset').addEventListener('click', function () {
+    touched();
+    state.logits = nearZero(data.T, data.C);
+    state.picked = null;
+    edited();
+    update();
+  });
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  function show(target, animate) {
+    touched();
+    loadPreset(target.preset);
+    state.view = target.view || 'says';
+    state.layer = target.layer || 'none';
+    state.best = !!target.best;
+    state.node = target.node || null;
+    state.picked = target.picked || null;
+    state.path = target.path || (target.picked ? null : 'aa_b_');
+    state.panels = { lattice: !!target.lattice, collapse: !!target.collapse, list: !!target.list, train: !!target.train };
+    compute();
+    if (state.path === null) state.path = text(state.picked);
+    $('path-input').value = state.path;
+    state.cols = target.cols == null ? data.T : target.cols;
+    view.set(state.view); layer.set(state.layer); showBest.set(state.best); cols.set(state.cols);
+    for (var name in panelChecks) panelChecks[name].set(state.panels[name]);
+    update();
+    if (animate && target.play) playCols();
+  }
+
+  SR.stepper('#steps', {
+    label: 'CTC, step by step',
+    steps: [
+      {
+        title: 'Nobody tells us which frame is which letter',
+        body: 'The network looks at 5 frames of audio and, for each one, gives a probability to every class: a, b, and a special <b>blank</b> we write as _. Each column of the table is one frame and sums to 1. The training label for this clip is just the string "ab". It does not say that the a is in frames 0 and 1 or where the b starts, so we cannot train frame by frame the way we did in chapter 6.',
+        enter: function (animate) { show({ preset: 'ab' }, animate); }
+      },
+      {
+        title: 'The blank, and the collapse rule',
+        body: 'Instead we agree on how to read one class per frame as a string: <b>merge repeats, then drop blanks</b>. So aa_b_ reads as "ab", and so does _abbb. The blank means "nothing new here". It is also the only way to spell a double letter: hheelllloo collapses to "helo", and it takes a blank between the two runs of l to get "hello". Type your own path in the box.',
+        enter: function (animate) { show({ preset: 'ab', collapse: true, picked: [1, 1, 0, 2, 0] }, animate); }
+      },
+      {
+        title: 'Many alignments: add them up',
+        body: 'A path that collapses to the target is an <b>alignment</b>. Its probability is the product of the cells it picks, one per frame: for aa_b_ that is 0.6 × 0.5 × 0.5 × 0.7 × 0.6 = 0.063. But 35 different paths collapse to "ab", and we do not care which one the network had in mind. So p("ab") is the sum of all 35, which comes to 0.450540. Click any row to see its cells in the table.',
+        enter: function (animate) { show({ preset: 'ab', list: true, picked: [1, 1, 0, 2, 0] }, animate); }
+      },
+      {
+        title: 'Too many to list, so: a lattice',
+        body: 'With 12 frames and four classes "cat" already has 5,005 alignments, and real clips have a hundred frames. We need the sum without the list. Put a blank around every letter of the target, _c_a_t_, and give each position a row. Every alignment is now a walk from the top left to the bottom right that, each frame, stays, steps down one row, or skips over a blank between two different letters.',
+        enter: function (animate) { show({ preset: 'cat', lattice: true, layer: 'none', list: true, best: false, node: { t: 5, s: 3 } }, animate); }
+      },
+      {
+        title: 'The forward pass',
+        body: 'Back to "ab". Let <b>α[t][s]</b> be the total probability of every partial walk that is at row s in frame t. Walks only arrive from the previous column, so α is this frame\'s probability for the row\'s symbol, times the sum of the α values the arrows come from. Fill the columns left to right and the two bottom nodes of the last column add up to 0.294840 + 0.155700 = 0.450540: the same number, and no list.',
+        enter: function (animate) { show({ preset: 'ab', lattice: true, layer: 'alpha', cols: animate ? 0 : 5, node: animate ? null : { t: 2, s: 3 }, play: true }, animate); }
+      },
+      {
+        title: 'The backward pass, and where the mass flows',
+        body: 'Run the same sums from the right and we get <b>β[t][s]</b>: the probability of finishing from a node. Multiply the two, divide by p(target), and each node holds the share of the probability that passes through it. This is the <b>occupancy</b>, and every column sums to 1. It is a soft alignment that CTC worked out for itself. The green line is the single most likely alignment, aa_b_.',
+        enter: function (animate) { show({ preset: 'ab', lattice: true, layer: 'gamma', best: true, node: { t: 3, s: 3 } }, animate); }
+      },
+      {
+        title: 'The gradient is "says minus wants"',
+        body: 'Add the occupancy up per class and we have what the valid alignments <b>want</b> each frame to say. The gradient of the loss with respect to a logit is what the network <b>says</b> minus that: softmax minus occupancy. Here the logits start near zero, with all 28 classes equally likely. Press <b>Train</b> and gradient descent pulls on its own input until an alignment for "cat" appears. Switch the table to Gradient to see the pull.',
+        enter: function (animate) { show({ preset: 'train', lattice: true, layer: 'gamma', best: true, train: true }, animate); }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="452" viewBox="0 0 800 452" role="img">
+<title>The byte layout of samples/seven.wav</title>
+<desc>Three rows of byte fields. Row one, the 12-byte RIFF header: the letters RIFF, the file size minus 8 (32036), the letters WAVE. Row two, the fmt chunk: its name, its size 16, format tag 1 for PCM, 1 channel, sample rate 16000, byte rate 32000, block align 2, 16 bits per sample. Row three, the data chunk: its name, its size 32000, then the samples, two bytes each, starting -1, -1, -1, -2.</desc>
+<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="0.6" fill="rgba(25,22,21,.10)"/></pattern></defs>
+<rect width="100%" height="100%" fill="#F5F3EF"/>
+<rect width="100%" height="100%" fill="url(#dots)"/>
+<text x="40.0" y="36.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="16" font-weight="500" fill="#191615" text-anchor="start" >seven.wav, byte by byte</text>
+<text x="760.0" y="36.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="rgba(25,22,21,0.6)" text-anchor="end" >all integers little-endian: lowest byte first</text>
+<rect x="48" y="56" width="368" height="116" rx="10" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-dasharray="3 3"/>
+<text x="64.0" y="76.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">RIFF HEADER</text>
+<text x="400.0" y="76.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="end" letter-spacing=".08em">12 BYTES</text>
+<rect x="65.5" y="98" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="120.0" y="117.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >52 49 46 46</text>
+<text x="67.0" y="93.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >0</text>
+<text x="120.0" y="144.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >magic</text>
+<text x="120.0" y="159.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >"RIFF"</text>
+<rect x="177.5" y="98" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="232.0" y="117.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >24 7d 00 00</text>
+<text x="179.0" y="93.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >4</text>
+<text x="232.0" y="144.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >bytes that follow</text>
+<text x="232.0" y="159.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >32036</text>
+<rect x="289.5" y="98" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="344.0" y="117.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >57 41 56 45</text>
+<text x="291.0" y="93.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >8</text>
+<text x="344.0" y="144.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >kind of RIFF</text>
+<text x="344.0" y="159.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >"WAVE"</text>
+<text x="440.0" y="92.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12.5" font-weight="400" fill="#191615" text-anchor="start" >Every chunk has the same shape:</text>
+<text x="440.0" y="112.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" >4-byte name · 4-byte size · payload</text>
+<text x="440.0" y="136.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="rgba(25,22,21,0.6)" text-anchor="start" >32036 = 44 − 8 + 32000: the header</text>
+<text x="440.0" y="152.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="12" font-weight="400" fill="rgba(25,22,21,0.6)" text-anchor="start" >minus these 8 bytes, plus the samples.</text>
+<rect x="48" y="188" width="704" height="116" rx="10" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-dasharray="3 3"/>
+<text x="64.0" y="208.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">CHUNK "FMT "</text>
+<text x="736.0" y="208.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="end" letter-spacing=".08em">8 + 16 BYTES</text>
+<rect x="65.5" y="230" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="120.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >66 6d 74 20</text>
+<text x="67.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >12</text>
+<text x="120.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >chunk name</text>
+<text x="120.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >"fmt "</text>
+<rect x="177.5" y="230" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="232.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >10 00 00 00</text>
+<text x="179.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >16</text>
+<text x="232.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >payload size</text>
+<text x="232.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >16</text>
+<rect x="289.5" y="230" width="53" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="316.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >01 00</text>
+<text x="291.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >20</text>
+<text x="316.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >format</text>
+<text x="316.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >1 = PCM</text>
+<rect x="345.5" y="230" width="53" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="372.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >01 00</text>
+<text x="347.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >22</text>
+<text x="372.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >channels</text>
+<text x="372.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >1</text>
+<rect x="401.5" y="230" width="109" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="456.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >80 3e 00 00</text>
+<text x="403.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >24</text>
+<text x="456.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample rate</text>
+<text x="456.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >16000</text>
+<rect x="513.5" y="230" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="568.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >00 7d 00 00</text>
+<text x="515.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >28</text>
+<text x="568.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >bytes / second</text>
+<text x="568.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >32000</text>
+<rect x="625.5" y="230" width="53" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="652.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >02 00</text>
+<text x="627.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >32</text>
+<text x="652.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >bytes/frame</text>
+<text x="652.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >2</text>
+<rect x="681.5" y="230" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="708.0" y="249.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >10 00</text>
+<text x="683.0" y="225.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >34</text>
+<text x="708.0" y="276.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >bits</text>
+<text x="708.0" y="291.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >16</text>
+<rect x="48" y="320" width="704" height="116" rx="10" fill="#FBFAF7" stroke="rgba(25,22,21,0.3)" stroke-dasharray="3 3"/>
+<text x="64.0" y="340.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="start" letter-spacing=".08em">CHUNK "DATA"</text>
+<text x="736.0" y="340.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="end" letter-spacing=".08em">8 + 32000 BYTES</text>
+<rect x="65.5" y="362" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="120.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >64 61 74 61</text>
+<text x="67.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >36</text>
+<text x="120.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >chunk name</text>
+<text x="120.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >"data"</text>
+<rect x="177.5" y="362" width="109" height="30" rx="4" fill="#F5F3EF" stroke="rgba(25,22,21,0.48)" stroke-width="1"/>
+<text x="232.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >00 7d 00 00</text>
+<text x="179.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >40</text>
+<text x="232.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >payload size</text>
+<text x="232.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#191615" text-anchor="middle" >32000</text>
+<rect x="289.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="316.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >ff ff</text>
+<text x="291.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >44</text>
+<text x="316.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 0</text>
+<text x="316.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−1</text>
+<rect x="345.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="372.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >ff ff</text>
+<text x="347.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >46</text>
+<text x="372.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 1</text>
+<text x="372.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−1</text>
+<rect x="401.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="428.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >ff ff</text>
+<text x="403.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >48</text>
+<text x="428.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 2</text>
+<text x="428.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−1</text>
+<rect x="457.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="484.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >fe ff</text>
+<text x="459.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >50</text>
+<text x="484.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 3</text>
+<text x="484.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−2</text>
+<rect x="513.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="540.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >fe ff</text>
+<text x="515.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >52</text>
+<text x="540.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 4</text>
+<text x="540.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−2</text>
+<rect x="569.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="596.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >ff ff</text>
+<text x="571.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >54</text>
+<text x="596.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 5</text>
+<text x="596.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−1</text>
+<rect x="625.5" y="362" width="53" height="30" rx="4" fill="rgba(4,120,87,.08)" stroke="#047857" stroke-width="1"/>
+<text x="652.0" y="381.5" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="400" fill="#191615" text-anchor="middle" >ff ff</text>
+<text x="627.0" y="357.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >56</text>
+<text x="652.0" y="408.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="400" fill="rgba(25,22,21,0.7)" text-anchor="middle" >sample 6</text>
+<text x="652.0" y="423.0" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="500" fill="#047857" text-anchor="middle" >−1</text>
+<text x="688.0" y="382.0" font-family="Geist, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="16" font-weight="400" fill="rgba(25,22,21,0.48)" text-anchor="start" >…</text>
+</svg>

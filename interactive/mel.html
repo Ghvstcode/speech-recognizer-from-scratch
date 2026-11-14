@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearing Like A Human · Building a Speech Recognizer from Scratch</title>
+<meta name="description" content="The mel scale and the mel filterbank: how 257 FFT bins become the 40 numbers a recognizer looks at, and why pitch drops out of them.">
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js"></script>
+<style>
+  /* Page-specific sizes only. Everything else comes from shared.css. */
+  #curve { --h: 252px; touch-action: pan-y; cursor: ew-resize; }
+  #bank { --h: 196px; touch-action: pan-y; cursor: pointer; }
+  #spectrum { --h: 212px; }
+  #bars { --h: 288px; }
+  #steps { --sr-step-lines: 5; }
+  @media (max-width: 799px) {
+    #curve { --h: 228px; }
+    #bank { --h: 176px; }
+    #spectrum { --h: 196px; }
+    #bars { --h: 268px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="sr-topbar">
+  <a class="sr-brand" href="index.html">Building a Speech Recognizer <span>from Scratch</span></a>
+  <nav class="sr-topnav" aria-label="Book">
+    <a class="sr-hide-narrow" href="index.html">All interactives</a>
+    <a href="../chapters/04-hearing-like-a-human.md">Chapter 4</a>
+    <button class="sr-theme-toggle" type="button" data-sr-theme></button>
+  </nav>
+</header>
+
+<main class="sr-shell">
+
+  <section class="sr-intro">
+    <span class="sr-overline">Chapter 4 · Interactive</span>
+    <h1 class="sr-title">Hearing Like A Human</h1>
+    <p class="sr-lede">The FFT gives us 257 numbers per frame, evenly spaced in Hz. Our ears do not space things evenly: they are picky at the bottom and vague at the top. The mel filterbank squeezes the spectrum into 40 numbers the way an ear would, and in doing so it keeps the vowel and loses the pitch.</p>
+    <p class="sr-small">Walk through the six steps on the figure first, then change the filterbank and the voice yourself.</p>
+  </section>
+
+  <section class="sr-stage" aria-label="Figure">
+    <div class="sr-stage-inner">
+
+      <div id="steps"></div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">From Hz to mel</span>
+          <span class="sr-pill" id="curve-pill">mel = 2595 · log10(1 + Hz / 700)</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="curve" role="img" aria-label="The mel scale"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--dot" style="--c: var(--green)"></span>the probe (drag it)</li>
+            <li><span class="sr-swatch" style="--c: var(--green)"></span>100 mel up from the probe</li>
+            <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--ink-48)"></span>ten equal steps in mel</li>
+          </ul>
+        </div>
+      </figure>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">The filterbank: one triangle per output number</span>
+          <span class="sr-pill" id="bank-pill">40 filters</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="bank" role="img" aria-label="Triangular mel filters"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch" style="--c: var(--green)"></span>the filter under the probe</li>
+            <li><span class="sr-swatch sr-swatch--dot" style="--c: var(--green)"></span>its weight for each FFT bin</li>
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink-48)"></span>the other filters</li>
+          </ul>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-probe">
+          <span class="sr-overline">Probe</span>
+          <span class="sr-stat-value">1,000 Hz</span>
+          <span class="sr-stat-sub">1,000 mel</span>
+        </div>
+        <div class="sr-stat" id="stat-step">
+          <span class="sr-overline">100 mel from here</span>
+          <span class="sr-stat-value">109 Hz</span>
+          <span class="sr-stat-sub">up to 1,109 Hz</span>
+        </div>
+        <div class="sr-stat" id="stat-filter">
+          <span class="sr-overline">Filter at the probe</span>
+          <span class="sr-stat-value">912 to 1,071 Hz</span>
+          <span class="sr-stat-sub">number 14 of 40</span>
+        </div>
+        <div class="sr-stat" id="stat-bins">
+          <span class="sr-overline">FFT bins inside it</span>
+          <span class="sr-stat-value">5</span>
+          <span class="sr-stat-sub">bins are 31.25 Hz apart</span>
+        </div>
+      </div>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Power spectrum of one frame of a vowel</span>
+          <span class="sr-pill" id="spectrum-pill">257 numbers</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="spectrum" role="img" aria-label="Power spectrum of a synthetic vowel"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--thin" style="--c: var(--ink)"></span>what the FFT gives us</li>
+            <li><span class="sr-swatch sr-swatch--dashed" style="--c: var(--amber)"></span>the shape of the mouth (formants)</li>
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>the filter under the probe</li>
+          </ul>
+        </div>
+      </figure>
+
+      <figure class="sr-figure">
+        <div class="sr-figure-head">
+          <span class="sr-overline">Through the filterbank, then the logarithm</span>
+          <span class="sr-pill" id="bars-pill">40 numbers</span>
+        </div>
+        <div class="sr-figure-body">
+          <canvas class="sr-canvas" id="bars" role="img" aria-label="Mel energies and log-mel energies"></canvas>
+        </div>
+        <div class="sr-figure-foot">
+          <ul class="sr-legend">
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--ink-48)"></span>one bar per filter</li>
+            <li><span class="sr-swatch sr-swatch--box" style="--c: var(--green)"></span>the filter under the probe</li>
+            <li id="legend-ref"><span class="sr-swatch" style="--c: var(--amber)"></span><span id="legend-ref-text">remembered</span></li>
+          </ul>
+        </div>
+      </figure>
+
+      <div class="sr-stats">
+        <div class="sr-stat" id="stat-ref">
+          <span class="sr-overline">Remembered</span>
+          <span class="sr-stat-value">ah</span>
+          <span class="sr-stat-sub">pitch 120 Hz</span>
+        </div>
+        <div class="sr-stat" id="stat-mel-change">
+          <span class="sr-overline">Bars moved by</span>
+          <span class="sr-stat-value">0.00</span>
+          <span class="sr-stat-sub">on average, in log units</span>
+        </div>
+        <div class="sr-stat" id="stat-top-change">
+          <span class="sr-overline">Top half of them</span>
+          <span class="sr-stat-value">0.00</span>
+          <span class="sr-stat-sub">where the filters are wide</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="sr-controls" aria-label="Controls">
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The scale</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="probe">Probe frequency</label>
+          <output class="sr-readout" for="probe"></output>
+        </div>
+        <input class="sr-range" type="range" id="probe" min="0" max="8000" step="10" value="1000">
+        <p class="sr-hint">Or drag the green dot. The filter nearest to it lights up in the other plots.</p>
+      </div>
+      <div class="sr-field">
+        <span class="sr-label">Listen: two steps of 200 Hz</span>
+        <div class="sr-btn-row">
+          <button class="sr-btn" type="button" id="play-low">200 → 400 Hz</button>
+          <button class="sr-btn" type="button" id="play-high">6,000 → 6,200 Hz</button>
+        </div>
+        <p class="sr-hint" id="listen-hint"></p>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The filterbank</span>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="n-mels">Number of filters</label>
+          <output class="sr-readout" for="n-mels"></output>
+        </div>
+        <input class="sr-range" type="range" id="n-mels" min="5" max="80" step="1" value="40">
+        <p class="sr-hint" id="n-mels-hint">Our features use 40.</p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="fmin">Lowest frequency</label>
+          <output class="sr-readout" for="fmin"></output>
+        </div>
+        <input class="sr-range" type="range" id="fmin" min="0" max="1000" step="10" value="20">
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="fmax">Highest frequency</label>
+          <output class="sr-readout" for="fmax"></output>
+        </div>
+        <input class="sr-range" type="range" id="fmax" min="2000" max="8000" step="100" value="8000">
+      </div>
+      <div class="sr-field">
+        <span class="sr-label" id="axis-label">Frequency axis</span>
+        <div class="sr-seg sr-seg--block" role="radiogroup" aria-labelledby="axis-label">
+          <label><input type="radio" name="axis" value="hz" checked><span>Even in Hz</span></label>
+          <label><input type="radio" name="axis" value="mel"><span>Even in mel</span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="sr-control-group">
+      <span class="sr-overline">The voice</span>
+      <div class="sr-field">
+        <span class="sr-label">Vowel</span>
+        <div class="sr-chip-row" id="vowels" role="group" aria-label="Vowels">
+          <button class="sr-chip" type="button" data-vowel="ah">ah · father</button>
+          <button class="sr-chip" type="button" data-vowel="ee">ee · beet</button>
+          <button class="sr-chip" type="button" data-vowel="oo">oo · boot</button>
+        </div>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="pitch">Pitch</label>
+          <output class="sr-readout" for="pitch"></output>
+        </div>
+        <input class="sr-range" type="range" id="pitch" min="80" max="300" step="1" value="120">
+        <p class="sr-hint">How fast the vocal folds buzz. It sets the spacing of the fine comb in the spectrum.</p>
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="f1">First formant</label>
+          <output class="sr-readout" for="f1"></output>
+        </div>
+        <input class="sr-range" type="range" id="f1" min="200" max="1000" step="10" value="730">
+      </div>
+      <div class="sr-field">
+        <div class="sr-field-head">
+          <label for="f2">Second formant</label>
+          <output class="sr-readout" for="f2"></output>
+        </div>
+        <input class="sr-range" type="range" id="f2" min="600" max="2800" step="10" value="1090">
+        <p class="sr-hint">The <b>formants</b> are the frequencies the mouth lets through best. They set the broad humps, and they are what makes one vowel different from another.</p>
+      </div>
+      <div class="sr-check-row">
+        <label class="sr-check"><input type="checkbox" id="preemph" checked>Pre-emphasis 0.97</label>
+      </div>
+      <div class="sr-btn-row">
+        <button class="sr-btn sr-btn--primary" type="button" id="play-vowel">Listen</button>
+        <button class="sr-btn" type="button" id="remember">Remember these bars</button>
+      </div>
+      <p class="sr-hint">Remember the bars, then change something: the amber marks stay where the bars were.</p>
+    </div>
+
+  </section>
+</main>
+
+<footer class="sr-footer">
+  <span>Part of <a href="../chapters/04-hearing-like-a-human.md"><em>Building a Speech Recognizer from Scratch</em></a>, chapter 4.</span>
+  <span>The same filters and the same logarithm as <a href="../code/src/dsp/mel.rs"><code>mel.rs</code></a> and <a href="../code/src/dsp/features.rs"><code>features.rs</code></a>.</span>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var fmt = SR.fmt, dsp = SR.dsp;
+
+  /* ---------------------------------------------------------------- state */
+
+  // The book's front end, as in FeatureConfig::new(16000).
+  var FS = 16000;          // samples per second
+  var FRAME = 400;         // 25 ms
+  var N_FFT = 512;         // the next power of two
+  var BINS = N_FFT / 2 + 1;
+  var NYQUIST = FS / 2;
+  var LOG_FLOOR = 1e-6;    // features.rs adds this before the logarithm
+  var PREEMPH = 0.97;
+  var RMS = 0.15;          // how loud our made-up voice is, whatever its pitch
+  var MEL_TOP = dsp.hzToMel(NYQUIST);
+
+  var VOWELS = {
+    ah: { F1: 730, F2: 1090, F3: 2440 },
+    ee: { F1: 270, F2: 2290, F3: 3010 },
+    oo: { F1: 300, F2: 870, F3: 2240 }
+  };
+
+  var state = {
+    probe: 1000,           // Hz
+    nMels: 40,
+    fmin: 20,
+    fmax: 8000,
+    axis: 'hz',            // 'hz' | 'mel': how the frequency axes are spaced
+    f0: 120,               // pitch, Hz
+    F1: 730, F2: 1090, F3: 2440,
+    preemph: true,
+    ref: null              // { logMel, label, sub }: the bars we were asked to remember
+  };
+
+  /* ---------------------------------------------------------------- maths */
+
+  // How much a resonance at F (bandwidth B) lifts a frequency f.
+  function resonance(f, F, B) {
+    var r = f / F, d = 1 - r * r, e = f * B / (F * F);
+    return 1 / Math.sqrt(d * d + e * e);
+  }
+  // The vocal tract of our made-up speaker: three formants that depend on
+  // the vowel and two higher ones that do not, on a source that gets weaker
+  // as the frequency goes up.
+  function envelope(f, v) {
+    return resonance(f, v.F1, 90) * resonance(f, v.F2, 110) * resonance(f, v.F3, 170) *
+      resonance(f, 3600, 250) * resonance(f, 4600, 300) / f;
+  }
+  // What pre-emphasis y[t] = x[t] - 0.97 x[t-1] does to a frequency f.
+  function preGain(f) {
+    var w = 2 * Math.PI * f / FS;
+    return Math.sqrt(1 - 2 * PREEMPH * Math.cos(w) + PREEMPH * PREEMPH);
+  }
+
+  // `count` samples of a steady vowel, starting one sample early so that
+  // pre-emphasis has a previous sample to subtract. Returns the samples and
+  // the gain that brings them to our fixed loudness.
+  function vowelSamples(v, count) {
+    var x = new Float64Array(count + 1), power = 0, w = 2 * Math.PI / FS;
+    var amps = [];
+    for (var h = 1; h * v.f0 < 7600; h++) amps.push(envelope(h * v.f0, v));
+    for (var n = 0; n <= count; n++) {
+      var s = 0;
+      for (h = 0; h < amps.length; h++) s += amps[h] * Math.sin(w * (h + 1) * v.f0 * (n - 1));
+      x[n] = s;
+      if (n <= FRAME) power += s * s;
+    }
+    return { x: x, gain: RMS / Math.sqrt(power / (FRAME + 1)) };
+  }
+
+  // One frame through the front end of features.rs:
+  // pre-emphasis, Hann window, FFT, |X|^2.
+  var HANN = dsp.hann(FRAME);
+  var HANN_SUM = 0;
+  for (var i = 0; i < FRAME; i++) HANN_SUM += HANN[i];
+
+  function powerOf(v) {
+    var s = vowelSamples(v, FRAME), frame = new Float64Array(FRAME);
+    var c = v.preemph ? PREEMPH : 0;
+    for (var n = 0; n < FRAME; n++) frame[n] = s.gain * (s.x[n + 1] - c * s.x[n]) * HANN[n];
+    return { power: dsp.powerSpectrum(frame, N_FFT), gain: s.gain };
+  }
+
+  function filterbank() {
+    return dsp.melFilterbank({ nMels: state.nMels, nFft: N_FFT, sampleRate: FS, fmin: state.fmin, fmax: state.fmax });
+  }
+  function logMelOf(v, fb) {
+    var e = dsp.applyFilterbank(fb, powerOf(v).power), out = new Float64Array(e.length);
+    for (var m = 0; m < e.length; m++) out[m] = Math.log(e[m] + LOG_FLOOR);
+    return out;
+  }
+  function voice() { return { f0: state.f0, F1: state.F1, F2: state.F2, F3: state.F3, preemph: state.preemph }; }
+  function vowelName(v) {
+    for (var name in VOWELS) {
+      var p = VOWELS[name];
+      if (p.F1 === v.F1 && p.F2 === v.F2 && p.F3 === v.F3) return name;
+    }
+    return null;
+  }
+  function describe(v) {
+    var name = vowelName(v);
+    return { label: name ? '"' + name + '"' : 'formants ' + fmt.int(v.F1) + ' and ' + fmt.int(v.F2), sub: 'at a pitch of ' + fmt.hz(v.f0) };
+  }
+  function remember(v) {
+    var d = describe(v);
+    state.ref = { voice: v, label: d.label, sub: d.sub };
+  }
+
+  var data = null;
+  function compute() {
+    var fb = filterbank(), v = voice();
+    var p = powerOf(v);
+    var energy = dsp.applyFilterbank(fb, p.power);
+    var logMel = new Float64Array(energy.length), m, k;
+    for (m = 0; m < energy.length; m++) logMel[m] = Math.log(energy[m] + LOG_FLOOR);
+
+    // The filter whose peak is nearest to the probe, measured in mel.
+    var pm = dsp.hzToMel(state.probe), sel = 0, best = Infinity;
+    for (m = 0; m < state.nMels; m++) {
+      var dist = Math.abs(dsp.hzToMel(fb.centersHz[m + 1]) - pm);
+      if (dist < best) { best = dist; sel = m; }
+    }
+    var inside = 0, empty = 0;
+    for (m = 0; m < state.nMels; m++) {
+      var any = 0;
+      for (k = 0; k < BINS; k++) if (fb.filters[m][k] > 0) any++;
+      if (!any) empty++;
+      if (m === sel) inside = any;
+    }
+
+    // The remembered bars, through the filterbank as it is now.
+    var ref = null, change = null, topChange = null;
+    if (state.ref) {
+      ref = logMelOf(state.ref.voice, fb);
+      var sum = 0, top = 0, half = Math.floor(state.nMels / 2);
+      for (m = 0; m < state.nMels; m++) {
+        var d = Math.abs(logMel[m] - ref[m]);
+        sum += d;
+        if (m >= half) top += d;
+      }
+      change = sum / state.nMels;
+      topChange = top / (state.nMels - half);
+    }
+
+    data = {
+      fb: fb, power: p.power, gain: p.gain, energy: energy, logMel: logMel,
+      sel: sel, inside: inside, empty: empty, ref: ref, change: change, topChange: topChange,
+      probeMel: pm, stepHz: dsp.melToHz(pm + 100) - state.probe
+    };
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  var M = { l: 44, r: 14, t: 24, b: 36 };
+
+  // The shared frequency axis: even in Hz, or even in mel.
+  function freqScale(box) {
+    if (state.axis === 'hz') return SR.scale.linear([0, NYQUIST], [box.x, box.x + box.w]);
+    var lin = SR.scale.linear([0, MEL_TOP], [box.x, box.x + box.w]);
+    var s = function (hz) { return lin(dsp.hzToMel(hz)); };
+    s.invert = function (px) { return dsp.melToHz(lin.invert(px)); };
+    return s;
+  }
+  function freqTicks(w) {
+    if (state.axis === 'hz') return SR.ticks(0, NYQUIST, w < 440 ? 4 : 8);
+    return w < 440 ? [0, 500, 1000, 2000, 4000, 8000] : [0, 250, 500, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
+  }
+  function freqLabel(w) { return state.axis === 'hz' ? 'frequency (Hz)' : w < 440 ? 'frequency (Hz, even in mel)' : 'frequency (Hz, spaced evenly in mel)'; }
+  function clipTo(ctx, box, pad) {
+    ctx.beginPath();
+    ctx.rect(box.x, box.y - (pad || 0), box.w, box.h + 2 * (pad || 0));
+    ctx.clip();
+  }
+
+  var curve = SR.canvas('#curve', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, M);
+    var x = SR.scale.linear([0, NYQUIST], [box.x, box.x + box.w]);
+    var y = SR.scale.linear([0, 3000], [box.y + box.h, box.y]);
+    SR.axes(ctx, {
+      box: box, x: x, y: y,
+      xTicks: SR.ticks(0, NYQUIST, w < 440 ? 4 : 8), xFormat: fmt.hzShort,
+      yTicks: [0, 1000, 2000, 3000], yFormat: fmt.hzShort,
+      xLabel: 'frequency (Hz)', yLabel: 'pitch as we hear it (mel)'
+    });
+
+    // Ten equal steps up the mel axis, and where each lands in Hz.
+    ctx.strokeStyle = t.ink30;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    for (var s = 1; s <= 10; s++) {
+      var mel = MEL_TOP * s / 10, hz = dsp.melToHz(mel);
+      ctx.moveTo(box.x, SR.crisp(y(mel))); ctx.lineTo(SR.crisp(x(hz)), SR.crisp(y(mel)));
+      ctx.lineTo(SR.crisp(x(hz)), box.y + box.h);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.save();
+    clipTo(ctx, box, 2);
+    var pts = Math.max(60, Math.round(box.w / 2));
+    SR.line(ctx, pts + 1, function (j) { var f = NYQUIST * j / pts; return [x(f), y(dsp.hzToMel(f))]; }, { color: t.ink, width: 1.75 });
+    ctx.restore();
+
+    // The probe, and the stair that climbs 100 mel from it.
+    var px = x(state.probe), py = y(data.probeMel);
+    var up = Math.min(NYQUIST, state.probe + data.stepHz);
+    ctx.strokeStyle = t.green;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, py); ctx.lineTo(x(up), py); ctx.lineTo(x(up), y(dsp.hzToMel(up)));
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(SR.crisp(px), py); ctx.lineTo(SR.crisp(px), box.y + box.h);
+    ctx.moveTo(box.x, SR.crisp(py)); ctx.lineTo(px, SR.crisp(py));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    SR.dot(ctx, px, py, 5, t.green);
+    var below = py < box.y + 44;
+    SR.pill(ctx, '100 MEL = ' + fmt.int(data.stepHz) + ' HZ HERE', px + 12, py + (below ? 20 : -20),
+      { align: 'left', color: t.green, min: box.x + 4, max: box.x + box.w - 2 });
+  });
+
+  var bank = SR.canvas('#bank', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, M);
+    var x = freqScale(box);
+    var y = SR.scale.linear([0, 1.08], [box.y + box.h, box.y]);
+    SR.axes(ctx, {
+      box: box, x: x, y: y, xTicks: freqTicks(w), xFormat: fmt.hzShort,
+      yTicks: [0, 0.5, 1], xLabel: freqLabel(w), yLabel: 'weight'
+    });
+    var pts = data.fb.centersHz, PER = 6;
+    // A triangle is straight in Hz, so on the mel axis its sides bend a little.
+    function trace(m) {
+      ctx.beginPath();
+      for (var s = 0; s <= 2 * PER; s++) {
+        var u = s <= PER ? s / PER : (s - PER) / PER;
+        var hz = s <= PER ? SR.lerp(pts[m], pts[m + 1], u) : SR.lerp(pts[m + 1], pts[m + 2], u);
+        var wgt = s <= PER ? u : 1 - u;
+        if (s === 0) ctx.moveTo(x(hz), y(wgt)); else ctx.lineTo(x(hz), y(wgt));
+      }
+    }
+    ctx.save();
+    clipTo(ctx, box, 2);
+    ctx.strokeStyle = state.nMels > 50 ? t.ink30 : t.ink48;
+    ctx.lineWidth = 1;
+    for (var m = 0; m < state.nMels; m++) { if (m !== data.sel) { trace(m); ctx.stroke(); } }
+    trace(data.sel);
+    ctx.fillStyle = t.greenWash;
+    ctx.fill();
+    ctx.strokeStyle = t.green;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // What the triangle is worth at the exact frequency of each FFT bin.
+    var row = data.fb.filters[data.sel];
+    for (var k = 0; k < BINS; k++) {
+      if (row[k] > 0) SR.dot(ctx, x(k * FS / N_FFT), y(row[k]), 2.5, t.green);
+    }
+    ctx.restore();
+  });
+
+  var spectrum = SR.canvas('#spectrum', function (ctx, w, h, t) {
+    if (!data) return;
+    var box = SR.plotBox(w, h, M);
+    var x = freqScale(box);
+    var db = function (p) { return 10 * Math.log10(p + 1e-12); };
+    var peak = -Infinity, k;
+    for (k = 0; k < BINS; k++) peak = Math.max(peak, db(data.power[k]));
+    var top = Math.ceil((peak + 4) / 10) * 10;
+    var y = SR.scale.linear([top - 100, top], [box.y + box.h, box.y]);
+    SR.axes(ctx, {
+      box: box, x: x, y: y, xTicks: freqTicks(w), xFormat: fmt.hzShort,
+      yTicks: SR.ticks(top - 100, top, 5), yFormat: function (v) { return fmt.int(v); },
+      xLabel: freqLabel(w), yLabel: 'power (dB)'
+    });
+
+    ctx.save();
+    clipTo(ctx, box, 1);
+    // The filter under the probe, as a shaded triangle standing on the axis.
+    var pts = data.fb.centersHz, m = data.sel;
+    ctx.beginPath();
+    ctx.moveTo(x(pts[m]), box.y + box.h);
+    for (var s = 0; s <= 12; s++) {
+      var u = s <= 6 ? s / 6 : (s - 6) / 6;
+      var hz = s <= 6 ? SR.lerp(pts[m], pts[m + 1], u) : SR.lerp(pts[m + 1], pts[m + 2], u);
+      ctx.lineTo(x(hz), box.y + box.h - (s <= 6 ? u : 1 - u) * box.h * 0.94);
+    }
+    ctx.closePath();
+    ctx.fillStyle = t.greenWash;
+    ctx.fill();
+    ctx.strokeStyle = t.green;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    SR.line(ctx, BINS, function (j) { return [x(j * FS / N_FFT), y(Math.max(top - 110, db(data.power[j])))]; }, { color: t.ink, width: 1.25 });
+    // The smooth shape the harmonics hang from: a harmonic of height a shows
+    // up in its bin as (a * sum of the window / 2)^2.
+    var v = voice(), n = Math.max(80, Math.round(box.w / 2));
+    SR.line(ctx, n, function (j) {
+      var f = x.invert(box.x + box.w * (j + 0.5) / n);
+      f = SR.clamp(f, 40, 7600);
+      var a = data.gain * envelope(f, v) * (state.preemph ? preGain(f) : 1) * HANN_SUM / 2;
+      return [x(f), y(db(a * a))];
+    }, { color: t.amber, width: 1.5, dash: [4, 3] });
+    ctx.restore();
+  });
+
+  var bars = SR.canvas('#bars', function (ctx, w, h, t) {
+    if (!data) return;
+    var n = state.nMels;
+    var L = 44, R = 14, T = 24, B = 36, GAP = 34;
+    var hTop = Math.round((h - T - B - GAP) * 0.36), hBot = h - T - B - GAP - hTop;
+    var a = { x: L, y: T, w: w - L - R, h: hTop };
+    var b = { x: L, y: T + hTop + GAP, w: w - L - R, h: hBot };
+    var slot = a.w / n, bw = Math.max(1.5, Math.min(slot * 0.7, 18));
+    var x = function (m) { return a.x + (m - 0.5) * slot; };       // m counts from 1
+    var every = slot >= 16 ? 1 : slot >= 8 ? 5 : 10;
+    var xt = [1];
+    for (var m = every === 1 ? 2 : every; m <= n; m += every) xt.push(m);
+
+    // Row one: the energies themselves. A few of them dwarf the rest.
+    var eTop = 0;
+    for (m = 0; m < n; m++) eTop = Math.max(eTop, data.energy[m]);
+    eTop = eTop * 1.1 || 1;
+    var ya = SR.scale.linear([0, eTop], [a.y + a.h, a.y]);
+    SR.axes(ctx, { box: a, x: x, y: ya, yTicks: SR.ticks(0, eTop, 2), yFormat: function (v) { return fmt.sig(v, 2); },
+      yLabel: w < 520 ? 'mel energy' : 'mel energy: each triangle × the spectrum, added up', grid: true });
+    for (m = 0; m < n; m++) {
+      var hh = Math.max(1, a.y + a.h - ya(data.energy[m]));
+      ctx.fillStyle = m === data.sel ? t.green : t.ink48;
+      ctx.fillRect(Math.round(x(m + 1) - bw / 2), a.y + a.h - hh, Math.max(1, Math.round(bw)), hh);
+    }
+
+    // Row two: ln(energy + 1e-6), the number our features keep.
+    var LO = -14, HI = 6;
+    var yb = SR.scale.linear([LO, HI], [b.y + b.h, b.y]);
+    SR.axes(ctx, { box: b, x: x, y: yb, xTicks: xt, yTicks: [-12, -8, -4, 0, 4],
+      yFormat: function (v) { return fmt.int(v); }, grid: false,
+      yLabel: w < 520 ? 'log-mel energy' : 'log-mel: ln(energy + 0.000001)', xLabel: 'filter number' });
+    ctx.strokeStyle = t.ink7;
+    ctx.lineWidth = 1;
+    [-12, -8, -4, 0, 4].forEach(function (v) {
+      ctx.beginPath(); ctx.moveTo(b.x, SR.crisp(yb(v))); ctx.lineTo(b.x + b.w, SR.crisp(yb(v))); ctx.stroke();
+    });
+    for (m = 0; m < n; m++) {
+      var topY = yb(SR.clamp(data.logMel[m], LO, HI));
+      ctx.fillStyle = m === data.sel ? t.green : t.ink48;
+      ctx.fillRect(Math.round(x(m + 1) - bw / 2), topY, Math.max(1, Math.round(bw)), Math.max(1, b.y + b.h - topY));
+    }
+    if (data.ref) {
+      ctx.strokeStyle = t.amber;
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      var half = Math.max(2, slot * 0.46);
+      for (m = 0; m < n; m++) {
+        var ry = Math.round(yb(SR.clamp(data.ref[m], LO, HI)));
+        ctx.moveTo(x(m + 1) - half, ry); ctx.lineTo(x(m + 1) + half, ry);
+      }
+      ctx.stroke();
+      ctx.lineCap = 'round';
+    }
+  });
+
+  /* ------------------------------------------------------------- readouts */
+
+  function $(id) { return document.getElementById(id); }
+  function setStat(id, value, sub, tone) {
+    var el = $(id);
+    el.querySelector('.sr-stat-value').textContent = value;
+    el.querySelector('.sr-stat-sub').textContent = sub;
+    if (tone) el.setAttribute('data-tone', tone); else el.removeAttribute('data-tone');
+  }
+
+  function updateReadouts() {
+    var pts = data.fb.centersHz, m = data.sel, n = state.nMels;
+    setStat('stat-probe', fmt.hz(state.probe), fmt.int(data.probeMel) + ' mel');
+    setStat('stat-step', fmt.int(data.stepHz) + ' Hz', 'up to ' + fmt.hz(state.probe + data.stepHz), 'green');
+    setStat('stat-filter', fmt.int(pts[m]) + '–' + fmt.hz(pts[m + 2]), 'no. ' + (m + 1) + ' of ' + n + ', peak ' + fmt.int(pts[m + 1]));
+    setStat('stat-bins', String(data.inside),
+      data.empty ? data.empty + (data.empty === 1 ? ' filter catches' : ' filters catch') + ' no bin at all' : 'bins are 31.25 Hz apart',
+      data.empty ? 'amber' : null);
+
+    var here = describe(voice());
+    if (state.ref) {
+      var same = data.change < 0.005;
+      setStat('stat-ref', state.ref.label, state.ref.sub);
+      setStat('stat-mel-change', fmt.fixed(data.change, 2), same ? 'nothing has changed yet' : 'on average, in log units',
+        same ? 'muted' : data.change < 0.5 ? 'green' : 'amber');
+      setStat('stat-top-change', fmt.fixed(data.topChange, 2), 'filters ' + (Math.floor(n / 2) + 1) + ' to ' + n, same ? 'muted' : null);
+    } else {
+      setStat('stat-ref', 'nothing', 'nothing to compare with', 'muted');
+      setStat('stat-mel-change', '–', 'press Remember these bars', 'muted');
+      setStat('stat-top-change', '–', 'where the filters are wide', 'muted');
+    }
+    $('legend-ref').hidden = !state.ref;
+    if (state.ref) $('legend-ref-text').textContent = 'remembered: ' + state.ref.label + ' ' + state.ref.sub;
+
+    $('bank-pill').textContent = n + ' filters, ' + fmt.int(state.fmin) + ' to ' + fmt.hz(state.fmax);
+    $('spectrum-pill').textContent = here.label + ' ' + here.sub + ' · 257 numbers';
+    $('bars-pill').textContent = n + ' numbers';
+    $('n-mels-hint').textContent = data.empty ? 'Too many: ' + data.empty + ' of the narrow filters at the bottom fall between two FFT bins and catch nothing.'
+      : n === 40 ? 'Our features use 40.' : 'Our features use 40. Fewer filters means wider triangles and a smoother, blurrier picture.';
+
+    var dl = dsp.hzToMel(400) - dsp.hzToMel(200), dh = dsp.hzToMel(6200) - dsp.hzToMel(6000);
+    $('listen-hint').textContent = 'Both pairs are 200 Hz apart. On the mel scale the first step is ' + fmt.int(dl) + ' mel and the second only ' + fmt.int(dh) + '.';
+
+    var name = vowelName(voice());
+    Array.prototype.forEach.call(document.querySelectorAll('#vowels .sr-chip'), function (chip) {
+      chip.setAttribute('aria-pressed', String(chip.getAttribute('data-vowel') === name));
+    });
+
+    $('curve').setAttribute('aria-label', 'The mel scale: steep at low frequencies, flat at high ones. ' + fmt.hz(state.probe) + ' is ' +
+      fmt.int(data.probeMel) + ' mel, and 100 mel more is a step of ' + fmt.int(data.stepHz) + ' Hz.');
+    $('bank').setAttribute('aria-label', n + ' triangular filters from ' + fmt.hz(state.fmin) + ' to ' + fmt.hz(state.fmax) + ', drawn on an axis that is even in ' +
+      (state.axis === 'hz' ? 'Hz: narrow at the bottom, wide at the top' : 'mel: all the same width') + '. Filter ' + (m + 1) + ' covers ' +
+      fmt.int(pts[m]) + ' to ' + fmt.hz(pts[m + 2]) + ' and holds ' + data.inside + ' FFT bins.');
+    $('spectrum').setAttribute('aria-label', 'Power spectrum of ' + here.label + ' ' + here.sub + ': a fine comb of harmonics ' + fmt.hz(state.f0) +
+      ' apart under broad humps at ' + fmt.hz(state.F1) + ', ' + fmt.hz(state.F2) + ' and ' + fmt.hz(state.F3) + '.');
+    $('bars').setAttribute('aria-label', n + ' mel energies and their logarithms.' + (state.ref ? ' Compared with ' + state.ref.label + ' ' + state.ref.sub +
+      ' they differ by ' + fmt.fixed(data.change, 2) + ' on average.' : ''));
+  }
+
+  function update() {
+    compute();
+    updateReadouts();
+    curve.redraw();
+    bank.redraw();
+    spectrum.redraw();
+    bars.redraw();
+  }
+
+  /* ------------------------------------------------------------- controls */
+
+  var cancelTween = function () {};
+  function touched() { cancelTween(); cancelTween = function () {}; }
+
+  var probe = SR.bindSlider('#probe', {
+    format: function (v) { return fmt.hz(v) + ' · ' + fmt.int(dsp.hzToMel(v)) + ' mel'; },
+    onInput: function (v) { touched(); state.probe = v; update(); }
+  });
+  var nMels = SR.bindSlider('#n-mels', {
+    format: function (v) { return v + ' filters'; },
+    onInput: function (v) { touched(); state.nMels = v; update(); }
+  });
+  var fmin = SR.bindSlider('#fmin', { format: fmt.hz, onInput: function (v) { touched(); state.fmin = v; update(); } });
+  var fmax = SR.bindSlider('#fmax', { format: fmt.hz, onInput: function (v) { touched(); state.fmax = v; update(); } });
+  var axis = SR.bindRadios('axis', function (v) { touched(); state.axis = v; update(); });
+  var pitch = SR.bindSlider('#pitch', { format: fmt.hz, onInput: function (v) { touched(); state.f0 = v; update(); } });
+  var f1 = SR.bindSlider('#f1', { format: fmt.hz, onInput: function (v) { touched(); state.F1 = v; update(); } });
+  var f2 = SR.bindSlider('#f2', { format: fmt.hz, onInput: function (v) { touched(); state.F2 = v; update(); } });
+  var preemph = SR.bindCheck('#preemph', function (on) { touched(); state.preemph = on; update(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#vowels .sr-chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      touched();
+      var v = VOWELS[chip.getAttribute('data-vowel')];
+      state.F1 = v.F1; state.F2 = v.F2; state.F3 = v.F3;
+      syncControls();
+      update();
+    });
+  });
+  $('remember').addEventListener('click', function () { touched(); remember(voice()); update(); });
+
+  function syncControls() {
+    probe.set(state.probe);
+    nMels.set(state.nMels);
+    fmin.set(state.fmin);
+    fmax.set(state.fmax);
+    axis.set(state.axis);
+    pitch.set(state.f0);
+    f1.set(state.F1);
+    f2.set(state.F2);
+    preemph.set(state.preemph);
+  }
+
+  // Dragging on the curve or on the filterbank moves the probe.
+  function dragProbe(plot, toHz) {
+    var canvas = plot.canvas, dragging = false;
+    function moveTo(evt) {
+      var size = canvas.getBoundingClientRect();   // measured now, in case no frame has been drawn since a resize
+      var box = SR.plotBox(size.width, size.height, M);
+      var hz = SR.clamp(Math.round(toHz(box, plot.point(evt).x) / 10) * 10, 0, NYQUIST);
+      if (hz === state.probe) return;
+      touched();
+      state.probe = hz;
+      probe.set(hz);
+      update();
+    }
+    canvas.addEventListener('pointerdown', function (evt) {
+      dragging = true;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(evt.pointerId);
+      moveTo(evt);
+    });
+    canvas.addEventListener('pointermove', function (evt) { if (dragging) moveTo(evt); });
+    ['pointerup', 'pointercancel'].forEach(function (name) {
+      canvas.addEventListener(name, function () { dragging = false; });
+    });
+  }
+  dragProbe(curve, function (box, px) { return (px - box.x) / box.w * NYQUIST; });
+  dragProbe(bank, function (box, px) { return freqScale(box).invert(px); });
+
+  /* ---------------------------------------------------------------- sound */
+
+  // Two tones one after the other, each fading in and out so nothing clicks.
+  function pair(fa, fb) {
+    var toneN = Math.round(FS * 0.45), gapN = Math.round(FS * 0.12), fade = Math.round(FS * 0.015);
+    var out = new Float32Array(2 * toneN + gapN);
+    [fa, fb].forEach(function (f, which) {
+      var at = which * (toneN + gapN);
+      for (var n = 0; n < toneN; n++) {
+        var g = Math.min(1, n / fade, (toneN - 1 - n) / fade);
+        out[at + n] = g * Math.sin(2 * Math.PI * f * n / FS);
+      }
+    });
+    return { samples: out, sampleRate: FS };
+  }
+  SR.audio.button('#play-low', function () { return pair(200, 400); }, { gain: 0.2 });
+  SR.audio.button('#play-high', function () { return pair(6000, 6200); }, { gain: 0.12 });
+  SR.audio.button('#play-vowel', function () {
+    var count = Math.round(FS * 0.7), s = vowelSamples(voice(), count), out = new Float32Array(count);
+    for (var n = 0; n < count; n++) out[n] = s.gain * s.x[n + 1];
+    return { samples: out, sampleRate: FS };
+  }, { gain: 0.9 });
+
+  /* ------------------------------------------------------- the walkthrough */
+
+  // Glide pitch and formants to a step's values, so the reader sees the comb
+  // or the humps slide while the bars do (or do not) follow.
+  function show(target, animate) {
+    touched();
+    var from = { probe: state.probe, f0: state.f0, F1: state.F1, F2: state.F2, F3: state.F3 };
+    var to = VOWELS[target.vowel];
+    ['nMels', 'fmin', 'fmax', 'axis', 'preemph'].forEach(function (k) { state[k] = target[k]; });
+    if (target.remember) remember({ f0: target.remember.f0, F1: VOWELS[target.remember.vowel].F1, F2: VOWELS[target.remember.vowel].F2,
+      F3: VOWELS[target.remember.vowel].F3, preemph: target.preemph });
+    else state.ref = null;
+    cancelTween = SR.tween(animate ? 700 : 0, function (u) {
+      var mix = function (a, b) { return u === 1 ? b : Math.round(SR.lerp(a, b, u)); };
+      state.probe = u === 1 ? target.probe : Math.round(SR.lerp(from.probe, target.probe, u) / 10) * 10;
+      state.f0 = mix(from.f0, target.f0);
+      state.F1 = mix(from.F1, to.F1);
+      state.F2 = mix(from.F2, to.F2);
+      state.F3 = mix(from.F3, to.F3);
+      syncControls();
+      update();
+    });
+  }
+
+  var BOOK = { nMels: 40, fmin: 20, fmax: 8000, preemph: true };
+  function step(o) { var out = {}; [BOOK, o].forEach(function (s) { for (var k in s) out[k] = s[k]; }); return out; }
+
+  SR.stepper('#steps', {
+    label: 'The mel filterbank, step by step',
+    steps: [
+      {
+        title: 'A ruler for pitch',
+        body: 'Going from 200 Hz to 400 Hz sounds like a big jump. Going from 6,000 to 6,200 Hz is the same 200 Hz and we barely notice it. The <b>mel scale</b> is a second ruler for frequency on which equal distances sound equally far apart. The curve converts one to the other: steep at the bottom, flat at the top. Drag the dot: a step of 100 mel is 84 Hz wide at 200 Hz and 622 Hz wide at 6,000 Hz.',
+        enter: function (animate) { show(step({ probe: 200, axis: 'hz', vowel: 'ah', f0: 120 }), animate); }
+      },
+      {
+        title: 'Forty triangles',
+        body: 'We do not need 257 numbers per frame. We lay 40 overlapping triangles over the spectrum, their corners evenly spaced in mel, and each triangle will turn into one number. On the Hz axis they come out narrow and crowded at the bottom, where the ear is picky, and wide at the top, where it is not. The dots are the FFT bins that the highlighted triangle weighs.',
+        enter: function (animate) { show(step({ probe: 1000, axis: 'hz', vowel: 'ah', f0: 120 }), animate); }
+      },
+      {
+        title: 'On a mel axis they are all the same',
+        body: 'Here are the same triangles with the frequency axis stretched so that it is even in mel instead of Hz. Now every triangle has the same width and each one peaks where its neighbors end. That is all a <b>mel filterbank</b> is: evenly spaced filters, on the ear\'s ruler instead of the FFT\'s.',
+        enter: function (animate) { show(step({ probe: 1000, axis: 'mel', vowel: 'ah', f0: 120 }), animate); }
+      },
+      {
+        title: 'From 257 numbers to 40',
+        body: 'The third plot is one frame of a made-up vowel, "ah". Each filter multiplies the spectrum by its triangle and adds up the result: its <b>mel energy</b>. A few of those dwarf all the others, so we take the <b>logarithm</b>, which is also roughly how loudness feels to us. The 40 bars at the bottom are one row of the log-mel spectrogram, the picture every later chapter looks at.',
+        enter: function (animate) { show(step({ probe: 730, axis: 'hz', vowel: 'ah', f0: 120 }), animate); }
+      },
+      {
+        title: 'Change the pitch: the bars hold still',
+        body: 'The same "ah", now sung higher: 150 Hz instead of 120. In the spectrum the fine comb of <b>harmonics</b> spreads out, yet the bars have barely moved from the amber marks, which remember the lower voice. A triangle that is wider than the gap between harmonics cannot tell where exactly they sit. Only the narrow filters at the bottom still see single harmonics and wobble.',
+        enter: function (animate) { show(step({ probe: 2500, axis: 'hz', vowel: 'ah', f0: 150, remember: { vowel: 'ah', f0: 120 } }), animate); }
+      },
+      {
+        title: 'Change the vowel: the bars jump',
+        body: 'Back to 120 Hz, but the mouth now says "ee". The comb is where it was; the humps under it, the <b>formants</b>, have moved, and the bars move with them by ten times as much as before. This is the point of the chapter: the features keep what was said and mostly throw away the voice it was said in.',
+        enter: function (animate) { show(step({ probe: 2290, axis: 'hz', vowel: 'ee', f0: 120, remember: { vowel: 'ah', f0: 120 } }), animate); }
+      }
+    ]
+  });
+})();
+</script>
+</body>
+</html>
