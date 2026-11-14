@@ -1,0 +1,8 @@
+[package]
+name = "book-site"
+version = "0.1.0"
+edition = "2021"
+description = "Turns the chapters of the book into a static site. No dependencies, like the rest of the book."
+publish = false
+
+[dependencies]

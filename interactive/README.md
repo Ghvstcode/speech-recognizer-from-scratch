@@ -332,3 +332,13 @@ In canvas code the same values arrive as the fourth argument of your draw functi
 - A log slider with rounded values needs snapping, or the reader can never land on exactly 16,000. `SR.logMap` has `snap` for that.
 - When the swap from "Play" to "Stop" changes a button's width the whole row twitches. `SR.audio.button` pins the width; if you build your own toggle, do the same.
 - Text under a stepper changes length from step to step and makes the figure jump. `--sr-step-lines` reserves the room.
+
+## Embedded in a chapter
+
+The book's website (built by `site/`) shows a page inside its chapter, in an `<iframe>`, as `page.html?embed=1`. You do not have to do anything for this to work, as long as the page uses the standard shell:
+
+- `shared.js` adds the class `sr-embed` to `<html>` and sets `SR.embed` to `true`.
+- `shared.css` then hides `.sr-topbar`, `.sr-intro` and `.sr-footer` and stacks the stage above the controls. The chapter around the frame does the introducing, so anything the reader needs in order to use the figure belongs in the stage or the controls, not in the intro.
+- The page reports its height to the chapter whenever it changes, so the frame is exactly as tall as the page and never scrolls. Do not size anything from the height of the window (`100vh`).
+- The chapter passes on the reader's theme when they switch it.
+

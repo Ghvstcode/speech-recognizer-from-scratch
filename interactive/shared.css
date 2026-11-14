@@ -957,6 +957,24 @@ a.sr-index-card:hover .sr-arrow { transform: translateX(3px); color: var(--ink);
    9. Motion and print
    -------------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+   Embedded in a chapter (page.html?embed=1, see "Embedding" in shared.js).
+   Only the figure and the controls are left; the chapter supplies the rest.
+   -------------------------------------------------------------------------- */
+
+.sr-embed body { min-height: 0; }
+.sr-embed .sr-topbar,
+.sr-embed .sr-intro,
+.sr-embed .sr-footer { display: none; }
+.sr-embed .sr-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  grid-template-areas: "stage" "controls";
+}
+.sr-embed .sr-stage { padding: 16px 16px 20px; border: 0; }
+.sr-embed .sr-controls { padding: 16px 20px 20px; border-top: 1px solid var(--ink-15); }
+.sr-embed .sr-stage--sticky .sr-stage-inner { position: static; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: .01ms !important;

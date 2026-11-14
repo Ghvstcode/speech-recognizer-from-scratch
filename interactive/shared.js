@@ -1237,7 +1237,39 @@
      Start-up
      ------------------------------------------------------------------------ */
 
+  /* ------------------------------------------------------------------------
+     Embedding
+     The book's website shows a page inside a chapter, in an <iframe>, as
+     page.html?embed=1. In that mode shared.css hides the top bar, the intro
+     and the footer (the chapter around the frame says all of that), and the
+     page tells its parent how tall it is, so the frame never scrolls. The
+     parent also passes on the reader's theme choice.
+     ------------------------------------------------------------------------ */
+
+  var EMBED = /[?&]embed\b/.test(window.location.search) && window.parent !== window;
+  SR.embed = EMBED;
+  if (EMBED) root.classList.add('sr-embed');
+
+  function startEmbed() {
+    var last = 0;
+    var report = function () {
+      var h = Math.ceil(document.body.getBoundingClientRect().height);
+      if (h > 0 && h !== last) {
+        last = h;
+        window.parent.postMessage({ sr: 'height', height: h }, '*');
+      }
+    };
+    window.addEventListener('message', function (e) {
+      if (e.source === window.parent && e.data && e.data.sr === 'theme') setTheme(e.data.theme);
+    });
+    if (window.ResizeObserver) new ResizeObserver(report).observe(document.body);
+    window.addEventListener('load', report);
+    window.addEventListener('resize', report);
+    report();
+  }
+
   function ready() {
+    if (EMBED) startEmbed();
     syncThemeButtons();
     document.addEventListener('click', function (e) {
       var b = e.target.closest ? e.target.closest('[data-sr-theme]') : null;

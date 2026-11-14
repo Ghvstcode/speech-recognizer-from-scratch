@@ -91,6 +91,17 @@ The samples are enough to follow Part I. From chapter 5 on, we need real data, a
 | [`interactive/`](interactive/) | The interactive pages |
 | [`models/`](models/) | The weights we trained, and the logs of the training runs the chapters quote |
 | [`samples/`](samples/) | Short recordings to experiment with |
+| [`site/`](site/) | The program that turns the chapters into the book's website, with the interactive pages embedded where the chapters link to them. It has no dependencies either |
+
+### The Website
+
+The chapters are plain Markdown and read fine here on GitHub, but GitHub cannot run the interactive pages inside a chapter. The website can: it is built from the same Markdown files, and wherever a chapter says "Play with it", the page is right there in the text.
+
+```
+cargo run --release --manifest-path site/Cargo.toml
+```
+
+That writes the whole site to `_site/`; open `_site/index.html` in a browser. The workflow in `.github/workflows/pages.yml` does the same on every push and publishes the result with GitHub Pages.
 
 ### Credits
 

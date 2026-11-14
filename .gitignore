@@ -4,3 +4,4 @@ target/
 *.tmp
 /.worktrees/
 /.claude/
+/_site/
