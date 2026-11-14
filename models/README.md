@@ -9,6 +9,7 @@ work right after `git clone`.
 | `words.bin` | Chapter 7's 35-word classifier (conv + BiGRU + mean pooling) | `cargo run --release --example ch07_words -- train` |
 | `recognizer.bin` | Chapters 8-10's character-level CTC recognizer | `cargo run --release --example ch09_train` |
 | `recognizer-training.log` | Everything `ch09_train` printed during the run that produced `recognizer.bin` | the same run (`... > ../models/recognizer-training.log`) |
+| `recognizer-evaluation.log` | Everything `ch10_decode` printed for `recognizer.bin`: the decoder comparison on the fixed test set and all breakdowns | `cargo run --release --example ch10_decode` |
 | `recognizer-posteriors.txt` | The per-frame probabilities of one validation utterance at several training steps (for the figure `ch09-posteriors-over-training.svg`) | the same run |
 | `words-training.log` | Everything `ch07_words train` printed during the run that produced `words.bin` | `ch07_words train` |
 
