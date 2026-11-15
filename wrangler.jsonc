@@ -2,6 +2,9 @@
 // `site/publish.sh` builds `_site/` and uploads it with this configuration.
 {
   "name": "speech-recognizer",
+  // The account the site belongs to, so a login for another account cannot
+  // publish it somewhere else by mistake.
+  "account_id": "c59a8f8df0bafc7a579fe1672c2e6ede",
   "compatibility_date": "2026-11-14",
   "assets": {
     "directory": "./_site"
