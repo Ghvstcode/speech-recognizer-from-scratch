@@ -6,6 +6,11 @@
   // publish it somewhere else by mistake.
   "account_id": "c59a8f8df0bafc7a579fe1672c2e6ede",
   "compatibility_date": "2026-11-14",
+  // The site's address. The workers.dev address is switched off so that
+  // there is one address for every page.
+  "routes": [{ "pattern": "speech.tobiokewole.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "directory": "./_site"
   }

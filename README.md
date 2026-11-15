@@ -96,7 +96,7 @@ The samples are enough to follow Part I. From chapter 5 on, we need real data, a
 
 ### The Website
 
-The chapters are plain Markdown and read fine here on GitHub, but GitHub cannot run the interactive pages inside a chapter. The website can: it is built from the same Markdown files, and wherever a chapter says "Play with it", the page is right there in the text.
+The book is online at [speech.tobiokewole.com](https://speech.tobiokewole.com). The chapters are plain Markdown and read fine here on GitHub, but GitHub cannot run the interactive pages inside a chapter. The website can: it is built from the same Markdown files, and wherever a chapter says "Play with it", the page is right there in the text.
 
 ```
 cargo run --release --manifest-path site/Cargo.toml
@@ -109,5 +109,9 @@ The published site is hosted on Cloudflare as static files. `site/publish.sh` bu
 ### Credits
 
 The recordings in `samples/` come from the [Free Spoken Digit Dataset](https://github.com/Jakobovski/free-spoken-digit-dataset) (CC BY-SA 4.0) and from Google's [Speech Commands](https://arxiv.org/abs/1804.03209) dataset (CC BY 4.0); [`samples/README.md`](samples/README.md) lists each file and its origin. The Whisper weights used in Part IV are OpenAI's, published under the MIT license, and are downloaded by you rather than included here.
+
+### License
+
+The code is under the [MIT license](LICENSE): everything in `code/`, `site/` and `web/`, the scripts in the interactive pages, and the listings printed in the chapters. The text and the figures are under [Creative Commons Attribution 4.0](LICENSE-CC-BY-4.0.txt): the chapters, this page, the figures in `figures/` and the prose of the interactive pages. The trained models in `models/` are under the MIT license too. The recordings in `samples/` keep the licenses of the datasets they come from, as the credits above say.
 
 If you find a mistake, or something that is explained badly, please open an issue.
