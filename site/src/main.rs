@@ -7,12 +7,15 @@
 //! page, puts the interactive pages inline where a chapter links to them,
 //! and copies the figures, the interactive pages and the sample recordings.
 //!
-//! Two optional environment variables:
+//! Three optional environment variables:
 //!
 //! * `SITE_REPO_URL`: the repository's address, for example
 //!   `https://github.com/someone/speech`. Links to source files point there.
 //!   Without it, those links are left as plain text.
 //! * `SITE_REPO_BRANCH`: the branch those links use. Defaults to `main`.
+//! * `SITE_ANALYTICS_TOKEN`: a Cloudflare Web Analytics token. With it, every
+//!   page loads Cloudflare's visit counter (no cookies, nothing stored in the
+//!   reader's browser). Without it, the pages load nothing from elsewhere.
 
 mod highlight;
 mod markdown;
@@ -46,9 +49,51 @@ struct Chapter {
 struct Site {
     repo: Option<String>,
     branch: String,
+    /// Cloudflare Web Analytics token; `None` leaves the counter out.
+    analytics: Option<String>,
+}
+
+const BEACON: &str = "https://static.cloudflareinsights.com/beacon.min.js";
+
+/// A token is letters and digits. Anything else is refused, since the token
+/// is written into every page.
+fn analytics_token(value: Option<String>) -> Option<String> {
+    let token = value?.trim().to_string();
+    let plain = !token.is_empty() && token.chars().all(|c| c.is_ascii_alphanumeric());
+    plain.then_some(token)
 }
 
 impl Site {
+    /// The visit counter for a chapter or the front page.
+    fn counter(&self) -> String {
+        match &self.analytics {
+            Some(token) => {
+                format!("<script defer src=\"{BEACON}\" data-cf-beacon='{{\"token\": \"{token}\"}}'></script>\n")
+            }
+            None => String::new(),
+        }
+    }
+
+    /// The visit counter for an interactive page. A page shown inside a
+    /// chapter is not counted: the chapter already is.
+    fn counter_unless_embedded(&self) -> String {
+        match &self.analytics {
+            Some(token) => format!(
+                r#"<script>
+if (!/[?&]embed\b/.test(location.search) || window.parent === window) {{
+  var counter = document.createElement('script');
+  counter.defer = true;
+  counter.src = '{BEACON}';
+  counter.setAttribute('data-cf-beacon', '{{"token": "{token}"}}');
+  document.body.appendChild(counter);
+}}
+</script>
+"#
+            ),
+            None => String::new(),
+        }
+    }
+
     /// Maps a link written in a Markdown file to a link that works on the
     /// generated page. `from_dir` is the directory of the Markdown file
     /// relative to the repository root (`""` or `"chapters"`); the page is
@@ -118,6 +163,7 @@ fn main() -> io::Result<()> {
     let site = Site {
         repo: std::env::var("SITE_REPO_URL").ok().map(|u| u.trim_end_matches('/').to_string()).filter(|u| !u.is_empty()),
         branch: std::env::var("SITE_REPO_BRANCH").unwrap_or_else(|_| "main".to_string()),
+        analytics: analytics_token(std::env::var("SITE_ANALYTICS_TOKEN").ok()),
     };
 
     if out.exists() {
@@ -226,7 +272,8 @@ fn main() -> io::Result<()> {
         match path.extension().and_then(|e| e.to_str()) {
             Some("html") => {
                 let html = fs::read_to_string(&path)?;
-                fs::write(out.join("interactive").join(&name), relink(&html, &site))?;
+                let html = relink(&html, &site).replacen("</body>", &format!("{}</body>", site.counter_unless_embedded()), 1);
+                fs::write(out.join("interactive").join(&name), html)?;
             }
             Some("css" | "js") => {
                 fs::copy(&path, out.join("interactive").join(&name))?;
@@ -428,7 +475,7 @@ try {{
   </main>
 </div>
 <script src="{up}assets/site.js"></script>
-</body>
+{counter}</body>
 </html>
 "##,
             title = escape(&self.title),
@@ -438,6 +485,7 @@ try {{
             article = self.article,
             after = self.after,
             book = BOOK,
+            counter = site.counter(),
         )
     }
 }
@@ -478,4 +526,36 @@ fn copy_dir(from: &Path, to: &Path, extensions: &[&str]) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site(analytics: Option<&str>) -> Site {
+        Site { repo: None, branch: "main".to_string(), analytics: analytics_token(analytics.map(str::to_string)) }
+    }
+
+    #[test]
+    fn no_token_means_no_counter() {
+        assert_eq!(site(None).counter(), "");
+        assert_eq!(site(None).counter_unless_embedded(), "");
+        assert_eq!(site(Some("  ")).counter(), "");
+    }
+
+    #[test]
+    fn a_token_that_is_not_plain_is_refused() {
+        assert_eq!(site(Some("abc\"'><script>")).counter(), "");
+        assert_eq!(site(Some("abc def")).counter(), "");
+    }
+
+    #[test]
+    fn the_counter_carries_the_token() {
+        let with = site(Some(" 0123abcd\n"));
+        assert!(with.counter().contains(r#"data-cf-beacon='{"token": "0123abcd"}'"#));
+        assert!(with.counter().contains(BEACON));
+        let embedded = with.counter_unless_embedded();
+        assert!(embedded.contains(r#"'{"token": "0123abcd"}'"#));
+        assert!(embedded.contains("embed"));
+    }
 }

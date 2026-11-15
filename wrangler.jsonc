@@ -1,0 +1,9 @@
+// Cloudflare hosts the built site as static files: no server code runs.
+// `site/publish.sh` builds `_site/` and uploads it with this configuration.
+{
+  "name": "speech-recognizer",
+  "compatibility_date": "2026-11-14",
+  "assets": {
+    "directory": "./_site"
+  }
+}
